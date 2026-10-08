@@ -144,7 +144,7 @@ impl Default for Settings {
             preferred_midi: None,
             sdk_path: None,
             analog_device: None,
-            polling_hz: 250,
+            polling_hz: 1000,
             aftertouch: true,
             both_inputs: false,
         }
@@ -243,7 +243,7 @@ impl Settings {
         }
         if self.profiles.is_empty()
             || self.profiles.len() > 128
-            || ![100, 250, 500].contains(&self.polling_hz)
+            || ![100, 250, 500, 1000].contains(&self.polling_hz)
         {
             return Err("Invalid profile count or polling frequency.".into());
         }
@@ -363,6 +363,22 @@ pub fn import_profile(text: &str) -> Result<Profile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn polling_preferences_preserve_old_rates_and_allow_low_latency_default() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.polling_hz, 1000);
+        let original = serde_json::to_value(&settings.profiles).unwrap();
+        for hz in [100, 250, 500, 1000] {
+            settings.polling_hz = hz;
+            settings.validate().unwrap();
+            let saved = serde_json::to_value(&settings).unwrap();
+            let loaded: Settings = serde_json::from_value(saved).unwrap();
+            assert_eq!(loaded.polling_hz, hz);
+            assert_eq!(serde_json::to_value(loaded.profiles).unwrap(), original);
+        }
+        settings.polling_hz = 2000;
+        assert!(settings.validate().is_err());
+    }
     #[test]
     fn output_toggles_survive_files_and_legacy_imports() {
         let mut p = visual_profile();

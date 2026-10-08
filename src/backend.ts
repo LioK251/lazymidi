@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open, save, confirm } from "@tauri-apps/plugin-dialog";
 import visualBindings from "../crates/lazymidi-core/resources/presets/visual-pianos-qwerty.json";
 import analogDefault from "../crates/lazymidi-core/resources/presets/default-analog.json";
+import { createPauseController } from "./pause";
 
 export type Source =
   { kind: "midi" | "analog" } | { kind: "sequencer"; track: number };
@@ -71,6 +72,8 @@ export interface Device {
 }
 export interface Snapshot {
   native_smoke?: boolean;
+  state_sequence: number;
+  latency?: Record<string, { count: number; samples: number; p50_us: number; p95_us: number; p99_us: number; max_us: number }> | null;
   revision: number;
   settings: Settings;
   inputs: Device[];
@@ -149,6 +152,7 @@ export function visualProfile(): Profile {
 }
 export function initialState(): Snapshot {
   return {
+    state_sequence: 0,
     revision: 0,
     settings: {
       version: 1,
@@ -158,7 +162,7 @@ export function initialState(): Snapshot {
       preferred_midi: null,
       sdk_path: null,
       analog_device: null,
-      polling_hz: 250,
+      polling_hz: 1000,
       aftertouch: true,
       both_inputs: false,
     },
@@ -263,8 +267,12 @@ export async function command(command: Command): Promise<Snapshot> {
         );
       break;
   }
+  preview.state_sequence++;
   return clone(preview);
 }
+export const pauseOutput = createPauseController((paused: boolean) =>
+  command({ type: "pause", paused }),
+);
 export function errorText(error: unknown): string {
   return error instanceof Error
     ? error.message
@@ -314,13 +322,13 @@ export async function ask(message: string): Promise<boolean> {
     ? whilePaused(() => confirm(message, { title: "lazymidi", kind: "warning" }))
     : window.confirm(message);
 }
-async function whilePaused<T>(action: () => Promise<T>): Promise<T> {
-  const wasPaused = (await getState()).paused;
-  if (!wasPaused) await command({ type: "pause", paused: true });
+export async function whilePaused<T>(action: () => Promise<T>): Promise<T> {
+  const reason = Symbol("dialog");
   try {
+    await pauseOutput(reason, true);
     return await action();
   } finally {
-    if (!wasPaused) await command({ type: "pause", paused: false });
+    await pauseOutput(reason, false);
   }
 }
 export async function closeApp(dirty: boolean): Promise<void> {

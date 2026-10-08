@@ -114,8 +114,19 @@ function Status({
   );
 }
 
+function isEditor(target: EventTarget | null): boolean {
+  return target instanceof Element && target.matches(
+    "input:not([type=checkbox]):not([type=radio]), textarea, select, [contenteditable=true]",
+  );
+}
+
 export default function App() {
   const [state, setState] = useState<Snapshot>(api.initialState);
+  const pauseReasons = useRef({ mapping: Symbol("mapping"), editor: Symbol("editor") });
+  const pendingOperations = useRef(0);
+  function acceptSnapshot(snapshot: Snapshot) {
+    setState(previous => snapshot.state_sequence >= previous.state_sequence ? snapshot : previous);
+  }
   const stateRef = useRef(state);
   stateRef.current = state;
   const [tab, setTab] = useState<Tab>("Play");
@@ -148,7 +159,7 @@ export default function App() {
       .getState()
       .then(async (s) => {
         if (live) {
-          setState(s);
+          acceptSnapshot(s);
           setMapping(s.settings.input_mode === "analog" ? "analog" : "qwerty");
           await api.nativeSmokeReady(s.native_smoke === true);
         }
@@ -156,7 +167,7 @@ export default function App() {
       .catch((e) => setError(api.errorText(e)));
     api
       .subscribe((s) => {
-        if (live) setState(s);
+        if (live) acceptSnapshot(s);
       })
       .then((fn) => {
         if (live) dispose = fn;
@@ -166,6 +177,13 @@ export default function App() {
     return () => {
       live = false;
       dispose();
+    };
+  }, []);
+  useEffect(() => {
+    const reasons = pauseReasons.current;
+    return () => {
+      void api.pauseOutput(reasons.mapping, false).catch(() => {});
+      void api.pauseOutput(reasons.editor, false).catch(() => {});
     };
   }, []);
   useEffect(() => {
@@ -204,19 +222,23 @@ export default function App() {
     return () => dispose();
   }, []);
   async function run(operation: () => Promise<void | Snapshot>) {
+    pendingOperations.current++;
     setBusy(true);
     setError(null);
     try {
       const result = await operation();
-      if (result) setState(result);
+      if (result) acceptSnapshot(result);
     } catch (e) {
       setError(api.errorText(e));
     } finally {
-      setBusy(false);
+      setBusy(--pendingOperations.current > 0);
     }
   }
   const send = (type: string, fields: Record<string, unknown> = {}) =>
     run(() => api.command({ type, ...fields }));
+  const pause = (reason: symbol, active: boolean) => api.pauseOutput(reason, active)
+    .then(result => { if (result) acceptSnapshot(result); })
+    .catch(error => setError(api.errorText(error)));
   function editSettings(change: (settings: Settings) => void) {
     setDraft((existing) => {
       const next = api.clone(existing ?? stateRef.current.settings);
@@ -253,8 +275,8 @@ export default function App() {
   }
   function switchTab(next: Tab) {
     setTab(next);
-    if (next === "Mapping" && !state.paused) send("pause", { paused: true });
-    if (next !== "Mapping" && state.paused) send("pause", { paused: false });
+    pause(pauseReasons.current.mapping, next === "Mapping");
+    pause(pauseReasons.current.editor, false);
     setLearn(null);
   }
   function updateProject(change: (project: Project) => void) {
@@ -485,13 +507,10 @@ export default function App() {
         role="tabpanel"
         aria-labelledby={`tab-${tab}`}
         onFocusCapture={(e) => {
-          if (e.target.matches("input:not([type=checkbox]):not([type=radio]), textarea") && !state.paused)
-            send("pause", { paused: true });
+          pause(pauseReasons.current.editor, isEditor(e.target));
         }}
         onBlurCapture={(e) => {
-          if (tab !== "Mapping" && state.paused &&
-              !(e.relatedTarget instanceof Element && e.relatedTarget.matches("input:not([type=checkbox]):not([type=radio]), textarea")))
-            send("pause", { paused: false });
+          pause(pauseReasons.current.editor, isEditor(e.relatedTarget));
         }}
       >
         {tab === "Play" && (
@@ -663,7 +682,7 @@ export default function App() {
                   <span>{state.keyboard_backend}</span>
                 </div>
                 {state.paused && (
-                  <button onClick={() => send("pause", { paused: false })}>
+                  <button onClick={() => pause(pauseReasons.current.editor, false)}>
                     Resume generated keys
                   </button>
                 )}
@@ -829,14 +848,6 @@ export default function App() {
             />
             <div
               className="split mapping"
-              onFocusCapture={(e) => {
-                if (
-                  (e.target instanceof HTMLInputElement ||
-                    e.target instanceof HTMLSelectElement) &&
-                  !state.paused
-                )
-                  send("pause", { paused: true });
-              }}
             >
               <section className="primary-panel">
                 <div className="section-heading">
@@ -1449,7 +1460,7 @@ export default function App() {
                       editSettings((s) => (s.polling_hz = +e.target.value))
                     }
                   >
-                    {[100, 250, 500].map((hz) => (
+                    {[100, 250, 500, 1000].map((hz) => (
                       <option key={hz} value={hz}>
                         {hz} Hz
                       </option>
@@ -1502,7 +1513,7 @@ export default function App() {
               <h2>Diagnostics</h2>
               <div className="details-row">
                 <span className="muted">Version</span>
-                <span>0.1.1</span>
+                <span>0.1.2</span>
               </div>
               <div className="details-row">
                 <span className="muted">Events received</span>
@@ -1575,7 +1586,7 @@ export default function App() {
                 : "Ready"}
         </span>
         <span className="spacer" />
-        <span>lazymidi 0.1.1 {api.desktop ? "" : "· browser preview"}</span>
+        <span>lazymidi 0.1.2 {api.desktop ? "" : "· browser preview"}</span>
       </footer>
     </div>
   );

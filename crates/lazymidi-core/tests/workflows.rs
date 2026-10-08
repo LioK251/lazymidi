@@ -147,6 +147,76 @@ fn route_cycles_duplicates_and_unmapped_notes_are_rejected() {
 }
 
 #[test]
+fn keyboard_pause_keeps_both_sources_recording_and_sending_midi() {
+    for source in [Source::Midi, Source::Analog] {
+        let profile = Profile {
+            routes: vec![
+                route(source, Destination::Qwerty, "keys"),
+                route(source, Destination::Midi("synth".into()), "midi"),
+                route(source, Destination::Recorder(0), "record"),
+            ],
+            ..Profile::default()
+        };
+        let mut engine = Engine::default();
+        assert_eq!(
+            engine
+                .process(
+                    source,
+                    MidiEvent::note_on(0, 36, 100),
+                    &profile,
+                    true,
+                    false
+                )
+                .len(),
+            3
+        );
+        assert_eq!(
+            engine.flush_qwerty(),
+            vec![OutputAction::Key {
+                hid: 30,
+                down: false
+            }]
+        );
+        assert!(engine.flush_qwerty().is_empty());
+        let on = MidiEvent::note_on(0, 40, 100);
+        assert_eq!(
+            engine.process(source, on, &profile, true, true),
+            vec![
+                OutputAction::Midi {
+                    id: "synth".into(),
+                    event: on
+                },
+                OutputAction::Record {
+                    track: 0,
+                    event: on
+                }
+            ]
+        );
+        let off = MidiEvent::note_off(0, 36);
+        assert_eq!(
+            engine.process(source, off, &profile, true, true),
+            vec![
+                OutputAction::Midi {
+                    id: "synth".into(),
+                    event: off
+                },
+                OutputAction::Record {
+                    track: 0,
+                    event: off
+                }
+            ]
+        );
+        assert_eq!(
+            engine.flush(),
+            vec![OutputAction::Midi {
+                id: "synth".into(),
+                event: MidiEvent::note_off(0, 40)
+            }]
+        );
+    }
+}
+
+#[test]
 fn absolute_deadlines_have_no_cumulative_drift_over_thirty_minutes() {
     let mut s = Sequencer::default();
     for step in &mut s.project.tracks[0].steps {
@@ -204,6 +274,17 @@ fn startup_without_sdk_and_stale_edits_are_recoverable() {
         })
         .is_err());
     let revision = runtime.snapshot().revision;
+    let first_pause = runtime.command(Command::Pause { paused: true }).unwrap();
+    let second_pause = runtime.command(Command::Pause { paused: true }).unwrap();
+    assert!(second_pause.state_sequence > first_pause.state_sequence);
+    assert_eq!(second_pause.revision, revision);
+    assert!(second_pause.paused);
+    assert!(
+        !runtime
+            .command(Command::Pause { paused: false })
+            .unwrap()
+            .paused
+    );
     let updated = runtime
         .command(Command::Settings {
             settings: initial.settings,
@@ -213,7 +294,9 @@ fn startup_without_sdk_and_stale_edits_are_recoverable() {
     assert_eq!(updated.revision, revision + 1);
     runtime.command(Command::Panic).unwrap();
     assert!(!runtime.snapshot().qwerty_enabled);
+    let sequence = runtime.snapshot().state_sequence;
     runtime.stop();
+    assert!(runtime.snapshot().state_sequence > sequence);
     assert!(runtime.is_stopped());
 }
 

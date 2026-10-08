@@ -2,6 +2,7 @@ pub mod analog;
 pub mod config;
 pub mod devices;
 pub mod engine;
+pub mod latency;
 pub mod midi;
 pub mod platform;
 pub mod routing;

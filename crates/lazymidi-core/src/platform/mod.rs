@@ -1,5 +1,8 @@
 use crate::Result;
 
+#[cfg(all(windows, feature = "wooting"))]
+pub(crate) use windows::PollTimer;
+
 // Physical HID usages, OS scan codes and CGKeyCodes; alphabet/digit translations adapted
 // from ArijanJ/miditoqwerty-rs (MIT), extended with correct Windows E0 handling.
 const KEYS: &[(u16, u16, u16)] = &[

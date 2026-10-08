@@ -45,3 +45,132 @@ pub fn chord(hid: u16, modifiers: &[u16], velocity: Option<u8>) -> Vec<OutputAct
     }
     events
 }
+
+pub(crate) fn keyboard_batch<'a>(
+    actions: impl IntoIterator<Item = &'a OutputAction>,
+) -> Vec<OutputAction> {
+    let mut events = Vec::new();
+    let mut last_velocity = None;
+    for action in actions {
+        match action {
+            OutputAction::Chord {
+                hid,
+                modifiers,
+                velocity,
+            } => {
+                let safe = !(224..=231).contains(hid)
+                    && modifiers.iter().all(|m| matches!(m, 224 | 225 | 228 | 229));
+                let value = velocity.map(velocity_hid);
+                // Only an atomic native batch may share game velocity; never cache across sends.
+                let command = if safe && value.is_some() && value == last_velocity {
+                    None
+                } else {
+                    *velocity
+                };
+                events.extend(chord(*hid, modifiers, command));
+                last_velocity = if safe { value } else { None };
+            }
+            other => {
+                last_velocity = None;
+                events.push(other.clone());
+            }
+        }
+    }
+    events
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+    fn note(velocity: Option<u8>, modifiers: Vec<u16>) -> OutputAction {
+        OutputAction::Chord {
+            hid: 4,
+            modifiers,
+            velocity,
+        }
+    }
+    #[test]
+    fn changed_velocity_and_custom_actions_reset_batch_velocity() {
+        let count = |actions: Vec<OutputAction>| {
+            keyboard_batch(&actions)
+                .iter()
+                .filter(|a| {
+                    **a == OutputAction::Key {
+                        hid: 226,
+                        down: true,
+                    }
+                })
+                .count()
+        };
+        assert_eq!(
+            count(vec![
+                note(Some(99), vec![]),
+                note(Some(100), vec![224, 225])
+            ]),
+            1
+        );
+        assert_eq!(
+            count(vec![note(Some(100), vec![]), note(Some(64), vec![])]),
+            2
+        );
+        assert_eq!(
+            count(vec![
+                note(Some(100), vec![]),
+                note(None, vec![]),
+                note(Some(100), vec![])
+            ]),
+            2
+        );
+        assert_eq!(
+            count(vec![
+                note(Some(100), vec![]),
+                OutputAction::Key {
+                    hid: 44,
+                    down: true
+                },
+                note(Some(100), vec![])
+            ]),
+            2
+        );
+        assert_eq!(
+            count(vec![note(Some(100), vec![227]), note(Some(100), vec![])]),
+            2
+        );
+        assert_eq!(
+            count(vec![note(Some(100), vec![226]), note(Some(100), vec![])]),
+            3
+        );
+        assert_eq!(count(vec![note(Some(100), vec![])]), 1);
+        assert_eq!(count(vec![note(Some(100), vec![])]), 1);
+    }
+    #[test]
+    fn repeated_velocity_is_set_once_within_a_batch() {
+        let actions: Vec<_> = (4..12)
+            .map(|hid| OutputAction::Chord {
+                hid,
+                modifiers: vec![],
+                velocity: Some(100),
+            })
+            .collect();
+        let batch = keyboard_batch(&actions);
+        assert_eq!(batch.len(), 21);
+        assert_eq!(
+            batch
+                .iter()
+                .filter(|a| **a
+                    == OutputAction::Key {
+                        hid: 226,
+                        down: true
+                    })
+                .count(),
+            1
+        );
+        assert_eq!(
+            batch.last(),
+            Some(&OutputAction::Key {
+                hid: 11,
+                down: true
+            })
+        );
+    }
+}

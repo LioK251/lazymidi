@@ -103,6 +103,18 @@ impl Engine {
         self.counts.clear();
         output
     }
+    pub fn flush_qwerty(&mut self) -> Vec<OutputAction> {
+        let owners: Vec<_> = self
+            .owners
+            .iter()
+            .filter(|(_, held)| matches!(held, Held::Key(_)))
+            .map(|(owner, _)| owner.clone())
+            .collect();
+        owners
+            .iter()
+            .flat_map(|owner| self.release(owner))
+            .collect()
+    }
     pub fn process(
         &mut self,
         source: Source,

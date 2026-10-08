@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   render,
   screen,
@@ -10,9 +10,93 @@ import {
 import App from "./App";
 import { defaultProfile } from "./backend";
 import * as api from "./backend";
+import { createPauseController } from "./pause";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+beforeEach(() => {
+  vi.spyOn(api, "pauseOutput").mockImplementation(createPauseController(paused =>
+    api.command({ type: "pause", paused }),
+  ));
+});
+afterEach(async () => { cleanup(); await act(async () => {}); vi.restoreAllMocks(); });
 describe("lazymidi interface", () => {
+  it("offers 1000 Hz analog polling and saves it without changing the profile", async () => {
+    const initial = api.initialState();
+    initial.settings.polling_hz = 500;
+    vi.spyOn(api, "getState").mockResolvedValue(initial);
+    const command = vi.spyOn(api, "command").mockImplementation(async request => {
+      if (request.type === "settings") initial.settings = request.settings as api.Settings;
+      return api.clone(initial);
+    });
+    await act(async () => { render(<App />); });
+    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.change(screen.getByLabelText("Analog polling"), { target: { value: "1000" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Apply settings" })); });
+    const settings = command.mock.calls.find(([request]) => request.type === "settings")![0].settings as api.Settings;
+    expect(settings.polling_hz).toBe(1000);
+    expect(settings.profiles).toEqual(api.initialState().settings.profiles);
+  });
+  it("resumes after returning to Play before Mapping's pause reply", async () => {
+    const initial = { ...api.initialState(), analog_enabled: true, qwerty_enabled: true };
+    vi.spyOn(api, "getState").mockResolvedValue(initial);
+    let completePause: (() => void) | undefined;
+    const command = vi.spyOn(api, "command").mockImplementation(request => {
+      if (request.type === "pause" && request.paused)
+        return new Promise(resolve => {
+          completePause = () => resolve({ ...initial, paused: true, state_sequence: 1 });
+        });
+      return Promise.resolve({ ...initial, paused: false, state_sequence: 2 });
+    });
+    await act(async () => { render(<App />); });
+    fireEvent.click(screen.getByRole("tab", { name: "Mapping" }));
+    await waitFor(() => expect(completePause).toBeTypeOf("function"));
+    fireEvent.click(screen.getByRole("tab", { name: "Play" }));
+    await act(async () => { completePause!(); });
+    await waitFor(() => expect(command).toHaveBeenCalledWith({ type: "pause", paused: false }));
+    expect(screen.queryByRole("button", { name: "Resume generated keys" })).toBeNull();
+    expect((screen.getByRole("switch", { name: "MIDI → QWERTY" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("switch", { name: "Enable analog input" }) as HTMLInputElement).checked).toBe(true);
+  });
+  it("ignores a delayed snapshot older than the current module state", async () => {
+    const initial = { ...api.initialState(), state_sequence: 10, analog_enabled: true, qwerty_enabled: true };
+    vi.spyOn(api, "getState").mockResolvedValue(initial);
+    let publish: ((s: api.Snapshot) => void) | undefined;
+    vi.spyOn(api, "subscribe").mockImplementation(async callback => { publish = callback; return () => {}; });
+    await act(async () => { render(<App />); });
+    await act(async () => { publish!({ ...initial, state_sequence: 9, analog_enabled: false, qwerty_enabled: false }); });
+    expect((screen.getByRole("switch", { name: "MIDI → QWERTY" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("switch", { name: "Enable analog input" }) as HTMLInputElement).checked).toBe(true);
+  });
+  it("ignores an old command reply after a newer state event", async () => {
+    const initial = { ...api.initialState(), state_sequence: 10, analog_enabled: true, qwerty_enabled: true };
+    vi.spyOn(api, "getState").mockResolvedValue(initial);
+    let publish: ((s: api.Snapshot) => void) | undefined;
+    let finish: (() => void) | undefined;
+    vi.spyOn(api, "subscribe").mockImplementation(async callback => { publish = callback; return () => {}; });
+    vi.spyOn(api, "command").mockImplementation(() => new Promise(resolve => { finish = () => resolve(initial); }));
+    await act(async () => { render(<App />); });
+    fireEvent.click(screen.getByRole("switch", { name: "MIDI → QWERTY" }));
+    await act(async () => { publish!({ ...initial, state_sequence: 11, qwerty_enabled: false }); finish!(); });
+    expect((screen.getByRole("switch", { name: "MIDI → QWERTY" }) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole("switch", { name: "Enable analog input" }) as HTMLInputElement).checked).toBe(true);
+  });
+  it("resumes after an editor loses focus before its pause reply", async () => {
+    const initial = { ...api.initialState(), analog_enabled: true, qwerty_enabled: true };
+    vi.spyOn(api, "getState").mockResolvedValue(initial);
+    let completePause: (() => void) | undefined;
+    const command = vi.spyOn(api, "command").mockImplementation(request => {
+      if (request.paused) return new Promise(resolve => { completePause = () => resolve({ ...initial, paused: true, state_sequence: 1 }); });
+      return Promise.resolve({ ...initial, paused: false, state_sequence: 2 });
+    });
+    await act(async () => { render(<App />); });
+    const field = screen.getByLabelText("Analog shift amount");
+    fireEvent.focus(field);
+    await waitFor(() => expect(completePause).toBeTypeOf("function"));
+    fireEvent.blur(field, { relatedTarget: screen.getByRole("button", { name: "Panic" }) });
+    await act(async () => { completePause!(); });
+    await waitFor(() => expect(command).toHaveBeenCalledWith({ type: "pause", paused: false }));
+    expect(screen.queryByRole("button", { name: "Resume generated keys" })).toBeNull();
+    expect((screen.getByRole("switch", { name: "Enable analog input" }) as HTMLInputElement).checked).toBe(true);
+  });
   it("keeps the exact analog preset and independent inverse mapping", () => {
     const p = defaultProfile();
     expect(p.analog.shift_amount).toBe(1);
@@ -106,7 +190,9 @@ describe("lazymidi interface", () => {
     initial.analog_enabled = true;
     initial.qwerty_enabled = true;
     initial.warning = null;
-    const command = vi.spyOn(api, "command").mockImplementation(async (request) => ({
+    const command = vi.spyOn(api, "command").mockImplementation(async (request) => request.type === "pause" ? ({
+      ...initial, paused: Boolean(request.paused),
+    }) : ({
       ...initial,
       settings: request.settings as api.Settings,
       revision: 1,
@@ -119,7 +205,7 @@ describe("lazymidi interface", () => {
     fireEvent.change(screen.getByLabelText("Analog velocity scale"), { target: { value: "0.62" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Apply analog settings" })); });
     expect(command).toHaveBeenCalledWith(expect.objectContaining({ type: "settings", expected_revision: 0 }));
-    const settings = command.mock.calls[0][0].settings as api.Settings;
+    const settings = command.mock.calls.find(([request]) => request.type === "settings")![0].settings as api.Settings;
     const analog = settings.profiles.find(p => p.id === settings.selected_profile)!.analog;
     expect(analog.shift_amount).toBe(2);
     expect(analog.note_config).toEqual({ threshold: 0.25, velocity_scale: 0.62 });
