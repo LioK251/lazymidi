@@ -1,0 +1,9 @@
+/target/
+/src-tauri/icons/android/
+/src-tauri/icons/ios/
+/node_modules/
+/dist/
+/src-tauri/gen/
+*.log
+/test-results/
+/playwright-report/

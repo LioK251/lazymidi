@@ -1,0 +1,634 @@
+[
+  {
+    "channel": 0,
+    "note": 21,
+    "hid": 30,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 22,
+    "hid": 31,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 23,
+    "hid": 32,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 24,
+    "hid": 33,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 25,
+    "hid": 34,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 26,
+    "hid": 35,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 27,
+    "hid": 36,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 28,
+    "hid": 37,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 29,
+    "hid": 38,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 30,
+    "hid": 39,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 31,
+    "hid": 20,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 32,
+    "hid": 26,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 33,
+    "hid": 8,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 34,
+    "hid": 21,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 35,
+    "hid": 23,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 36,
+    "hid": 30,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 37,
+    "hid": 30,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 38,
+    "hid": 31,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 39,
+    "hid": 31,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 40,
+    "hid": 32,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 41,
+    "hid": 33,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 42,
+    "hid": 33,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 43,
+    "hid": 34,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 44,
+    "hid": 34,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 45,
+    "hid": 35,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 46,
+    "hid": 35,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 47,
+    "hid": 36,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 48,
+    "hid": 37,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 49,
+    "hid": 37,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 50,
+    "hid": 38,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 51,
+    "hid": 38,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 52,
+    "hid": 39,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 53,
+    "hid": 20,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 54,
+    "hid": 20,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 55,
+    "hid": 26,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 56,
+    "hid": 26,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 57,
+    "hid": 8,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 58,
+    "hid": 8,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 59,
+    "hid": 21,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 60,
+    "hid": 23,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 61,
+    "hid": 23,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 62,
+    "hid": 28,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 63,
+    "hid": 28,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 64,
+    "hid": 24,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 65,
+    "hid": 12,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 66,
+    "hid": 12,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 67,
+    "hid": 18,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 68,
+    "hid": 18,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 69,
+    "hid": 19,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 70,
+    "hid": 19,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 71,
+    "hid": 4,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 72,
+    "hid": 22,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 73,
+    "hid": 22,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 74,
+    "hid": 7,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 75,
+    "hid": 7,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 76,
+    "hid": 9,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 77,
+    "hid": 10,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 78,
+    "hid": 10,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 79,
+    "hid": 11,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 80,
+    "hid": 11,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 81,
+    "hid": 13,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 82,
+    "hid": 13,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 83,
+    "hid": 14,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 84,
+    "hid": 15,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 85,
+    "hid": 15,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 86,
+    "hid": 29,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 87,
+    "hid": 29,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 88,
+    "hid": 27,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 89,
+    "hid": 6,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 90,
+    "hid": 6,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 91,
+    "hid": 25,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 92,
+    "hid": 25,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 93,
+    "hid": 5,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 94,
+    "hid": 5,
+    "modifiers": [
+      225
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 95,
+    "hid": 17,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 96,
+    "hid": 16,
+    "modifiers": []
+  },
+  {
+    "channel": 0,
+    "note": 97,
+    "hid": 28,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 98,
+    "hid": 24,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 99,
+    "hid": 12,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 100,
+    "hid": 18,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 101,
+    "hid": 19,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 102,
+    "hid": 4,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 103,
+    "hid": 22,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 104,
+    "hid": 7,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 105,
+    "hid": 9,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 106,
+    "hid": 10,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 107,
+    "hid": 11,
+    "modifiers": [
+      224
+    ]
+  },
+  {
+    "channel": 0,
+    "note": 108,
+    "hid": 13,
+    "modifiers": [
+      224
+    ]
+  }
+]

@@ -1,0 +1,67 @@
+lazymidi 0.1.0 — upstream provenance
+
+Adapted components (no upstream application is bundled):
+
+1. Wooting Analog MIDI — e4e98975f56eb95be2f60bcedb0454c898479e74
+   https://github.com/WootingKb/wooting-analog-midi
+   Reference: wooting-analog-midi-core/src/lib.rs.
+   Adaptation: velocity depth/time model, threshold/Shift semantics in
+   crates/lazymidi-core/src/analog.rs. Added finite checks, latched releases,
+   multiple bindings, and optional installed-library lifecycle.
+   The old src-tauri host is excluded because its MPL metadata differs from
+   the root MIT license. No host, SDK Rust source, or SDK binaries are copied.
+
+2. MIDI to QWERTY — 73e4d6bbcdbe154d90eaa9cd32a55ac16ddadb64
+   https://github.com/ArijanJ/miditoqwerty-rs
+   Reference: src native keyboard providers, key translations, and
+   src/output_methods/pv.rs game/velocity mapping constants.
+   Adaptation: physical scan-code/CoreGraphics translations in
+   crates/lazymidi-core/src/platform/. Added HID identities, extended Windows
+   scan codes, worker-owned handles, release ledgers, and structured errors.
+
+3. pbek/LoopMidi — bc9cda9e6a29509996d9334ec8c6c14217beda5e
+   https://github.com/pbek/loopmidi
+   Functional reference only. Current source is GPL-3.0-only despite a stale
+   README MIT statement. No source, translations, QML, or resources reused.
+   lazymidi's step sequencer is independently implemented in Rust.
+
+4. Wooting Analog SDK v0.9.1 — external installed dependency, MPL-2.0
+   https://github.com/WootingKb/wooting-analog-sdk/tree/v0.9.1
+   Not included in installers. ABI declarations independently expressed
+   from the public C contract; the user supplies an installed library.
+
+The following MIT terms apply separately to adapted components 1 and 2:
+
+Copyright (c) 2020 Simon W
+Copyright (c) 2025 ArijanJ
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Dependency notices are shipped separately in THIRD_PARTY_DEPENDENCIES.html,
+generated from Cargo.lock using scripts/notices.mjs before packaging. Frontend
+dependency licenses are included in THIRD_PARTY_FRONTEND_NOTICES.txt.
+
+Visual Pianos protocol adaptation: qwerty.rs and the visual-pianos-qwerty.json
+preset use MIT pv.rs mappings at 73e4d6b. Raw shared modifier state, debug
+logging, unbounded indexing, and panic paths are replaced by validation,
+worker-owned ordered pulses, generations and delivered-state cleanup.
+
+Unmodified selectors 0.38.0 and other MPL-covered dependencies: full covered
+source is available through the exact crate version links in the dependency
+notices. Their license is independent from lazymidi original MIT files.

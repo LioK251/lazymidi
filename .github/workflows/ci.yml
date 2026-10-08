@@ -1,0 +1,34 @@
+name: Native checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: cargo fmt --all --check
+      - run: cargo test --workspace --locked
+      - run: cargo test -p lazymidi-core --no-default-features --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo fetch --locked
+      - run: npm run notices
+      - run: npm run tauri -- build --no-bundle
