@@ -38,6 +38,8 @@ export interface Profile {
   routes: Route[];
   visual_pianos: boolean;
   game_velocity: boolean;
+  sustain_enabled: boolean;
+  extended_keys: boolean;
   sustain_hid: number | null;
   sostenuto_hid: number | null;
 }
@@ -118,6 +120,8 @@ export function defaultProfile(): Profile {
     ),
     visual_pianos: false,
     game_velocity: false,
+    sustain_enabled: false,
+    extended_keys: true,
     sustain_hid: null,
     sostenuto_hid: null,
     routes: ["midi", "analog"].map((kind) => ({
@@ -138,6 +142,7 @@ export function visualProfile(): Profile {
     qwerty: clone(visualBindings),
     visual_pianos: true,
     game_velocity: true,
+    sustain_enabled: true,
     sustain_hid: 44,
     sostenuto_hid: 48,
   };

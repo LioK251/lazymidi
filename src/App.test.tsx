@@ -126,4 +126,64 @@ describe("lazymidi interface", () => {
     expect(screen.queryByLabelText("Analog velocity scale")).not.toBeNull();
     expect((screen.getByRole("switch", { name: "MIDI → QWERTY" }) as HTMLInputElement).checked).toBe(false);
   });
+  it("edits output toggles in both mapping modes and applies them without deleting mappings", async () => {
+    const initial = api.initialState();
+    initial.qwerty_enabled = true;
+    initial.settings.profiles[1].sustain_hid = 43;
+    vi.spyOn(api, "getState").mockResolvedValue(initial);
+    const command = vi.spyOn(api, "command").mockImplementation(async (request) => {
+      if (request.type === "settings") {
+        initial.settings = request.settings as api.Settings;
+        initial.revision++;
+        initial.qwerty_enabled = false;
+      }
+      return api.clone(initial);
+    });
+    await act(async () => { render(<App />); });
+    await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Mapping" })); });
+    const direction = screen.getByLabelText("Mapping direction");
+    fireEvent.change(direction, { target: { value: "analog" } });
+    for (const label of ["Velocity", "Sustain", "88 Keys"])
+      expect((screen.getByRole("switch", { name: label }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("switch", { name: "Sustain" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Sustain" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Sustain" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Velocity" }));
+    fireEvent.click(screen.getByRole("switch", { name: "88 Keys" }));
+    expect(screen.getByRole("group", { name: "Piano notes A0 to C8" }).querySelectorAll("button")).toHaveLength(88);
+    fireEvent.change(direction, { target: { value: "qwerty" } });
+    for (const label of ["Velocity", "Sustain", "88 Keys"])
+      expect((screen.getByRole("switch", { name: label }) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Apply profile" })); });
+    const settings = command.mock.calls.find(([request]) => request.type === "settings")![0].settings as api.Settings;
+    const profile = settings.profiles.find(p => p.id === settings.selected_profile)!;
+    expect(profile).toMatchObject({ game_velocity: false, sustain_enabled: false, extended_keys: false, sustain_hid: 43 });
+    expect(profile.qwerty).toEqual(initial.settings.profiles[1].qwerty);
+    expect(profile.analog).toEqual(initial.settings.profiles[1].analog);
+    expect(profile.qwerty).toHaveLength(88);
+    expect((screen.getByRole("switch", { name: "88 Keys" }) as HTMLInputElement).checked).toBe(false);
+    await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Play" })); });
+    expect((screen.getByRole("switch", { name: "MIDI → QWERTY" }) as HTMLInputElement).checked).toBe(false);
+  });
+  it("defaults a new sustain binding to Space and disables velocity without the game protocol", async () => {
+    const initial = api.initialState();
+    initial.settings.selected_profile = "default-copy";
+    vi.spyOn(api, "getState").mockResolvedValue(initial);
+    const command = vi.spyOn(api, "command").mockImplementation(async (request) => {
+      if (request.type === "settings") {
+        initial.settings = request.settings as api.Settings;
+        initial.revision++;
+      }
+      return api.clone(initial);
+    });
+    await act(async () => { render(<App />); });
+    await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Mapping" })); });
+    expect((screen.getByRole("switch", { name: "Velocity" }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("switch", { name: "Sustain" }) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByRole("switch", { name: "Sustain" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Apply profile" })); });
+    const settings = command.mock.calls.find(([request]) => request.type === "settings")![0].settings as api.Settings;
+    expect(settings.profiles[0]).toMatchObject({ sustain_enabled: true, sustain_hid: 44 });
+  });
 });

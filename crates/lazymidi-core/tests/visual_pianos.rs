@@ -3,8 +3,149 @@ use lazymidi_core::{
     engine::{Engine, OutputAction},
     midi::MidiEvent,
     qwerty,
-    routing::Source,
+    routing::{Destination, Route, Source},
 };
+
+#[test]
+fn velocity_toggle_preserves_notes_and_modifiers_for_both_inputs() {
+    for source in [Source::Midi, Source::Analog] {
+        for enabled in [true, false] {
+            let mut p = config::visual_profile();
+            p.game_velocity = enabled;
+            let mut engine = Engine::default();
+            let actions = engine.process(source, MidiEvent::note_on(0, 37, 100), &p, true, false);
+            let [OutputAction::Chord {
+                hid,
+                modifiers,
+                velocity,
+            }] = actions.as_slice()
+            else {
+                panic!("expected one note chord");
+            };
+            assert_eq!(modifiers, &[225]);
+            assert_eq!(*velocity, enabled.then_some(100));
+            assert_eq!(
+                qwerty::chord(*hid, modifiers, *velocity).contains(&OutputAction::Key {
+                    hid: 226,
+                    down: true
+                }),
+                enabled
+            );
+            assert_eq!(
+                engine.process(source, MidiEvent::note_off(0, 37), &p, true, false),
+                vec![OutputAction::Key {
+                    hid: *hid,
+                    down: false
+                }]
+            );
+            assert!(engine.flush().is_empty());
+        }
+    }
+}
+
+#[test]
+fn extended_toggle_filters_only_keyboard_output_and_preserves_releases() {
+    for source in [Source::Midi, Source::Analog] {
+        let mut p = config::visual_profile();
+        p.routes.push(Route {
+            id: "midi-output".into(),
+            source,
+            destination: Destination::Midi("synth".into()),
+            enabled: true,
+            channel: None,
+            remap_channel: None,
+        });
+        let bindings = p.qwerty.clone();
+        for enabled in [false, true] {
+            p.extended_keys = enabled;
+            let mut engine = Engine::default();
+            for note in 21..=108 {
+                let event = MidiEvent::note_on(0, note, 100);
+                let actions = engine.process(source, event, &p, true, false);
+                assert!(actions.contains(&OutputAction::Midi {
+                    id: "synth".into(),
+                    event
+                }));
+                assert_eq!(
+                    actions
+                        .iter()
+                        .any(|a| matches!(a, OutputAction::Chord { .. })),
+                    enabled || (36..=96).contains(&note)
+                );
+                let releases =
+                    engine.process(source, MidiEvent::note_off(0, note), &p, true, false);
+                assert_eq!(releases.len(), actions.len());
+                assert!(engine.flush().is_empty());
+            }
+        }
+        assert_eq!(p.qwerty, bindings);
+        let mut engine = Engine::default();
+        engine.process(source, MidiEvent::note_on(0, 21, 100), &p, true, false);
+        p.extended_keys = false;
+        assert_eq!(
+            engine
+                .process(source, MidiEvent::note_off(0, 21), &p, true, false)
+                .len(),
+            2
+        );
+        assert!(engine.flush().is_empty());
+    }
+}
+
+#[test]
+fn sustain_toggle_keeps_custom_binding_and_sostenuto_independent() {
+    for source in [Source::Midi, Source::Analog] {
+        let mut p = config::visual_profile();
+        p.sustain_hid = Some(43);
+        p.routes.push(Route {
+            id: "midi-output".into(),
+            source,
+            destination: Destination::Midi("synth".into()),
+            enabled: true,
+            channel: None,
+            remap_channel: None,
+        });
+        let mut engine = Engine::default();
+        assert!(engine
+            .process(source, MidiEvent::cc(0, 64, 127), &p, true, false)
+            .contains(&OutputAction::Key {
+                hid: 43,
+                down: true
+            }));
+        p.sustain_enabled = false;
+        let releases = engine.flush();
+        assert!(releases.contains(&OutputAction::Key {
+            hid: 43,
+            down: false
+        }));
+        let event = MidiEvent::cc(0, 64, 127);
+        assert_eq!(
+            engine.process(source, event, &p, true, false),
+            vec![OutputAction::Midi {
+                id: "synth".into(),
+                event
+            }]
+        );
+        assert!(engine
+            .process(source, MidiEvent::cc(0, 66, 127), &p, true, false)
+            .contains(&OutputAction::Key {
+                hid: 48,
+                down: true
+            }));
+        p.sustain_enabled = true;
+        assert_eq!(p.sustain_hid, Some(43));
+        engine.process(source, MidiEvent::cc(0, 64, 127), &p, true, false);
+        p.sustain_enabled = false;
+        assert!(engine
+            .process(source, MidiEvent::cc(0, 64, 0), &p, true, false)
+            .contains(&OutputAction::Key {
+                hid: 43,
+                down: false
+            }));
+        engine.process(source, MidiEvent::cc(0, 66, 0), &p, true, false);
+        assert!(engine.flush().is_empty());
+    }
+}
 
 #[test]
 fn all_eighty_eight_notes_match_the_upstream_game_protocol() {

@@ -986,6 +986,7 @@ main {
 }
 .mapping-wrap .split.mapping {
   flex: 1;
+  grid-template-rows: minmax(max-content, 1fr);
   min-height: 0;
   height: auto;
   overflow: auto;
@@ -1053,10 +1054,11 @@ main {
   min-height: 30px;
 }
 .mapping-wrap .mapping .secondary-panel {
-  min-height: 0;
+  min-height: min-content;
 }
 .mapping-wrap .mapping .table-scroll {
   min-height: 110px;
+  contain: size;
 }
 @media (max-width: 980px) {
   .piano-heading > .muted {

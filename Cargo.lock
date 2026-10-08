@@ -1791,7 +1791,7 @@ dependencies = [
 
 [[package]]
 name = "lazymidi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "lazymidi-core",
  "serde",
@@ -1803,7 +1803,7 @@ dependencies = [
 
 [[package]]
 name = "lazymidi-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "core-graphics",
  "crossbeam-channel",

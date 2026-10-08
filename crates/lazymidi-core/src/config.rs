@@ -64,10 +64,17 @@ pub struct Profile {
     pub visual_pianos: bool,
     #[serde(default)]
     pub game_velocity: bool,
+    #[serde(default = "enabled_by_default")]
+    pub sustain_enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub extended_keys: bool,
     #[serde(default)]
     pub sustain_hid: Option<u16>,
     #[serde(default)]
     pub sostenuto_hid: Option<u16>,
+}
+fn enabled_by_default() -> bool {
+    true
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
@@ -107,6 +114,8 @@ impl Default for Profile {
             routes: Route::defaults(),
             visual_pianos: false,
             game_velocity: false,
+            sustain_enabled: false,
+            extended_keys: true,
             sustain_hid: None,
             sostenuto_hid: None,
         }
@@ -119,6 +128,7 @@ pub fn visual_profile() -> Profile {
         qwerty: crate::qwerty::visual_bindings(),
         visual_pianos: true,
         game_velocity: true,
+        sustain_enabled: true,
         sustain_hid: Some(44),
         sostenuto_hid: Some(48),
         ..Profile::default()
@@ -353,6 +363,43 @@ pub fn import_profile(text: &str) -> Result<Profile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn output_toggles_survive_files_and_legacy_imports() {
+        let mut p = visual_profile();
+        assert!(p.game_velocity && p.sustain_enabled && p.extended_keys);
+        let mut legacy = serde_json::to_value(&p).unwrap();
+        legacy.as_object_mut().unwrap().remove("sustain_enabled");
+        legacy.as_object_mut().unwrap().remove("extended_keys");
+        let imported =
+            import_profile(&serde_json::json!({"version":1,"profile":legacy}).to_string()).unwrap();
+        assert!(imported.sustain_enabled && imported.extended_keys);
+        assert_eq!(imported.sustain_hid, Some(44));
+        p.game_velocity = false;
+        p.sustain_enabled = false;
+        p.extended_keys = false;
+        p.sustain_hid = Some(43);
+        let imported =
+            import_profile(&serde_json::json!({"version":1,"profile":p}).to_string()).unwrap();
+        assert!(!imported.game_velocity && !imported.sustain_enabled && !imported.extended_keys);
+        assert_eq!(imported.sustain_hid, Some(43));
+        assert_eq!(imported.qwerty, p.qwerty);
+        let settings = Settings {
+            selected_profile: imported.id.clone(),
+            profiles: vec![imported],
+            ..Settings::default()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        atomic_save(&path, &settings).unwrap();
+        let (loaded, warning) = load_settings(&path);
+        assert!(warning.is_none());
+        assert!(
+            !loaded.profile().game_velocity
+                && !loaded.profile().sustain_enabled
+                && !loaded.profile().extended_keys
+        );
+        assert_eq!(loaded.profile().sustain_hid, Some(43));
+    }
     #[test]
     fn defaults_inverse_and_recovery() {
         let s = Settings::default();

@@ -156,6 +156,9 @@ impl Engine {
             let held = match &route.destination {
                 Destination::Qwerty => {
                     if pedal {
+                        if event.data1 == 64 && !profile.sustain_enabled {
+                            continue;
+                        }
                         let hid = if event.data1 == 64 {
                             profile.sustain_hid
                         } else {
@@ -167,6 +170,9 @@ impl Engine {
                         Held::Key(hid)
                     } else {
                         if event.kind() != 0x90 {
+                            continue;
+                        }
+                        if !profile.extended_keys && !(36..=96).contains(&mapped.data1) {
                             continue;
                         }
                         let Some(binding) = profile

@@ -1035,44 +1035,64 @@ export default function App() {
                 >
                   Restore default mappings
                 </button>
-                {mapping === "qwerty" && (
-                  <div className="control-block game-options">
-                    <h2>Game output</h2>
-                    <Toggle
-                      label="Visual Pianos output"
-                      checked={workingProfile.visual_pianos}
-                      onChange={(enabled) =>
-                        editProfile((p) => (p.visual_pianos = enabled))
-                      }
-                    />
-                    <Toggle
-                      label="Velocity via Alt + key"
-                      checked={workingProfile.game_velocity}
-                      disabled={!workingProfile.visual_pianos}
-                      onChange={(enabled) =>
-                        editProfile((p) => (p.game_velocity = enabled))
-                      }
-                    />
-                    <button
-                      onClick={() =>
-                        editProfile((p) => {
-                          const preset = api.visualProfile();
-                          p.qwerty = preset.qwerty;
-                          p.visual_pianos = true;
-                          p.game_velocity = true;
-                          p.sustain_hid = 44;
-                          p.sostenuto_hid = 48;
-                        })
-                      }
-                    >
-                      Load Visual Pianos 88-key output
-                    </button>
-                    <p className="help">
-                      Shift: black notes. Ctrl: extended range. MIDI velocity:
-                      Alt + key. Sustain: Space; sostenuto: ].
-                    </p>
-                  </div>
-                )}
+                <div className="control-block game-options">
+                  <h2>Game output</h2>
+                  <Toggle
+                    label="Visual Pianos output"
+                    checked={workingProfile.visual_pianos}
+                    onChange={(enabled) =>
+                      editProfile((p) => (p.visual_pianos = enabled))
+                    }
+                  />
+                  <Toggle
+                    label="Velocity"
+                    checked={workingProfile.game_velocity}
+                    disabled={!workingProfile.visual_pianos}
+                    onChange={(enabled) =>
+                      editProfile((p) => (p.game_velocity = enabled))
+                    }
+                  />
+                  <Toggle
+                    label="Sustain"
+                    checked={
+                      workingProfile.sustain_enabled &&
+                      workingProfile.sustain_hid !== null
+                    }
+                    onChange={(enabled) =>
+                      editProfile((p) => {
+                        p.sustain_enabled = enabled;
+                        if (enabled) p.sustain_hid ??= 44;
+                      })
+                    }
+                  />
+                  <Toggle
+                    label="88 Keys"
+                    checked={workingProfile.extended_keys}
+                    onChange={(enabled) =>
+                      editProfile((p) => (p.extended_keys = enabled))
+                    }
+                  />
+                  <button
+                    onClick={() =>
+                      editProfile((p) => {
+                        const preset = api.visualProfile();
+                        p.qwerty = preset.qwerty;
+                        p.visual_pianos = true;
+                        p.game_velocity = true;
+                        p.sustain_enabled = true;
+                        p.extended_keys = true;
+                        p.sustain_hid = 44;
+                        p.sostenuto_hid = 48;
+                      })
+                    }
+                  >
+                    Load Visual Pianos 88-key output
+                  </button>
+                  <p className="help">
+                    Shift: black notes. Ctrl: extended range. MIDI velocity:
+                    Alt + key. Sustain: Space; sostenuto: ].
+                  </p>
+                </div>
                 <div className="aside-bottom">
                   <p className="help">
                     {draft
@@ -1482,7 +1502,7 @@ export default function App() {
               <h2>Diagnostics</h2>
               <div className="details-row">
                 <span className="muted">Version</span>
-                <span>0.1.0 preview</span>
+                <span>0.1.1</span>
               </div>
               <div className="details-row">
                 <span className="muted">Events received</span>
@@ -1555,7 +1575,7 @@ export default function App() {
                 : "Ready"}
         </span>
         <span className="spacer" />
-        <span>lazymidi 0.1.0 {api.desktop ? "" : "· browser preview"}</span>
+        <span>lazymidi 0.1.1 {api.desktop ? "" : "· browser preview"}</span>
       </footer>
     </div>
   );
