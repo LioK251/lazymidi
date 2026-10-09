@@ -1,4 +1,4 @@
-lazymidi 0.1.0 — upstream provenance
+lazymidi 0.1.3 — upstream provenance
 
 Adapted components (no upstream application is bundled):
 
@@ -7,7 +7,8 @@ Adapted components (no upstream application is bundled):
    Reference: wooting-analog-midi-core/src/lib.rs.
    Adaptation: velocity depth/time model, threshold/Shift semantics in
    crates/lazymidi-core/src/analog.rs. Added finite checks, latched releases,
-   multiple bindings, and optional installed-library lifecycle.
+   multiple bindings, resting/release velocity anchors, and optional
+   installed-library lifecycle.
    The old src-tauri host is excluded because its MPL metadata differs from
    the root MIT license. No host, SDK Rust source, or SDK binaries are copied.
 

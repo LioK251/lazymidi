@@ -89,10 +89,28 @@ impl AnalogProcessor {
                 }
                 state.blocked = false;
             }
+            if depth == 0.0
+                || state.depth == 0.0 && depth > 0.0 && depth <= preset.note_config.threshold
+            {
+                state.start = Some((now, depth));
+            }
+            // Wooting's depth/time model measures before refreshing a resting/releasing anchor.
+            let speed = state
+                .start
+                .map(|(start, previous)| {
+                    (depth - previous).max(0.0)
+                        / now
+                            .saturating_duration_since(start)
+                            .as_secs_f32()
+                            .max(0.000001)
+                })
+                .unwrap_or(100.0);
+            if state.start.is_some_and(|(_, previous)| {
+                (previous - depth).abs() < 0.01 || depth < state.depth - 0.01
+            }) {
+                state.start = Some((now, depth));
+            }
             if depth <= preset.note_config.threshold {
-                if state.depth == 0.0 && depth > 0.0 || depth == 0.0 || depth < state.depth - 0.01 {
-                    state.start = Some((now, depth));
-                }
                 for (c, _, n) in state.notes.drain(..) {
                     events.push(MidiEvent::note_off(c, n));
                 }
@@ -103,21 +121,9 @@ impl AnalogProcessor {
                         .iter()
                         .any(|&(c, base, _)| c == channel && base == note)
                     {
-                        // Velocity model adapted from Wooting Analog MIDI (MIT): depth/time * scale/100.
-                        let speed = state
-                            .start
-                            .map(|(start, previous)| {
-                                (depth - previous).max(0.0)
-                                    / now
-                                        .saturating_duration_since(start)
-                                        .as_secs_f32()
-                                        .max(0.000001)
-                            })
-                            .unwrap_or(100.0);
                         let velocity = ((speed * preset.note_config.velocity_scale / 100.0)
                             .clamp(0.0, 1.0)
                             * 127.0)
-                            .round()
                             .clamp(1.0, 127.0) as u8;
                         let shift = if values[225] >= 0.2 {
                             preset.shift_amount

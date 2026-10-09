@@ -251,6 +251,153 @@ fn shared_physical_keys_and_pedals_release_after_the_final_owner() {
 }
 
 #[test]
+fn analog_velocity_does_not_include_time_resting_below_trigger() {
+    use lazymidi_core::analog::AnalogProcessor;
+    use std::time::{Duration, Instant};
+    let mut profile = config::visual_profile();
+    profile.analog.note_config.threshold = 0.15;
+    profile.analog.note_config.velocity_scale = 0.61;
+    profile.routes.push(Route {
+        id: "velocity-monitor".into(),
+        source: Source::Analog,
+        destination: Destination::Midi("monitor".into()),
+        enabled: true,
+        channel: None,
+        remap_channel: None,
+    });
+    for resting_ms in [0, 100, 500] {
+        let mut analog = AnalogProcessor::default();
+        let mut engine = Engine::default();
+        let start = Instant::now();
+        let mut depths = [0.0; 256];
+        depths[23] = 0.04;
+        analog.process(&depths, &profile.analog, false, start);
+        analog.process(
+            &depths,
+            &profile.analog,
+            false,
+            start + Duration::from_millis(resting_ms),
+        );
+        depths[23] = 0.24;
+        let events = analog.process(
+            &depths,
+            &profile.analog,
+            false,
+            start + Duration::from_millis(resting_ms + 10),
+        );
+        let note = events
+            .into_iter()
+            .find(|event| event.kind() == 0x90)
+            .unwrap();
+        // Wooting's refreshed depth/time anchor: 0.20 / 0.010 * 0.61 / 100 * 127 = 15.
+        assert_eq!(
+            note.data2, 15,
+            "resting below threshold for {resting_ms} ms changed velocity"
+        );
+        let actions = engine.process(Source::Analog, note, &profile, true, false);
+        assert!(actions.contains(&OutputAction::Midi {
+            id: "monitor".into(),
+            event: note
+        }));
+        assert!(actions.iter().any(|action| matches!(
+            action,
+            OutputAction::Chord {
+                velocity: Some(15),
+                ..
+            }
+        )));
+    }
+}
+
+#[test]
+fn analog_velocity_preserves_strike_speed_scale_and_game_commands() {
+    use lazymidi_core::analog::AnalogProcessor;
+    use std::time::{Duration, Instant};
+    for (elapsed_ms, scale, velocity, velocity_key) in [
+        (5, 0.61, 30, 36),
+        (10, 0.61, 15, 33),
+        (20, 0.61, 7, 31),
+        (50, 0.61, 3, 30),
+        (100, 0.61, 1, 30),
+        (10, 1.0, 25, 35),
+        (1, 1.0, 127, 6),
+    ] {
+        let mut profile = config::visual_profile();
+        profile.analog.note_config.threshold = 0.15;
+        profile.analog.note_config.velocity_scale = scale;
+        let mut analog = AnalogProcessor::default();
+        let mut engine = Engine::default();
+        let start = Instant::now();
+        let mut depths = [0.0; 256];
+        depths[23] = 0.04;
+        analog.process(&depths, &profile.analog, false, start);
+        // Small resting-depth changes refresh Wooting's velocity anchor, too.
+        depths[23] = 0.045;
+        analog.process(
+            &depths,
+            &profile.analog,
+            false,
+            start + Duration::from_millis(100),
+        );
+        depths[23] = 0.05;
+        analog.process(
+            &depths,
+            &profile.analog,
+            false,
+            start + Duration::from_millis(200),
+        );
+        depths[23] = 0.25;
+        let events = analog.process(
+            &depths,
+            &profile.analog,
+            false,
+            start + Duration::from_millis(200 + elapsed_ms),
+        );
+        let note = events
+            .into_iter()
+            .find(|event| event.kind() == 0x90)
+            .unwrap();
+        assert_eq!(note.data2, velocity, "strike={elapsed_ms}ms scale={scale}");
+        let actions = engine.process(Source::Analog, note, &profile, true, false);
+        let OutputAction::Chord {
+            hid,
+            modifiers,
+            velocity: sent,
+        } = &actions[0]
+        else {
+            panic!("expected game chord")
+        };
+        assert_eq!(*sent, Some(velocity));
+        assert_eq!(qwerty::velocity_hid(velocity), velocity_key);
+        assert!(
+            qwerty::chord(*hid, modifiers, *sent).contains(&OutputAction::Key {
+                hid: velocity_key,
+                down: true
+            })
+        );
+        depths[23] = 0.1;
+        let release = analog.process(
+            &depths,
+            &profile.analog,
+            false,
+            start + Duration::from_millis(300 + elapsed_ms),
+        );
+        assert_eq!(release, vec![MidiEvent::note_off(0, 60)]);
+        depths[23] = 0.3;
+        let retrigger = analog.process(
+            &depths,
+            &profile.analog,
+            false,
+            start + Duration::from_millis(300 + 2 * elapsed_ms),
+        );
+        assert_eq!(
+            retrigger[0].data2, velocity,
+            "partial release must reset the strike anchor"
+        );
+    }
+}
+
+#[test]
 fn analog_press_flows_to_game_keys_with_measured_velocity() {
     use lazymidi_core::analog::AnalogProcessor;
     use std::time::{Duration, Instant};

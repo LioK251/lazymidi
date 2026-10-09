@@ -1513,7 +1513,7 @@ export default function App() {
               <h2>Diagnostics</h2>
               <div className="details-row">
                 <span className="muted">Version</span>
-                <span>0.1.2</span>
+                <span>0.1.3</span>
               </div>
               <div className="details-row">
                 <span className="muted">Events received</span>
@@ -1586,7 +1586,7 @@ export default function App() {
                 : "Ready"}
         </span>
         <span className="spacer" />
-        <span>lazymidi 0.1.2 {api.desktop ? "" : "· browser preview"}</span>
+        <span>lazymidi 0.1.3 {api.desktop ? "" : "· browser preview"}</span>
       </footer>
     </div>
   );
