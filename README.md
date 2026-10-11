@@ -2,9 +2,9 @@
 
 A compact desktop utility for playing virtual piano games with a Wooting analog keyboard or a MIDI controller. Rust engine, Tauri 2, React, TypeScript. No external MIDI cable connects its modules. Musical input sends keyboard/MIDI events; the optional converter also has an audio visualizer.
 
-Windows downloads: [GitHub releases](https://github.com/LioK251/lazymidi/releases). Version **0.1.5** provides the current-user installer and portable ZIP. Extract the whole ZIP and keep its `_up_` resource folder beside `lazymidi.exe`; the standalone executable does not include the converter service files. Builds are unsigned; the Wooting SDK remains a separate installation. Linux/macOS installers and full platform hardware qualification are still outstanding.
+Windows downloads: [GitHub releases](https://github.com/LioK251/lazymidi/releases). Version **0.1.4** provides the current-user installer and portable ZIP. Extract the whole ZIP and keep its `_up_` resource folder beside `lazymidi.exe`; the standalone executable does not include the converter service files. Builds are unsigned; the Wooting SDK remains a separate installation. Linux/macOS installers and full platform hardware qualification are still outstanding.
 
-Version 0.1.4 adds **Discord Rich Presence**, a **Transposer** with floating monitor/sheets, and an optional **Convert** module. Version 0.1.5 fixes sending Multi-mode sheets to Transposer. See the [release notes](docs/releases/0.1.5.md) and [optional modules](docs/optional-modules.md).
+Version 0.1.4 adds **Discord Rich Presence**, a **Transposer** with floating monitor/sheets, and an optional **Convert** module. It includes the Multi-mode sheet transfer fix and compact sheet controls. See the [release notes](docs/releases/0.1.4.md) and [optional modules](docs/optional-modules.md).
 
 ## Optional tools
 

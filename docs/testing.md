@@ -1,12 +1,12 @@
 # Verification and release qualification
 
-## Local sheet-window polish (pending release confirmation)
+## Confirmed sheet-window polish for replacement 0.1.4
 
 69 frontend/visualizer tests pass, including text/image appearance controls, keyboard dismissal and Sheet actions preserving Convert/Library while the floating viewer is visible. A hidden or closed viewer retains the original Sheets navigation. TypeScript/Vite checks pass.
 
 Browser measurements at 620 × 430 and 320 × 320 show no horizontal overflow. At default zoom, editable headings and note rows all measure 33.30 px; at 1.1× zoom, all measure 36.63 px. Previously, manual headings measured 47.30 px and point-control rows 37 px. The View menu hides appearance controls until opened and preserves keyboard focus on Escape.
 
-The fresh optimized local executable passes native frontend, overlay, converter-service, generated-sheet and visualizer checks with isolated test data. The GitHub 0.1.4/0.1.5 release entries were withdrawn; replacement 0.1.5 publication is awaiting user confirmation.
+The fresh optimized local executable passes native frontend, overlay, converter-service, generated-sheet and visualizer checks with isolated test data. The user confirmed this candidate and requested republication as 0.1.4. All current app/package version metadata and the release notes use 0.1.4; 0.1.5 remains withdrawn. Earlier version labels below identify their original verification sessions.
 
 ## Version 0.1.5 parser fix
 

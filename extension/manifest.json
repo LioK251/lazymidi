@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "lazymidi Converter",
-  "version": "0.1.5",
+  "version": "0.1.4",
   "description": "Send YouTube and TikTok conversions to lazymidi and import downloaded MuseScore MIDI files into its optional converter.",
   "permissions": [
     "activeTab",
