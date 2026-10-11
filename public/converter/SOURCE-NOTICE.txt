@@ -1,0 +1,21 @@
+FluidSynth 2.3.0, with the fluidsynth-emscripten Emscripten patch, is LGPL-2.1.
+The unmodified libfluidsynth-2.3.0.js binary is from js-synthesizer 1.8.5's
+externals directory. LICENSE.fluidsynth.txt contains its license.
+
+Corresponding upstream patched source and build scripts:
+source/fluidsynth-2.3.0-em.zip
+https://github.com/jet2jet/fluidsynth-emscripten/tree/718b5238d5321a21ac37341b575d40eaa62814c3
+
+Build (Emscripten 3.1.10, CMake, make; see the source README):
+mkdir build; cd build
+emcmake cmake -Denable-oss=off -Denable-libsndfile=off -DCMAKE_BUILD_TYPE=Release ..
+emmake make
+The output is build/src/libfluidsynth-2.3.0.js. This distribution uses the
+version without libsndfile. Replace public/converter/libfluidsynth-2.3.0.js
+with a compatible rebuilt version and run npm run bundle to use it.
+No restriction on reverse engineering for debugging modifications to this
+LGPL component is imposed by lazymidi.
+
+js-synthesizer 1.8.5 is BSD-3-Clause. @tonejs/midi 2.0.28 and the adapted
+mp3converter visualizer are MIT. Their notices accompany the application.
+There is no bundled SoundFont or third-party song.

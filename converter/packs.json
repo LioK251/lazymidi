@@ -1,0 +1,53 @@
+{
+  "packs": [
+    {
+      "version": "1",
+      "variant": "cpu",
+      "platform": "windows-x86_64",
+      "python": "3.13.13",
+      "bytes": 511745132,
+      "installed_bytes": 1262559818,
+      "sha256": "f0d6e859c514c16aa4716336befdbd83991e3afc9ac77050310a34f3498e82d5",
+      "file": "lazymidi-converter-cpu-1.zip",
+      "url": null,
+      "parts": []
+    },
+    {
+      "version": "1",
+      "variant": "cuda",
+      "platform": "windows-x86_64",
+      "python": "3.13.13",
+      "bytes": 3343169690,
+      "installed_bytes": 5367919404,
+      "sha256": "d73905f0cb787360c9b0608918b5ba7145f869f8531ebbf83fbbaec1e2b5a272",
+      "file": "lazymidi-converter-cuda-1.zip",
+      "url": null,
+      "parts": [
+        {
+          "file": "lazymidi-converter-cuda-1.zip.part1",
+          "bytes": 1073741824,
+          "sha256": "dd0bfb15af47109984a7fa0118ba19090fe84d32c9516fe9c0cdf6f9a742650c",
+          "url": null
+        },
+        {
+          "file": "lazymidi-converter-cuda-1.zip.part2",
+          "bytes": 1073741824,
+          "sha256": "b1f87286379992e7b1e1ac7a49faabe3e8d84eb26f665cf3aa61c0fb12fc0cc6",
+          "url": null
+        },
+        {
+          "file": "lazymidi-converter-cuda-1.zip.part3",
+          "bytes": 1073741824,
+          "sha256": "14d7795d8a0f5dabdda53a4d65e0476aa75549d1647b0bc01d846a9a7d3a4ca7",
+          "url": null
+        },
+        {
+          "file": "lazymidi-converter-cuda-1.zip.part4",
+          "bytes": 121944218,
+          "sha256": "14fcd22c018464c1cc7886972c90701307b2738dbdae446011a684c718628348",
+          "url": null
+        }
+      ]
+    }
+  ]
+}

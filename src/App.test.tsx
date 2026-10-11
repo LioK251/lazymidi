@@ -19,6 +19,68 @@ beforeEach(() => {
 });
 afterEach(async () => { cleanup(); await act(async () => {}); vi.restoreAllMocks(); });
 describe("lazymidi interface", () => {
+  it("restores a hidden Transposer tab and records readable bindings without turning player switches off",async()=>{
+    const initial={...api.initialState(),analog_enabled:true,qwerty_enabled:true};initial.settings.show_transposer=false;
+    vi.spyOn(api,"getState").mockResolvedValue(initial);
+    vi.spyOn(api,"command").mockImplementation(async request=>{
+      if(request.type==="settings")initial.settings=request.settings as api.Settings;
+      return api.clone(initial);
+    });
+    await act(async()=>{render(<App/>);});
+    expect(screen.queryByRole("tab",{name:"Transposer"})).toBeNull();
+    fireEvent.click(screen.getByRole("tab",{name:"Settings"}));
+    fireEvent.click(screen.getByRole("switch",{name:"Transposer tab"}));
+    await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Apply settings"}));});
+    expect(screen.getByRole("tab",{name:"Transposer"})).toBeTruthy();
+    fireEvent.click(screen.getByRole("button",{name:"Open Transposer"}));
+    fireEvent.click(screen.getByRole("button",{name:"Down: Unassigned"}));
+    fireEvent.keyDown(screen.getByRole("button",{name:"Press a key…"}),{code:"ArrowDown"});
+    expect(screen.getByRole("button",{name:"Down: Down Arrow"})).toBeTruthy();
+    fireEvent.click(screen.getByRole("button",{name:"Record Next shortcut"}));
+    fireEvent.keyDown(screen.getByRole("button",{name:"Record Next shortcut"}),{code:"F9",ctrlKey:true,shiftKey:true});
+    expect((screen.getByRole("textbox",{name:"Next"}) as HTMLInputElement).value).toBe("Ctrl+Shift+F9");
+    fireEvent.click(screen.getByRole("button",{name:"Up: Unassigned"}));
+    fireEvent.blur(screen.getByRole("button",{name:"Press a key…"}));
+    expect(api.pauseOutput).toHaveBeenLastCalledWith(expect.any(Symbol),false);
+    fireEvent.click(screen.getByRole("tab",{name:"Play"}));
+    expect((screen.getByRole("switch",{name:"Enable analog input"}) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("switch",{name:"MIDI → QWERTY"}) as HTMLInputElement).checked).toBe(true);
+  });
+  it("defaults optional tabs correctly and keeps player switches on when applying module preferences", async () => {
+    const initial={...api.initialState(),analog_enabled:true,qwerty_enabled:true};
+    vi.spyOn(api,"getState").mockResolvedValue(initial);
+    vi.spyOn(api,"command").mockImplementation(async request=>{
+      if(request.type==="settings")initial.settings=request.settings as api.Settings;
+      return api.clone(initial);
+    });
+    await act(async()=>{render(<App/>);});
+    expect(screen.getByRole("tab",{name:"Transposer"})).toBeTruthy();
+    expect(screen.queryByRole("tab",{name:"Convert"})).toBeNull();
+    expect(screen.queryByRole("tab",{name:"Sequencer"})).toBeNull();
+    fireEvent.click(screen.getByRole("tab",{name:"Settings"}));
+    expect((screen.getByRole("switch",{name:"Discord Rich Presence"}) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("switch",{name:"Discord Rich Presence"}));
+    expect((screen.getByRole("switch",{name:"Show Get button"}) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("switch",{name:"Converter tab"}));
+    await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Apply settings"}));});
+    expect(screen.getByRole("tab",{name:"Convert"})).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab",{name:"Play"}));
+    expect((screen.getByRole("switch",{name:"Enable analog input"}) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("switch",{name:"MIDI → QWERTY"}) as HTMLInputElement).checked).toBe(true);
+  });
+  it("selecting a saved transpose step never sends performance changes", async()=>{
+    const initial=api.initialState();initial.settings.profiles.find(p=>p.id===initial.settings.selected_profile)!.transpose.sequence=[0,3,-2];
+    vi.spyOn(api,"getState").mockResolvedValue(initial);
+    const command=vi.spyOn(api,"command").mockResolvedValue(initial);
+    await act(async()=>{render(<App/>);});
+    fireEvent.click(screen.getByRole("tab",{name:"Transposer"}));
+    await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"+3"}));});
+    expect(command).toHaveBeenCalledWith({type:"transpose",action:"select",index:1});
+    expect(command.mock.calls.some(([c])=>c.type==="transpose"&&["next","previous","arm"].includes(String(c.action)))).toBe(false);
+    fireEvent.change(screen.getByLabelText("Sequence"),{target:{value:"0 51"}});
+    expect(screen.getByRole("alert").textContent).toContain("−50 to 50");
+    expect((screen.getByRole("button",{name:"Apply"}) as HTMLButtonElement).disabled).toBe(true);
+  });
   it("offers 1000 Hz analog polling and saves it without changing the profile", async () => {
     const initial = api.initialState();
     initial.settings.polling_hz = 500;

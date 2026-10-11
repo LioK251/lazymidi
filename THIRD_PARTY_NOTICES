@@ -1,4 +1,4 @@
-lazymidi 0.1.3 — upstream provenance
+lazymidi 0.1.4 — upstream provenance
 
 Adapted components (no upstream application is bundled):
 
@@ -66,3 +66,34 @@ worker-owned ordered pulses, generations and delivered-state cleanup.
 Unmodified selectors 0.38.0 and other MPL-covered dependencies: full covered
 source is available through the exact crate version links in the dependency
 notices. Their license is independent from lazymidi original MIT files.
+
+Additional optional modules:
+
+5. Multi-Transpose — MIT, Copyright (c) 2024 Albacusphetical.
+   https://github.com/Albacusphetical/multi-transpose
+   Reference revision cd881b9dbfb5af12729afed3c77bec7b4f468207.
+   Sequence/delta behavior adapted in transpose.rs; host and input listener
+   replaced. Full MIT notice: docs/licenses/multi-transpose-LICENSE.txt.
+
+6. mp3converter — MIT, Copyright (c) 2025-2026 LioK.
+   https://github.com/LioK251/mp3converter
+   Source revision 0c3b9e359f378f1e07537b63ca32c69e56491e0c.
+   Python conversion/sheet logic, visualizer and extension adapted.
+   SheetText.tsx adapts tempo grouping/color semantics from sheets-utils.js;
+   React text rendering replaces generated HTML.
+   Full MIT notice: converter/LICENSE and docs/licenses/mp3converter-LICENSE.txt.
+   Changes: authenticated local service, lazy model loading, two-thread worker,
+   atomic persistence, scoped file access, paired extension and React shell.
+
+7. FluidSynth 2.3.0 with Emscripten patch — LGPL-2.1.
+   Standalone JS/WASM binary from js-synthesizer 1.8.5, without libsndfile.
+   Full license, source archive and rebuild instructions are shipped in
+   converter/SOURCE-NOTICE.txt and converter/source/ inside the frontend.
+   js-synthesizer BSD and @tonejs/midi MIT notices are in the frontend notices.
+
+Optional runtime packs contain Python, PyTorch, Transkun (including its
+pretrained model), FFmpeg and their own dependencies. Package license texts
+and exact versions are retained in each pack. The local Gyan FFmpeg build is
+GPLv3; its license, build configuration and FFmpeg source archive are under
+licenses/. Public pack redistribution remains gated on corresponding source
+verification for its external libraries; see docs/optional-modules.md.

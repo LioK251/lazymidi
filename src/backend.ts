@@ -31,6 +31,9 @@ export interface Binding {
   hid: number;
   modifiers?: number[];
 }
+export interface TransposeConfig { sequence: number[]; up: number | null; down: number | null; next_shortcut: string | null; previous_shortcut: string | null; pause_shortcut: string | null }
+export interface TransposeStatus { current: number | null; selected: number; armed: boolean; busy: boolean; target: number | null; completed: number; total: number; editing: boolean; error: string | null }
+export const defaultTranspose = (): TransposeConfig => ({sequence:[0],up:null,down:null,next_shortcut:null,previous_shortcut:null,pause_shortcut:null});
 export interface Profile {
   id: string;
   name: string;
@@ -43,6 +46,7 @@ export interface Profile {
   extended_keys: boolean;
   sustain_hid: number | null;
   sostenuto_hid: number | null;
+  transpose: TransposeConfig;
 }
 export interface Settings {
   version: number;
@@ -55,6 +59,10 @@ export interface Settings {
   polling_hz: number;
   aftertouch: boolean;
   both_inputs: boolean;
+  discord_presence: boolean;
+  discord_get_button: boolean;
+  show_transposer: boolean;
+  show_converter: boolean;
 }
 export interface Step {
   notes: { note: number; velocity: number }[];
@@ -72,6 +80,10 @@ export interface Device {
 }
 export interface Snapshot {
   native_smoke?: boolean;
+  native_smoke_overlays?: boolean;
+  native_smoke_converter?: boolean;
+  presence: string;
+  transpose: TransposeStatus;
   state_sequence: number;
   latency?: Record<string, { count: number; samples: number; p50_us: number; p95_us: number; p99_us: number; max_us: number }> | null;
   revision: number;
@@ -127,6 +139,7 @@ export function defaultProfile(): Profile {
     extended_keys: true,
     sustain_hid: null,
     sostenuto_hid: null,
+    transpose: defaultTranspose(),
     routes: ["midi", "analog"].map((kind) => ({
       id: `live-${kind}`,
       source: { kind } as Source,
@@ -152,6 +165,8 @@ export function visualProfile(): Profile {
 }
 export function initialState(): Snapshot {
   return {
+    presence: "Desktop app required",
+    transpose: { current:0, selected:0, armed:false, busy:false, target:null, completed:0,total:0,editing:false,error:null },
     state_sequence: 0,
     revision: 0,
     settings: {
@@ -165,6 +180,10 @@ export function initialState(): Snapshot {
       polling_hz: 1000,
       aftertouch: true,
       both_inputs: false,
+      discord_presence: true,
+      discord_get_button: true,
+      show_transposer: true,
+      show_converter: false,
     },
     inputs: [],
     outputs: [],
@@ -209,9 +228,56 @@ let preview = initialState();
 export async function getState(): Promise<Snapshot> {
   return desktop ? invoke("get_state") : clone(preview);
 }
-export async function nativeSmokeReady(enabled: boolean): Promise<void> {
-  if (desktop && enabled)
+export async function nativeSmokeReady(enabled: boolean, overlays = false, converter = false): Promise<void> {
+  if (desktop && enabled) {
+    if (overlays) {
+      await openOverlay("monitor");
+      const {WebviewWindow}=await import("@tauri-apps/api/webviewWindow");
+      const monitor=await WebviewWindow.getByLabel("monitor");
+      if(!monitor)throw new Error("Transpose monitor did not open.");
+      const size=(await monitor.innerSize()).toLogical(await monitor.scaleFactor());
+      if(size.width>261||size.height>131)throw new Error("Transpose monitor did not restore compact geometry.");
+      await openOverlay("sheet");
+    }
+    if (converter) {
+      await invoke("converter_request",{method:"GET",path:"/api/health",body:null});
+      await invoke("converter_request",{method:"GET",path:"/api/midi-files",body:null});
+      const {convertFileSrc}=await import("@tauri-apps/api/core");
+      const response=await fetch(convertFileSrc("converted/smoke.mid","converter"));
+      if(!response.ok||new TextDecoder().decode((await response.arrayBuffer()).slice(0,4))!=="MThd")
+        throw new Error("Native MIDI preview could not read its scoped asset.");
+      const sheet=await invoke<{revision:number;text:string}>("generate_sheet",{midiFilename:"smoke.mid",settings:{transpose_mode:"manual",manual_transpose_points:[{chord:0,value:-3}]},expectedRevision:null});
+      if(!sheet.text.includes("Transpose by: 3"))throw new Error("Native sheet generation failed.");
+      let rejected=false;try{await invoke("generate_sheet",{midiFilename:"smoke.mid",settings:{},expectedRevision:sheet.revision-1});}catch{rejected=true;}
+      if(!rejected)throw new Error("Stale sheet generation was accepted.");
+      const fonts=await invoke<{soundfonts:{filename:string;size:number}[]}>("converter_request",{method:"GET",path:"/api/soundfonts",body:null});
+      for(const font of fonts.soundfonts.filter(f=>f.size>64*1024*1024)){
+        const url=convertFileSrc(`soundfonts/${font.filename}`,"converter");
+        const chunk=await fetch(url,{headers:{Range:"bytes=0-1023"}});
+        if(chunk.status!==206||(await chunk.arrayBuffer()).byteLength!==1024)throw new Error("Native SoundFont ranges failed.");
+        let accepted=false;try{accepted=(await fetch(url)).ok;}catch{/* Large unbounded responses must fail safely. */}
+        if(accepted)throw new Error("Unbounded SoundFont delivery was accepted.");
+      }
+      let finish:(value:boolean)=>void=()=>{};let timer:ReturnType<typeof setTimeout>|undefined;
+      const stop=await listen<{filename:string;loaded:boolean}>("visualizer-ready",e=>{if(e.payload.filename==="smoke.mid")finish(e.payload.loaded);});
+      try{
+        const {WebviewWindow}=await import("@tauri-apps/api/webviewWindow");
+        for(let attempt=0;attempt<3;attempt++){
+          const loaded=new Promise<boolean>(resolve=>{finish=resolve;timer=setTimeout(()=>resolve(false),15000);});
+          await invoke("open_visualizer",{midiFilename:"smoke.mid"});
+          if(!await loaded)throw new Error("Native piano preview did not finish loading.");
+          clearTimeout(timer);
+          if(attempt===1){
+            const cached=await WebviewWindow.getByLabel("visualizer");
+            await cached?.close();
+            for(let wait=0;wait<40&&await cached?.isVisible();wait++)await new Promise(resolve=>setTimeout(resolve,25));
+            if(!await WebviewWindow.getByLabel("visualizer")||await cached?.isVisible())throw new Error("Visualizer was not retained hidden.");
+          }
+        }
+      }finally{stop();clearTimeout(timer);}
+    }
     await invoke("native_smoke_ready");
+  }
 }
 export async function subscribe(
   fn: (snapshot: Snapshot) => void,
@@ -222,10 +288,20 @@ export async function subscribe(
 export async function command(command: Command): Promise<Snapshot> {
   if (desktop) return invoke("app_command", { command });
   switch (command.type) {
-    case "settings":
+    case "settings": {
+      const before=clone(preview.settings);
+      const after=clone(command.settings as Settings);
+      const normalized=(s:Settings)=>({...s,discord_presence:false,discord_get_button:false,show_transposer:false,show_converter:false,profiles:s.profiles.map(p=>({...p,transpose:defaultTranspose()}))});
+      if (JSON.stringify(normalized(before))!==JSON.stringify(normalized(after))) preview.qwerty_enabled=false;
       preview.settings = clone(command.settings as Settings);
       preview.revision++;
-      preview.qwerty_enabled = false;
+      break; }
+    case "transpose_editing": preview.transpose.editing=!!command.editing; break;
+    case "transpose":
+      if(command.action==="sync") {preview.transpose.current=Number(command.value);preview.transpose.armed=false;}
+      if(command.action==="select") preview.transpose.selected=Number(command.index);
+      if(command.action==="arm" || command.action==="toggle") throw new Error("Transpose output requires the desktop app.");
+      if(command.action==="pause") preview.transpose.armed=false;
       break;
     case "project":
       preview.project = clone(command.project as Project);
@@ -240,6 +316,7 @@ export async function command(command: Command): Promise<Snapshot> {
       break;
     case "pause":
       preview.paused = command.paused as boolean;
+      preview.transpose.editing = command.paused as boolean;
       break;
     case "panic":
       preview.playing = false;
@@ -337,4 +414,29 @@ export async function closeApp(dirty: boolean): Promise<void> {
   if (dirty && !(await ask("Discard unsaved project changes and close?")))
     return;
   await invoke("shutdown");
+}
+
+export async function openOverlay(kind: "monitor" | "sheet"): Promise<void> {
+  if(!desktop)return;
+  await invoke("open_overlay",{kind});
+  if(kind==="monitor"){
+    const state=await getState();const config=state.settings.profiles.find(p=>p.id===state.settings.selected_profile)!.transpose;
+    if(!state.transpose.armed&&config.up!==null&&config.down!==null)
+      await command({type:"transpose",action:"arm"});
+  }
+}
+
+export async function sendTransposeSequence(sequence:number[]):Promise<Snapshot> {
+  if(!sequence.length||sequence.length>512||sequence.some(n=>!Number.isInteger(n)||n < -50||n > 50))
+    throw new Error("Transpose sequence needs 1–512 whole numbers between −50 and 50.");
+  const state=await getState();const settings=clone(state.settings);
+  if(state.transpose.busy)throw new Error("Wait for the current transpose to finish before replacing its sequence.");
+  settings.profiles.find(p=>p.id===settings.selected_profile)!.transpose.sequence=[...sequence];
+  const saved=await command({type:"settings",settings,expected_revision:state.revision});
+  if(!settings.show_transposer)return saved;
+  await command({type:"transpose",action:"pause"});
+  const selected=await command({type:"transpose",action:"select",index:0});
+  const config=selected.settings.profiles.find(p=>p.id===selected.settings.selected_profile)!.transpose;
+  if(config.up===null||config.down===null)return selected;
+  return command({type:"transpose",action:"arm"});
 }

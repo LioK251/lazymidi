@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import TitleBar from "./TitleBar";
+import { listen } from "@tauri-apps/api/event";
 import * as api from "./backend";
-import Piano88, { AnalogResponse } from "./Piano88";
+import Converter from "./Converter";
+import Transposer from "./Transposer";
+import Piano88, { AnalogResponse, keyLabel } from "./Piano88";
+export { keyLabel } from "./Piano88";
 import type {
   Snapshot,
   Settings,
@@ -12,25 +16,8 @@ import type {
   Destination,
 } from "./backend";
 
-const tabs = ["Play", "Mapping", "Settings"] as const;
-type Tab = (typeof tabs)[number] | "Sequencer";
+type Tab = "Play" | "Mapping" | "Transposer" | "Convert" | "Settings" | "Sequencer";
 const channels = Array.from({ length: 16 }, (_, i) => i);
-export const keyLabel = (hid: number) =>
-  hid >= 4 && hid <= 29
-    ? String.fromCharCode(65 + hid - 4)
-    : hid >= 30 && hid <= 38
-      ? String(hid - 29)
-      : ((
-          {
-            39: "0",
-            40: "Enter",
-            41: "Escape",
-            42: "Backspace",
-            43: "Tab",
-            44: "Space",
-            225: "Left Shift",
-          } as Record<number, string>
-        )[hid] ?? `HID ${hid}`);
 const noteLabel = (note: number) =>
   `${["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"][note % 12]}${Math.floor(note / 12) - 1}`;
 const sourceValue = (source: Source) =>
@@ -130,6 +117,8 @@ export default function App() {
   const stateRef = useRef(state);
   stateRef.current = state;
   const [tab, setTab] = useState<Tab>("Play");
+  const [converterOpened,setConverterOpened]=useState(false);
+  useEffect(()=>{if(tab==="Convert")setConverterOpened(true);},[tab]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
@@ -140,8 +129,6 @@ export default function App() {
   const [stepGate, setStepGate] = useState(80);
   const [learn, setLearn] = useState<number | null>(null);
   const learnReceived = useRef(0);
-  const [maximized, setMaximized] = useState(false);
-  const mac = /Mac/.test(navigator.platform);
   const profile = state.settings.profiles.find(
     (p) => p.id === state.settings.selected_profile,
   )!;
@@ -155,13 +142,15 @@ export default function App() {
   useEffect(() => {
     let live = true;
     let dispose = () => {};
+    let errorDispose = () => {};
+    if (api.desktop) void listen<string>("module-error", e => setError(e.payload)).then(fn=>{if(live)errorDispose=fn;else fn();});
     api
       .getState()
       .then(async (s) => {
         if (live) {
           acceptSnapshot(s);
           setMapping(s.settings.input_mode === "analog" ? "analog" : "qwerty");
-          await api.nativeSmokeReady(s.native_smoke === true);
+          await api.nativeSmokeReady(s.native_smoke === true, s.native_smoke_overlays === true, s.native_smoke_converter === true);
         }
       })
       .catch((e) => setError(api.errorText(e)));
@@ -177,6 +166,7 @@ export default function App() {
     return () => {
       live = false;
       dispose();
+      errorDispose();
     };
   }, []);
   useEffect(() => {
@@ -207,20 +197,6 @@ export default function App() {
     });
     setLearn(null);
   }, [state.received, state.last_event, learn]);
-  useEffect(() => {
-    if (!api.desktop) return;
-    const window = getCurrentWindow();
-    let dispose = () => {};
-    window
-      .onResized(() => {
-        window
-          .isMaximized()
-          .then(setMaximized)
-          .catch(() => {});
-      })
-      .then((fn) => (dispose = fn));
-    return () => dispose();
-  }, []);
   async function run(operation: () => Promise<void | Snapshot>) {
     pendingOperations.current++;
     setBusy(true);
@@ -352,6 +328,8 @@ export default function App() {
     const path = await api.chooseFile("project", writing);
     if (path) return api.projectFile(path, writing);
   }
+  const tabs: Tab[] = ["Play", "Mapping", ...(state.settings.show_transposer ? ["Transposer" as const] : []), ...(state.settings.show_converter ? ["Convert" as const] : []), "Settings"];
+  useEffect(() => { if ((tab === "Transposer" && !state.settings.show_transposer) || (tab === "Convert" && !state.settings.show_converter)) switchTab("Play"); }, [state.settings.show_transposer,state.settings.show_converter,tab]);
   const status = state.analog_enabled || !!state.midi_connected;
   const rows =
     mapping === "qwerty"
@@ -392,21 +370,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className={`titlebar ${mac ? "mac" : ""}`}>
-        <div
-          className="drag-region"
-          data-tauri-drag-region
-          onDoubleClick={() => {
-            if (api.desktop)
-              getCurrentWindow()
-                .toggleMaximize()
-                .catch((e) => setError(api.errorText(e)));
-          }}
-        >
-          <span className="brand" data-tauri-drag-region>
-            lazymidi
-          </span>
-        </div>
+      <TitleBar onError={setError} onClose={() => void run(() => api.closeApp(state.project_dirty))}>
         <button
           className="panic"
           disabled={busy}
@@ -415,40 +379,7 @@ export default function App() {
         >
           Panic
         </button>
-        {!mac && (
-          <div className="window-controls">
-            <button
-              aria-label="Minimize window"
-              onClick={() => {
-                if (api.desktop)
-                  getCurrentWindow()
-                    .minimize()
-                    .catch((e) => setError(api.errorText(e)));
-              }}
-            >
-              —
-            </button>
-            <button
-              aria-label={maximized ? "Restore window" : "Maximize window"}
-              onClick={() => {
-                if (api.desktop)
-                  getCurrentWindow()
-                    .toggleMaximize()
-                    .catch((e) => setError(api.errorText(e)));
-              }}
-            >
-              {maximized ? "▱" : "□"}
-            </button>
-            <button
-              className="close"
-              aria-label="Close window"
-              onClick={() => run(() => api.closeApp(state.project_dirty))}
-            >
-              ×
-            </button>
-          </div>
-        )}
-      </header>
+      </TitleBar>
       <nav className="navigation" aria-label="Main navigation">
         <div
           role="tablist"
@@ -1398,14 +1329,27 @@ export default function App() {
             </p>
           </div>
         )}
+        {state.settings.show_converter && converterOpened && <div style={{display:tab==="Convert"?"block":"none",height:"100%"}}><Converter active={tab==="Convert"} onError={setError}/></div>}
+        {tab === "Transposer" && <Transposer state={state} profile={workingProfile} edit={editProfile} send={send} apply={() => run(() => applySettings(draft!,draftRevision))} discard={() => setDraft(null)} dirty={!!draft} busy={busy} />}
         {tab === "Settings" && (
           <div className="split settings">
             <section className="primary-panel">
               <div className="section-heading">
                 <h1>Settings</h1>
-                <span className="muted">
-                  Optional hardware, explicit permissions
-                </span>
+                <div className="button-row settings-actions">
+                  <button className="primary" disabled={!draft||busy} onClick={()=>run(()=>applySettings(draft!,draftRevision))}>Apply settings</button>
+                  <button disabled={!draft} onClick={()=>setDraft(null)}>Discard draft</button>
+                </div>
+              </div>
+              <div className="control-block">
+                <h2>Modules</h2>
+                <Toggle label="Discord Rich Presence" checked={working.discord_presence} onChange={v=>editSettings(s=>{s.discord_presence=v;})} />
+                <Toggle label="Show Get button" checked={working.discord_get_button} disabled={!working.discord_presence} onChange={v=>editSettings(s=>{s.discord_get_button=v;})} />
+                <div className="details-row"><span className="muted">Discord</span><span>{state.presence}</span></div>
+                <Toggle label="Transposer tab" checked={working.show_transposer} onChange={v=>editSettings(s=>{s.show_transposer=v;})} />
+                <Toggle label="Converter tab" checked={working.show_converter} onChange={v=>editSettings(s=>{s.show_converter=v;})} />
+                <p className="help">Apply settings to show or hide tabs.</p>
+                {state.settings.show_transposer&&<button onClick={()=>switchTab("Transposer")}>Open Transposer</button>}
               </div>
               <div className="control-block">
                 <h2>Wooting Analog SDK</h2>
@@ -1494,26 +1438,12 @@ export default function App() {
                   lazymidi as root. Input Monitoring is not required.
                 </p>
               </div>
-              <div className="button-row">
-                <button
-                  className="primary"
-                  disabled={!draft || busy}
-                  onClick={() =>
-                    run(() => applySettings(draft!, draftRevision))
-                  }
-                >
-                  Apply settings
-                </button>
-                <button disabled={!draft} onClick={() => setDraft(null)}>
-                  Discard draft
-                </button>
-              </div>
             </section>
             <aside className="secondary-panel">
               <h2>Diagnostics</h2>
               <div className="details-row">
                 <span className="muted">Version</span>
-                <span>0.1.3</span>
+                <span>0.1.4</span>
               </div>
               <div className="details-row">
                 <span className="muted">Events received</span>
@@ -1586,7 +1516,7 @@ export default function App() {
                 : "Ready"}
         </span>
         <span className="spacer" />
-        <span>lazymidi 0.1.3 {api.desktop ? "" : "· browser preview"}</span>
+        <span>lazymidi 0.1.4 {api.desktop ? "" : "· browser preview"}</span>
       </footer>
     </div>
   );

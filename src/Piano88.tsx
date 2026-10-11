@@ -5,20 +5,21 @@ const names = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A�
 const black = (note: number) => [1, 3, 6, 8, 10].includes(note % 12);
 const noteName = (note: number) =>
   `${names[note % 12]}${Math.floor(note / 12) - 1}`;
-const label = (hid: number) =>
+export const keyLabel = (hid: number) =>
   hid >= 4 && hid <= 29
     ? String.fromCharCode(hid + 61)
     : hid >= 30 && hid <= 38
       ? String(hid - 29)
-      : hid === 39
-        ? "0"
-        : hid === 44
-          ? "Space"
-          : `HID ${hid}`;
-const codeToHid = (code: string): number | null => {
+      : hid >= 58 && hid <= 69 ? `F${hid - 57}`
+      : hid >= 89 && hid <= 97 ? `Numpad ${hid - 88}`
+      : ({39:"0",40:"Enter",41:"Escape",42:"Backspace",43:"Tab",44:"Space",45:"−",46:"=",47:"[",48:"]",49:"\\",51:";",52:"'",53:"`",54:",",55:".",56:"/",57:"Caps Lock",73:"Insert",74:"Home",75:"Page Up",76:"Delete",77:"End",78:"Page Down",79:"Right Arrow",80:"Left Arrow",81:"Down Arrow",82:"Up Arrow",84:"Numpad /",85:"Numpad *",86:"Numpad −",87:"Numpad +",88:"Numpad Enter",98:"Numpad 0",99:"Numpad .",224:"Left Ctrl",225:"Left Shift",226:"Left Alt",227:"Left Super",228:"Right Ctrl",229:"Right Shift",230:"Right Alt",231:"Right Super"} as Record<number,string>)[hid] ?? `HID ${hid}`;
+const label=keyLabel;
+export const codeToHid = (code: string): number | null => {
   if (/^Key[A-Z]$/.test(code)) return code.charCodeAt(3) - 65 + 4;
   if (/^Digit[1-9]$/.test(code)) return +code.slice(5) + 29;
   if (code === "Digit0") return 39;
+  if (/^F([1-9]|1[0-2])$/.test(code)) return +code.slice(1)+57;
+  if (/^F(1[3-9]|2[0-4])$/.test(code)) return +code.slice(1)+91;
   return (
     (
       {
@@ -38,6 +39,10 @@ const codeToHid = (code: string): number | null => {
         Comma: 54,
         Period: 55,
         Slash: 56,
+        ArrowRight: 79,
+        ArrowLeft: 80,
+        ArrowDown: 81,
+        ArrowUp: 82,
         ShiftLeft: 225,
         ShiftRight: 229,
         ControlLeft: 224,

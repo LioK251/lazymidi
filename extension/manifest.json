@@ -1,0 +1,68 @@
+{
+  "manifest_version": 3,
+  "name": "lazymidi Converter",
+  "version": "0.1.4",
+  "description": "Send YouTube and TikTok conversions to lazymidi and import downloaded MuseScore MIDI files into its optional converter.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "https://www.youtube.com/*",
+    "https://youtube.com/*",
+    "https://youtu.be/*",
+    "https://www.tiktok.com/*",
+    "https://tiktok.com/*",
+    "https://vm.tiktok.com/*",
+    "https://vt.tiktok.com/*",
+    "https://musescore.com/*",
+    "https://*.musescore.com/*"
+  ],
+  "action": {
+    "default_title": "Pair lazymidi Converter",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://youtu.be/*",
+        "https://www.tiktok.com/*",
+        "https://tiktok.com/*",
+        "https://vm.tiktok.com/*",
+        "https://vt.tiktok.com/*"
+      ],
+      "js": [
+        "glass-button.js",
+        "youtube.js"
+      ]
+    },
+    {
+      "matches": [
+        "https://musescore.com/*",
+        "https://*.musescore.com/*"
+      ],
+      "js": [
+        "glass-button.js",
+        "musescore.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

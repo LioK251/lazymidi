@@ -30,3 +30,11 @@ On Windows, the enabled analog worker owns a high-resolution waitable timer, fal
 Disk I/O and JSON imports/exports are outside the engine thread. UI renders snapshots, never sends event-by-event MIDI through IPC. Settings edits use a revision token and validate before writing; disk failure leaves runtime state untouched. Revision changes caused by concurrent recording can reject an edit; the user discards/reloads the draft. Project dirty state compares the saved content with the current engine content.
 
 Known ceilings: small fixed route/track counts make linear route scans practical. This is a bounded low-latency desktop design, not hard realtime: allocations for event actions, OS MIDI calls, native event injection, and desktop scheduling remain measurable. More complicated routing graphs, plugin hosts and external clock are deliberately absent. Performance targets require native hardware tests.
+
+## Optional modules in 0.1.4
+
+Discord uses its own reconnecting IPC worker and coalesced source labels. Transposer state lives in the engine, while bounded pulse jobs share the native keyboard worker, with completed-pulse acknowledgements and cancellation between batches. Global shortcuts dispatch commands; the non-focusable monitor displays snapshots. Neither module initializes the Wooting SDK.
+
+Converter requests run through Rust-approved operations to a lazy private Python service on a random loopback port with a per-launch token. Musical event processing never waits for service requests or inference. The separately validated Python environment and user data stay outside release assets. Model loading occurs in the conversion subprocess, not at desktop startup. Extension pairing grants a separate restricted token. Canonical storage checks and bounded byte-range reads constrain media delivery.
+
+Sheets share source/settings and generation revisions between windows. The visualizer retains its iframe/player when hidden, pauses playback/rendering, and caches the selected SoundFont until the app exits. New songs use that player without autoplay; switching fonts replaces its cache. See [optional modules](optional-modules.md) for setup and qualification limits.

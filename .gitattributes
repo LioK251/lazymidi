@@ -1,0 +1,3 @@
+* text=auto eol=lf
+# Keep upstream license text verbatim in generated notices.
+/THIRD_PARTY_DEPENDENCIES.html whitespace=-trailing-space

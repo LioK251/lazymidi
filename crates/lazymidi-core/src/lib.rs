@@ -5,9 +5,11 @@ pub mod engine;
 pub mod latency;
 pub mod midi;
 pub mod platform;
+pub mod presence;
 pub mod routing;
 pub mod runtime;
 pub mod sequencer;
+pub mod transpose;
 
 pub type Result<T> = std::result::Result<T, String>;
 

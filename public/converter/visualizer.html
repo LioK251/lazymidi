@@ -1,0 +1,70 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><link rel="stylesheet" href="piano-visualizer.css"><link rel="stylesheet" href="visualizer-shell.css"></head><body>  <div id="piano-visualizer-modal"
+    class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+    <div id="piano-visualizer-content"
+      class="bg-gray-800 rounded-lg p-0.5 max-w-6xl w-full mx-2 max-h-[92vh] overflow-hidden border border-gray-700 shadow-xl flex flex-col relative">
+      <!-- Header -->
+      <div class="pv-header">
+        <div id="pv-title" class="pv-header-title"></div>
+        <div class="pv-header-buttons">
+          <button id="pv-close" title="Close">✕</button>
+        </div>
+      </div>
+      <!-- Canvas stage -->
+      <div class="pv-stage">
+        <canvas id="pv-canvas"></canvas>
+        <div id="pv-loading" class="pv-loading-overlay">
+          <div class="pv-loading-spinner"></div>
+          <div id="pv-loading-text" class="pv-loading-text">Loading...</div>
+          <div class="pv-loading-progress">
+            <div id="pv-loading-bar" class="pv-loading-progress-bar"></div>
+          </div>
+        </div>
+      </div>
+      <!-- Seek bar -->
+      <input type="range" id="pv-seek" class="pv-seek-bar" min="0" max="100" value="0" step="0.1">
+        <div id="pv-hand-editor" hidden>
+          <p>Pause and click a falling note, or select a note near the playhead. Crossings may need correction. Corrections stay in this browser.</p>
+          <div class="pv-tool-row">
+            <label>Note <select id="pv-note-select" aria-label="Note to assign"></select></label>
+            <button id="pv-assign-left" type="button">Assign left</button>
+            <button id="pv-assign-right" type="button">Assign right</button>
+            <button id="pv-assign-auto" type="button">Use estimate</button>
+            <button id="pv-reset-hands" type="button">Reset corrections</button>
+          </div>
+        </div>
+      <p id="pv-tools-status" class="pv-status" role="status" aria-live="polite"></p>
+      <!-- Controls -->
+      <div class="pv-controls">
+        <div class="pv-transport">
+          <button id="pv-play" title="Play" aria-label="Play">&#9654;</button>
+          <button id="pv-stop" title="Stop">⏹</button>
+        </div>
+        <div id="pv-time-display" class="pv-time">0:00 / 0:00</div>
+        <div class="pv-volume-group">
+          <span id="pv-volume-icon" class="pv-volume-icon">🔊</span>
+          <input type="range" id="pv-volume" class="pv-volume-slider" min="0" max="1" step="0.01" value="0.8">
+        </div>
+        <div class="pv-hand-controls" role="group" aria-label="Piano hands">
+          <button id="pv-toggle-left" type="button" aria-pressed="true">Left</button>
+          <button id="pv-toggle-right" type="button" aria-pressed="true">Right</button>
+          <button id="pv-edit-hands" type="button" aria-pressed="false" title="Correct individual note assignments">Edit hands</button>
+          <button id="pv-export-hands" type="button">Download MIDI</button>
+          <button id="pv-render-video" type="button" title="Record the visualization and sound from the beginning">Render video</button>
+        </div>
+        <div class="pv-spacer"></div>
+        <label class="pv-style-control" for="pv-style-select">Style
+          <select id="pv-style-select" class="pv-soundfont-select"></select>
+        </label>
+        <label class="pv-style-control" for="pv-keyboard-select">Keys
+          <select id="pv-keyboard-select" class="pv-soundfont-select"></select>
+        </label>
+        <label class="pv-style-control" for="pv-soundfont-select">SoundFont
+        <select id="pv-soundfont-select" class="pv-soundfont-select" aria-label="SoundFont">
+          <option value="">Loading...</option>
+        </select>
+        </label>
+      </div>
+    </div>
+  </div>
+
+<script src="bridge.js"></script><script src="piano-styles.js"></script><script src="piano-enhancements.js"></script><script src="midi-downloads.js"></script><script src="piano-visualizer.js"></script></body></html>

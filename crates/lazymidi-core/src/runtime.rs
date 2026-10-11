@@ -24,6 +24,8 @@ use std::{
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Snapshot {
+    pub presence: String,
+    pub transpose: crate::transpose::Status,
     pub state_sequence: u64,
     pub latency: Option<std::collections::BTreeMap<String, Summary>>,
     pub revision: u64,
@@ -58,6 +60,8 @@ impl Snapshot {
     pub fn new(settings: Settings, warning: Option<String>) -> Self {
         let sdk_found = crate::analog::find_sdk(settings.sdk_path.as_deref());
         Self {
+            presence: "Waiting".into(),
+            transpose: crate::transpose::Status::default(),
             state_sequence: 0,
             latency: None,
             revision: 0,
@@ -96,6 +100,14 @@ pub enum Command {
     Settings {
         settings: Settings,
         expected_revision: u64,
+    },
+    Transpose {
+        action: String,
+        value: Option<i8>,
+        index: Option<usize>,
+    },
+    TransposeEditing {
+        editing: bool,
     },
     Qwerty {
         enabled: bool,
@@ -166,6 +178,13 @@ pub enum SystemMessage {
     OutputError {
         destination: String,
         error: String,
+    },
+    Presence(String),
+    TransposeProgress {
+        job: u64,
+        completed: u8,
+        finished: bool,
+        error: Option<String>,
     },
     Warning(String),
 }
@@ -253,6 +272,8 @@ impl Drop for Runtime {
 
 enum OutputControl {
     Enable { enabled: bool, request: u64 },
+    Pulse { job: u64, hid: u16, count: u8 },
+    CancelPulse,
     Reconnect,
     Shutdown,
 }
@@ -426,6 +447,34 @@ fn output_worker(
     let mut native = None;
     let mut held: HashMap<(u8, u16, u8), OutputAction> = HashMap::new();
     let mut local_generation = generation.load(Ordering::Acquire);
+    struct Pulse {
+        job: u64,
+        hid: u16,
+        count: u8,
+        completed: u8,
+    }
+    let mut pulse: Option<Pulse> = None;
+    let cancel = |pulse: &mut Option<Pulse>, native: &mut Option<NativeOutput>| {
+        if let Some(p) = pulse.take() {
+            if let Some(output) = native {
+                if let Err(error) = output.write(&OutputAction::Key {
+                    hid: p.hid,
+                    down: false,
+                }) {
+                    let _ = system.send(SystemMessage::OutputError {
+                        destination: destination.clone(),
+                        error,
+                    });
+                }
+            }
+            let _ = system.send(SystemMessage::TransposeProgress {
+                job: p.job,
+                completed: p.completed,
+                finished: true,
+                error: Some("Transpose cancelled.".into()),
+            });
+        }
+    };
     let release = |native: &mut Option<NativeOutput>,
                    held: &mut HashMap<(u8, u16, u8), OutputAction>| {
         let mut releases: Vec<_> = held.drain().map(|(_, action)| action).collect();
@@ -455,12 +504,85 @@ fn output_worker(
     loop {
         let current = generation.load(Ordering::Acquire);
         if current != local_generation {
+            cancel(&mut pulse, &mut native);
             release(&mut native, &mut held);
             local_generation = current;
         }
+        if let Some(p) = pulse.as_mut() {
+            let count = (p.count - p.completed).min(8);
+            let actions: Vec<_> = (0..count)
+                .flat_map(|_| {
+                    [
+                        OutputAction::Key {
+                            hid: p.hid,
+                            down: true,
+                        },
+                        OutputAction::Key {
+                            hid: p.hid,
+                            down: false,
+                        },
+                    ]
+                })
+                .collect();
+            let result = native
+                .as_mut()
+                .ok_or_else(|| "Keyboard output unavailable.".to_string())
+                .and_then(|n| n.write_many(&actions));
+            match result {
+                Ok(()) => {
+                    p.completed += count;
+                    if generation.load(Ordering::Acquire) != local_generation {
+                        cancel(&mut pulse, &mut native);
+                        continue;
+                    }
+                    let finished = p.completed == p.count;
+                    let _ = system.send(SystemMessage::TransposeProgress {
+                        job: p.job,
+                        completed: p.completed,
+                        finished,
+                        error: None,
+                    });
+                    if finished {
+                        pulse = None;
+                    }
+                }
+                Err(error) => {
+                    let p = pulse.take().unwrap();
+                    if let Some(n) = native.as_mut() {
+                        let _ = n.write(&OutputAction::Key {
+                            hid: p.hid,
+                            down: false,
+                        });
+                    }
+                    let _ = system.send(SystemMessage::OutputError {
+                        destination: destination.clone(),
+                        error: error.clone(),
+                    });
+                    let _ = system.send(SystemMessage::TransposeProgress {
+                        job: p.job,
+                        completed: p.completed,
+                        finished: true,
+                        error: Some(error),
+                    });
+                }
+            }
+        }
+        let wait = if pulse.is_some() {
+            Duration::ZERO
+        } else {
+            Duration::from_millis(2)
+        };
         crossbeam_channel::select_biased! {
             recv(control)->command=>match command {
+                Ok(OutputControl::Pulse{job,hid,count})=>{
+                    cancel(&mut pulse,&mut native);
+                    let result=if native.is_none(){open(None).map(|n|native=Some(n))}else{Ok(())};
+                    if let Err(error)=result {let _=system.send(SystemMessage::TransposeProgress{job,completed:0,finished:true,error:Some(error)});}
+                    else {pulse=Some(Pulse{job,hid,count,completed:0});}
+                },
+                Ok(OutputControl::CancelPulse)=>cancel(&mut pulse,&mut native),
                 Ok(OutputControl::Enable{enabled,request})=>{
+                    cancel(&mut pulse,&mut native);
                     release(&mut native,&mut held);native=None;
                     let result=if enabled {match open(id.as_deref()){Ok(n)=>{native=Some(n);Ok(())},Err(e)=>Err(e)}}else{Ok(())};
                     let _=system.send(SystemMessage::KeyboardReady{request,enabled,result});
@@ -478,7 +600,7 @@ fn output_worker(
                 messages.retain(|message| message.0 == epoch);
                 if messages.is_empty() { continue; }
                 // Flush any in-flight older generation before delivering a newer event.
-                if epoch!=local_generation{release(&mut native,&mut held);local_generation=epoch;}
+                if epoch!=local_generation{cancel(&mut pulse,&mut native);release(&mut native,&mut held);local_generation=epoch;}
                 let started=messages.iter().any(|m| m.2.is_some()).then(Instant::now);
                 for (_,_,timing) in &messages { if let (Some(timing),Some(started))=(timing,started){timing.metrics.record(Stage::KeyboardQueue,started.saturating_duration_since(timing.queued));} }
                 let actions=crate::qwerty::keyboard_batch(messages.iter().map(|m| &m.1));
@@ -504,9 +626,10 @@ fn output_worker(
                 if batch && epoch!=generation.load(Ordering::Acquire) { release(&mut native,&mut held); delivered=false; }
                 if delivered && id.is_none(){for (_,_,timing) in &messages {if let (Some(timing),Some(started))=(timing,started){let completed=Instant::now();timing.metrics.record(Stage::NativeSend,completed.duration_since(started));match timing.source{Source::Midi=>timing.metrics.record(Stage::MidiToSend,completed.saturating_duration_since(timing.received)),Source::Analog=>timing.metrics.record(Stage::AnalogToSend,completed.saturating_duration_since(timing.received)),_=>{}}}}}
             },
-            default(Duration::from_millis(2))=>{}
+            default(wait)=>{}
         }
     }
+    cancel(&mut pulse, &mut native);
     release(&mut native, &mut held);
 }
 
@@ -795,6 +918,13 @@ fn run(
     );
     let (input_tx, input_rx) = bounded(4096);
     let (system_tx, system_rx) = unbounded();
+    let (presence_tx, presence_rx) = bounded(1);
+    let presence_system = system_tx.clone();
+    let (presence_done, presence_finished) = bounded(1);
+    let _presence_join = thread::spawn(move || {
+        crate::presence::worker(presence_rx, presence_system);
+        let _ = presence_done.send(());
+    });
     let (device_tx, device_rx) = unbounded();
     let (analog_tx, analog_rx) = unbounded();
     let midi_generation = Arc::new(AtomicU64::new(0));
@@ -938,13 +1068,15 @@ fn run(
                         result=settings.validate().and_then(|_|if expected_revision!=state.revision{Err("Preferences changed. Reload your draft before applying.".into())}else{Ok(())});
                         if result.is_ok(){
                             let keep_analog=preserve_analog_connection(&state,&settings);
-                            flush!();disarm!();if !keep_analog{disable_analog!();}
+                            let musical_change = !state.settings.musical_eq(&settings);
+                            if musical_change {flush!();disarm!();if !keep_analog{disable_analog!();}}
+                            if !settings.show_transposer || state.settings.profile().transpose != settings.profile().transpose { state.transpose.armed=false; let _=keyboard.control.send(OutputControl::CancelPulse); state.transpose.selected=0; }
                             state.settings=settings;state.revision+=1;state.sdk_found=crate::analog::find_sdk(state.settings.sdk_path.as_deref());
-                            let _=device_tx.send(DeviceCommand::Select(state.settings.preferred_midi.clone()));
+                            if musical_change { let _=device_tx.send(DeviceCommand::Select(state.settings.preferred_midi.clone()));
                             let desired:HashSet<String>=state.settings.profile().routes.iter().filter(|r|r.enabled).filter_map(|r|if let Destination::Midi(id)=&r.destination{Some(id.clone())}else{None}).collect();
                             let removed:Vec<_>=outputs.keys().filter(|id|!desired.contains(*id)).cloned().collect();for id in removed{if let Some(mut out)=outputs.remove(&id){out.stop();}}
                             for id in desired{if let Some(out)=outputs.get(&id){let _=out.control.send(OutputControl::Reconnect);}else{outputs.insert(id.clone(),OutputHandle::new(Some(id),system_tx.clone(),fault.clone(),None));}}
-                            state.error=None;
+                            } state.error=None;
                         }
                     },
                     Command::Qwerty{enabled}=>{
@@ -954,8 +1086,22 @@ fn run(
                     Command::Analog{enabled}=>{
                         flush!();if !enabled{disarm!();}analog_request+=1;state.analog_enabled=false;state.analog_pending=enabled;let _=analog_tx.send(AnalogCommand::Enable{request:analog_request,enabled,path:state.settings.sdk_path.clone(),device:state.settings.analog_device.clone(),hz:state.settings.polling_hz});state.error=None;
                     },
-                    Command::Pause{paused}=>pause_keyboard(&mut state,&mut engine,&keyboard,&mut qwerty_barrier,paused),
-                    Command::Panic=>{flush!();disarm!();sequencer.stop();disable_analog!();state.error=None;},
+                    Command::TransposeEditing{editing}=>{state.transpose.editing=editing; if editing {let _=keyboard.control.send(OutputControl::CancelPulse);} },
+                    Command::Transpose{action,value,index}=>{
+                        let config=&state.settings.profile().transpose;
+                        if !state.settings.show_transposer {result=Err("Enable Transposer in Settings.".into());}
+                        else { result = match action.as_str() {
+                            "sync" => state.transpose.sync(value.unwrap_or(0)),
+                            "select" => state.transpose.select(index.unwrap_or(0),config),
+                            "arm" => match state.transpose.resume(config) {Ok(Some((job,hid,count)))=>{let _=keyboard.control.send(OutputControl::Pulse{job,hid,count});Ok(())},Ok(None)=>Ok(()),Err(e)=>Err(e)},
+                            "pause" => {state.transpose.armed=false;let _=keyboard.control.send(OutputControl::CancelPulse);Ok(())},
+                            "toggle" => if state.transpose.armed {state.transpose.armed=false;let _=keyboard.control.send(OutputControl::CancelPulse);Ok(())} else {match state.transpose.resume(config) {Ok(Some((job,hid,count)))=>{let _=keyboard.control.send(OutputControl::Pulse{job,hid,count});Ok(())},Ok(None)=>Ok(()),Err(e)=>Err(e)}},
+                            "next" | "previous" => match state.transpose.step(if action=="next"{1}else{-1},config) {Ok(Some((job,hid,count)))=>{let _=keyboard.control.send(OutputControl::Pulse{job,hid,count});Ok(())},Ok(None)=>Ok(()),Err(e)=>Err(e)},
+                            _=>Err("Unknown transpose action.".into()),
+                        };if result.is_ok(){state.error=None;}}
+                    },
+                    Command::Pause{paused}=>{state.transpose.editing=paused;if paused{let _=keyboard.control.send(OutputControl::CancelPulse);}pause_keyboard(&mut state,&mut engine,&keyboard,&mut qwerty_barrier,paused);},
+                    Command::Panic=>{state.transpose.armed=false;let _=keyboard.control.send(OutputControl::CancelPulse);flush!();disarm!();sequencer.stop();disable_analog!();state.error=None;},
                     Command::Refresh=>{let _=device_tx.send(DeviceCommand::Refresh);state.sdk_found=crate::analog::find_sdk(state.settings.sdk_path.as_deref());},
                     Command::Arm{track}=>{if track>3{result=Err("Invalid track.".into());}else{sequencer.commit_group();sequencer.armed=track;}},
                     Command::Cursor{step}=>{if step>15{result=Err("Invalid step.".into());}else{sequencer.commit_group();sequencer.cursor=step;}},
@@ -982,6 +1128,8 @@ fn run(
                 }
             },
             recv(system_rx)->message=>if let Ok(message)=message{match message {
+                SystemMessage::Presence(status)=>state.presence=status,
+                SystemMessage::TransposeProgress{job,completed,finished,error}=>state.transpose.progress(job,completed,finished,error),
                 SystemMessage::Devices{inputs,outputs:ports}=>{
                     for (id,output) in &outputs {let was=state.outputs.iter().any(|p|&p.id==id);let present=ports.iter().any(|p|&p.id==id);
                         if was&&!present {output.flush();fault.store(true,Ordering::Release);}
@@ -1019,6 +1167,9 @@ fn run(
             activity.extend(live_notes.iter().copied());
             state.active_notes = activity.into_iter().collect();
             state.active_notes.sort_by_key(|(_, c, n)| (*c, *n));
+            if !cfg!(test) && !std::env::args_os().any(|a| a == "--smoke-test") {
+                let _ = presence_tx.try_send(crate::presence::Presence::from_snapshot(&state));
+            }
             state.state_sequence += 1;
             *shared.write().unwrap_or_else(|e| e.into_inner()) = state.clone();
             next_snapshot = Instant::now() + Duration::from_millis(34);
@@ -1027,6 +1178,9 @@ fn run(
             let _ = tx.send(result.map(|_| state.clone()));
         }
     }
+    drop(presence_tx);
+    // Give normal IPC cleanup time without letting an unresponsive Discord block exit.
+    let _ = presence_finished.recv_timeout(Duration::from_millis(300));
     stopped.store(true, Ordering::Release);
 }
 
@@ -1073,6 +1227,261 @@ fn disarm_keyboard(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "Mock output timing measurement; run explicitly with --nocapture"]
+    fn transpose_dispatch_latency() {
+        let (events, rx) = bounded(4096);
+        let (control, controls) = unbounded();
+        let (system, messages) = unbounded();
+        let generation = Arc::new(AtomicU64::new(0));
+        let first = Arc::new(Mutex::new(None));
+        let sent = first.clone();
+        let join = thread::spawn(move || {
+            output_worker(
+                None,
+                rx,
+                controls,
+                generation,
+                system,
+                Arc::new(AtomicBool::new(false)),
+                move |_| {
+                    let sent = sent.clone();
+                    Ok(NativeOutput::Test(Box::new(move |_| {
+                        sent.lock().unwrap().get_or_insert_with(Instant::now);
+                        Ok(())
+                    })))
+                },
+            )
+        });
+        let mut starts = Vec::new();
+        let mut finishes = Vec::new();
+        for job in 1..=10 {
+            *first.lock().unwrap() = None;
+            let started = Instant::now();
+            control
+                .send(OutputControl::Pulse {
+                    job,
+                    hid: 82,
+                    count: 20,
+                })
+                .unwrap();
+            loop {
+                if matches!(
+                    messages.recv_timeout(Duration::from_secs(2)).unwrap(),
+                    SystemMessage::TransposeProgress {
+                        finished: true,
+                        error: None,
+                        ..
+                    }
+                ) {
+                    break;
+                }
+            }
+            starts.push(
+                first
+                    .lock()
+                    .unwrap()
+                    .unwrap()
+                    .duration_since(started)
+                    .as_micros(),
+            );
+            finishes.push(started.elapsed().as_micros());
+        }
+        starts.sort();
+        finishes.sort();
+        eprintln!(
+            "20-pulse mock transpose: first-send p50={}us p95={}us; completion p50={}us p95={}us",
+            starts[4], starts[9], finishes[4], finishes[9]
+        );
+        control.send(OutputControl::Shutdown).unwrap();
+        drop(events);
+        join.join().unwrap();
+    }
+    #[test]
+    fn transpose_batches_service_music_and_clean_partial_failures() {
+        for fail in [false, true] {
+            let (events, rx) = bounded(4096);
+            let (control, controls) = unbounded();
+            let (system, messages) = unbounded();
+            let log = Arc::new(Mutex::new(Vec::new()));
+            let worker_log = log.clone();
+            let queued = events.clone();
+            let join = thread::spawn(move || {
+                output_worker(
+                    None,
+                    rx,
+                    controls,
+                    Arc::new(AtomicU64::new(0)),
+                    system,
+                    Arc::new(AtomicBool::new(false)),
+                    move |_| {
+                        let single = worker_log.clone();
+                        let batch = worker_log.clone();
+                        let queued = queued.clone();
+                        let mut batches = 0;
+                        Ok(NativeOutput::TestBatch {
+                            single: Box::new(move |action| {
+                                single.lock().unwrap().push(action.clone());
+                                Ok(())
+                            }),
+                            batch: Box::new(move |actions| {
+                                if matches!(actions.first(), Some(OutputAction::Key { hid: 4, .. }))
+                                {
+                                    batch.lock().unwrap().extend_from_slice(actions);
+                                    return Ok(());
+                                }
+                                batches += 1;
+                                assert!(actions.len() <= 16);
+                                for pair in actions.chunks_exact(2) {
+                                    assert!(matches!(
+                                        pair,
+                                        [
+                                            OutputAction::Key {
+                                                hid: 82,
+                                                down: true
+                                            },
+                                            OutputAction::Key {
+                                                hid: 82,
+                                                down: false
+                                            }
+                                        ]
+                                    ));
+                                }
+                                if fail && batches == 2 {
+                                    batch.lock().unwrap().push(actions[0].clone());
+                                    return Err("partial native send".into());
+                                }
+                                batch.lock().unwrap().extend_from_slice(actions);
+                                if batches == 1 {
+                                    queued
+                                        .send((0, OutputAction::Key { hid: 4, down: true }, None))
+                                        .unwrap();
+                                }
+                                Ok(())
+                            }),
+                        })
+                    },
+                );
+            });
+            control
+                .send(OutputControl::Pulse {
+                    job: 1,
+                    hid: 82,
+                    count: 20,
+                })
+                .unwrap();
+            loop {
+                if let SystemMessage::TransposeProgress {
+                    completed,
+                    finished: true,
+                    error,
+                    ..
+                } = messages.recv_timeout(Duration::from_secs(1)).unwrap()
+                {
+                    assert_eq!(completed, if fail { 8 } else { 20 });
+                    assert_eq!(error.is_some(), fail);
+                    break;
+                }
+            }
+            control.send(OutputControl::Shutdown).unwrap();
+            drop(events);
+            join.join().unwrap();
+            let actions = log.lock().unwrap();
+            assert!(matches!(
+                actions[16],
+                OutputAction::Key { hid: 4, down: true }
+            ));
+            assert!(actions.iter().any(|a| matches!(
+                a,
+                OutputAction::Key {
+                    hid: 4,
+                    down: false
+                }
+            )));
+            if fail {
+                assert!(matches!(
+                    actions[18],
+                    OutputAction::Key {
+                        hid: 82,
+                        down: false
+                    }
+                ));
+            }
+        }
+    }
+    #[test]
+    fn transpose_pulses_acknowledge_completed_releases_and_cancel() {
+        let (tx, rx) = bounded(4096);
+        let (control, controls) = unbounded();
+        let (system, messages) = unbounded();
+        let generation = Arc::new(AtomicU64::new(0));
+        let fault = Arc::new(AtomicBool::new(false));
+        let delivered = Arc::new(Mutex::new(Vec::new()));
+        let log = delivered.clone();
+        let cancel_control = control.clone();
+        let join = thread::spawn(move || {
+            output_worker(None, rx, controls, generation, system, fault, move |_| {
+                let log = log.clone();
+                let cancel_control = cancel_control.clone();
+                Ok(NativeOutput::Test(Box::new(move |action| {
+                    let mut log = log.lock().unwrap();
+                    log.push(action.clone());
+                    if log.len() == 22 {
+                        cancel_control.send(OutputControl::CancelPulse).unwrap();
+                    }
+                    Ok(())
+                })))
+            })
+        });
+        control
+            .send(OutputControl::Pulse {
+                job: 1,
+                hid: 82,
+                count: 3,
+            })
+            .unwrap();
+        loop {
+            if let SystemMessage::TransposeProgress {
+                job: 1,
+                completed,
+                finished: true,
+                error,
+            } = messages.recv_timeout(Duration::from_secs(1)).unwrap()
+            {
+                assert_eq!(completed, 3);
+                assert!(error.is_none());
+                break;
+            }
+        }
+        assert_eq!(delivered.lock().unwrap().len(), 6);
+        control
+            .send(OutputControl::Pulse {
+                job: 2,
+                hid: 81,
+                count: 100,
+            })
+            .unwrap();
+        loop {
+            if let SystemMessage::TransposeProgress {
+                job: 2,
+                completed,
+                finished: true,
+                error,
+            } = messages.recv_timeout(Duration::from_secs(1)).unwrap()
+            {
+                assert_eq!(completed, 8);
+                assert!(error.is_some());
+                break;
+            }
+        }
+        control.send(OutputControl::Shutdown).unwrap();
+        drop(tx);
+        join.join().unwrap();
+        assert!(matches!(
+            delivered.lock().unwrap().last(),
+            Some(OutputAction::Key { down: false, .. })
+        ));
+    }
     fn test_output() -> (
         OutputHandle,
         Receiver<OutputMessage>,

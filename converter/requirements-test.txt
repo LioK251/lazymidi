@@ -1,0 +1,7 @@
+# Private-service tests only; no PyTorch, Transkun model or FFmpeg installation.
+Flask>=3.1,<4
+Flask-WTF>=1.2,<2
+flask-talisman>=1.1,<2
+pretty_midi>=0.2.10,<0.3
+requests>=2.32,<3
+yt-dlp>=2026.8.19

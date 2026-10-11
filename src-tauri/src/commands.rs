@@ -11,6 +11,14 @@ pub struct App {
     pub runtime: Runtime,
     pub operations: Mutex<()>,
     pub smoke_path: Option<PathBuf>,
+    pub smoke_overlays: bool,
+    pub smoke_converter: bool,
+    pub sheet: Mutex<serde_json::Value>,
+    pub sheet_generation: std::sync::atomic::AtomicU64,
+    pub visualizer: Mutex<serde_json::Value>,
+    pub converter: Mutex<crate::converter::Converter>,
+    pub converter_control: std::sync::Arc<crate::converter::Control>,
+    pub converter_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Debug, Serialize)]
 pub struct Error {
@@ -29,6 +37,8 @@ impl From<String> for Error {
 pub fn get_state(app: State<App>) -> serde_json::Value {
     let mut value = serde_json::to_value(app.runtime.snapshot()).expect("Snapshot serializes");
     value["native_smoke"] = serde_json::Value::Bool(app.smoke_path.is_some());
+    value["native_smoke_overlays"] = serde_json::Value::Bool(app.smoke_overlays);
+    value["native_smoke_converter"] = serde_json::Value::Bool(app.smoke_converter);
     value
 }
 #[tauri::command]
@@ -40,13 +50,45 @@ pub async fn native_smoke_ready(app: tauri::AppHandle) -> Result<(), Error> {
             .as_ref()
             .ok_or_else(|| "Native smoke mode is not enabled.".to_string())?;
         let snapshot = state.runtime.snapshot();
+        let mut overlays = Vec::new();
+        if state.smoke_overlays {
+            for name in ["monitor", "sheet"] {
+                let window = app.get_webview_window(name)
+                    .ok_or_else(|| format!("{name} did not open"))?;
+                if !window.is_visible().map_err(|e| e.to_string())? {
+                    return Err(format!("{name} is not visible"));
+                }
+                if window.is_decorated().map_err(|e| e.to_string())? {
+                    return Err(format!("{name} still has native window chrome"));
+                }
+                overlays.push(name);
+            }
+        }
         if snapshot.qwerty_enabled || snapshot.analog_enabled || snapshot.sdk_version.is_some() {
             return Err("Optional output/SDK unexpectedly initialized on startup.".to_string());
         }
+        if state.smoke_converter && !state.converter.lock().map_err(|e| e.to_string())?
+            .status.lock().map_err(|e| e.to_string())?.running {
+            return Err("Native converter service did not start.".into());
+        }
+        if state.smoke_converter {
+            let visualizer=app.get_webview_window("visualizer").ok_or("Visualizer did not open.")?;
+            if !visualizer.is_visible().map_err(|e|e.to_string())?||visualizer.is_always_on_top().map_err(|e|e.to_string())? {return Err("Visualizer window options failed.".into());}
+            if visualizer.is_decorated().map_err(|e|e.to_string())? {return Err("Visualizer still has native window chrome.".into());}
+        }
         config::atomic_save(
             path,
-            &serde_json::json!({"native_frontend_ready":true,"snapshot":snapshot}),
+            &serde_json::json!({"native_frontend_ready":true,"overlays":overlays,"converter":state.smoke_converter,"snapshot":snapshot}),
         )?;
+        state.converter_control.stop();
+        state
+            .converter_cancel
+            .store(true, std::sync::atomic::Ordering::Release);
+        state
+            .converter
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .stop();
         state.runtime.stop();
         app.exit(0);
         Ok::<_, String>(())
@@ -69,6 +111,9 @@ pub async fn app_command(app: tauri::AppHandle, command: Command) -> Result<Snap
         } = &command
         {
             settings.validate()?;
+            for profile in &settings.profiles {
+                crate::shortcuts::validate(profile)?;
+            }
             let previous = app.runtime.snapshot();
             if *expected_revision != previous.revision {
                 return Err("Preferences changed. Reload your draft before applying.".into());
@@ -164,7 +209,17 @@ pub async fn load_project(app: tauri::AppHandle, path: PathBuf) -> Result<Snapsh
 #[tauri::command]
 pub async fn shutdown(app: tauri::AppHandle) -> Result<(), Error> {
     tauri::async_runtime::spawn_blocking(move || {
+        crate::overlays::save_all(&app);
         let state = app.state::<App>();
+        state.converter_control.stop();
+        state
+            .converter_cancel
+            .store(true, std::sync::atomic::Ordering::Release);
+        state
+            .converter
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .stop();
         state.runtime.stop();
         app.exit(0);
     })

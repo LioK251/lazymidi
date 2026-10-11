@@ -53,7 +53,7 @@ pub enum InputMode {
     Analog,
     Midi,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Profile {
     pub id: String,
     pub name: String,
@@ -72,11 +72,13 @@ pub struct Profile {
     pub sustain_hid: Option<u16>,
     #[serde(default)]
     pub sostenuto_hid: Option<u16>,
+    #[serde(default)]
+    pub transpose: crate::transpose::Config,
 }
 fn enabled_by_default() -> bool {
     true
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub version: u32,
     pub selected_profile: String,
@@ -89,6 +91,14 @@ pub struct Settings {
     pub aftertouch: bool,
     #[serde(default)]
     pub both_inputs: bool,
+    #[serde(default = "enabled_by_default")]
+    pub discord_presence: bool,
+    #[serde(default = "enabled_by_default")]
+    pub discord_get_button: bool,
+    #[serde(default = "enabled_by_default")]
+    pub show_transposer: bool,
+    #[serde(default)]
+    pub show_converter: bool,
 }
 impl Default for Profile {
     fn default() -> Self {
@@ -118,6 +128,7 @@ impl Default for Profile {
             extended_keys: true,
             sustain_hid: None,
             sostenuto_hid: None,
+            transpose: crate::transpose::Config::default(),
         }
     }
 }
@@ -147,6 +158,10 @@ impl Default for Settings {
             polling_hz: 1000,
             aftertouch: true,
             both_inputs: false,
+            discord_presence: true,
+            discord_get_button: true,
+            show_transposer: true,
+            show_converter: false,
         }
     }
 }
@@ -187,6 +202,7 @@ impl AnalogPreset {
 }
 impl Profile {
     pub fn validate(&self) -> Result<()> {
+        self.transpose.validate(self)?;
         if self
             .sustain_hid
             .into_iter()
@@ -228,6 +244,20 @@ impl Profile {
     }
 }
 impl Settings {
+    pub fn musical_eq(&self, other: &Self) -> bool {
+        let mut left = self.clone();
+        let mut right = other.clone();
+        for settings in [&mut left, &mut right] {
+            settings.discord_presence = false;
+            settings.discord_get_button = false;
+            settings.show_transposer = false;
+            settings.show_converter = false;
+            for profile in &mut settings.profiles {
+                profile.transpose = crate::transpose::Config::default();
+            }
+        }
+        left == right
+    }
     pub fn profile(&self) -> &Profile {
         self.profiles
             .iter()
@@ -363,6 +393,39 @@ pub fn import_profile(text: &str) -> Result<Profile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn optional_settings_defaults_roundtrip_and_musical_changes() {
+        let original = Settings::default();
+        let mut legacy = serde_json::to_value(&original).unwrap();
+        for key in [
+            "discord_presence",
+            "discord_get_button",
+            "show_transposer",
+            "show_converter",
+        ] {
+            legacy.as_object_mut().unwrap().remove(key);
+        }
+        for profile in legacy["profiles"].as_array_mut().unwrap() {
+            profile.as_object_mut().unwrap().remove("transpose");
+        }
+        let loaded: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(loaded, original);
+        let mut edited = original.clone();
+        edited.discord_presence = false;
+        edited.show_converter = true;
+        edited.show_transposer = false;
+        edited.profiles[1].transpose.sequence = vec![-2, 3, 0];
+        assert!(original.musical_eq(&edited));
+        let profile = import_profile(
+            &serde_json::json!({"version":1,"profile":edited.profile()}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(profile.transpose.sequence, vec![-2, 3, 0]);
+        edited.profiles[1].game_velocity = false;
+        assert!(!original.musical_eq(&edited));
+        edited.profiles[1].transpose.up = Some(4);
+        assert!(edited.validate().is_err());
+    }
     #[test]
     fn polling_preferences_preserve_old_rates_and_allow_low_latency_default() {
         let mut settings = Settings::default();

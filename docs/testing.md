@@ -1,5 +1,15 @@
 # Verification and release qualification
 
+## Version 0.1.4 preparation
+
+Local Windows checks on 2026-10-12: 52 Rust workspace tests, 45 SDK-free core/integration tests and 64 frontend/visualizer tests passed. Formatting, Clippy with warnings denied, TypeScript/Vite build and clean `npm ci` passed. The npm audit reported no vulnerabilities at preparation time.
+
+Python environment probes passed 3 tests; private converter service checks passed 14 tests, with the opt-in transcription test skipped. These checks use isolated temporary data and do not change profiles or the selected Python environment. CI now installs only the service test dependencies and runs both Python suites alongside the existing native matrix; remote Linux/macOS results are not yet available for this revision.
+
+The 0.1.4 optimized Windows executable passed the native frontend/overlay/converter smoke check with an existing environment and isolated data. This includes the 260 × 130 monitor geometry, sheet generation/revision rejection, bounded SoundFont reads and visualizer hide/reopen. Monitor auto-resume and sheet-send auto-resume are covered by mocked IPC tests; live Roblox acceptance/focus has not been checked for this change.
+
+Six specialized Rust tests remain opt-in (hardware/timing, optional runtime-pack installation and existing-environment qualification). Runtime packs are not release assets. Live Roblox/audio latency, Discord lifecycle, fullscreen/DPI behavior, external media workflows and non-Windows native qualification are still manual gates. Earlier timing and conversion evidence below describes its original test sessions, not a new 0.1.4 measurement.
+
 ## Analog velocity correction in 0.1.3
 
 The reported quiet analog response reproduced with the selected profile's threshold 0.15 and velocity scale 0.61: a 0.04 → 0.24 press over 10 ms produced MIDI velocity 15 immediately, but velocity 1 after resting at depth 0.04 for 100 ms. The old calculator retained the initial touch timestamp. Wooting refreshes the anchor when depth stays within 0.01 of it, and when the key releases; resting time must not dilute the next strike. The corrected calculator measures speed before refreshing this anchor and truncates the MIDI byte as upstream does, retaining the 1–127 Note On guard and zero-time/missing-history protections. Stored profiles and the exact supplied default JSON are unchanged.
