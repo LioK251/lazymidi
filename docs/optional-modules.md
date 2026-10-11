@@ -271,6 +271,8 @@ these preferences across launches without altering source MIDI or game output.
 ### Generated sheets and visualizer windows
 
 Sheet buttons in Convert, Library and conversion results generate immediately.
+When the floating sheet is visible, these actions update it without switching
+the main converter to Sheets. Otherwise, they open Sheets as before.
 The main and floating views share source MIDI, effective settings, line/chord
 positions and transient revisions. Both use the native generate_sheet command;
 stale requests cannot publish or replace saved output. Failed regeneration keeps
@@ -286,6 +288,9 @@ edits game values directly in headings; Enter or blur commits, + adds a point
 using its inherited value, and − beside an explicit heading removes the point.
 Source-free text/image sheets cannot regenerate.
 Click-through has been removed; Stay on top, opacity, colors and zoom remain.
+The floating viewer groups opacity, Stay on top, colors, centering and zoom under
+View. Open sheet, Copy sheet, Send to Transposer and the mode selector stay visible.
+Editable headings and point controls keep the same line spacing as the notes.
 
 Converter navigation is Convert, Library, Sheets. Each library card's Preview piano
 image opens the same reusable native window. A new song loads

@@ -76,7 +76,12 @@ export default function Converter({active,onError}:{active:boolean;onError:(mess
       if(request===generation.current)acceptSheet(value);
     }catch(e){if(request===generation.current&&selectedRef.current===filename)throw e;}
   }
-  function openSheet(filename:string){chooseMidi(filename);setSection("Sheets");void run(()=>generateSheet({},filename));}
+  function openSheet(filename:string){chooseMidi(filename);void run(async()=>{
+    const viewer=api.desktop?await (await import("@tauri-apps/api/webviewWindow")).WebviewWindow.getByLabel("sheet"):null;
+    if(selectedRef.current!==filename)return;
+    if(!viewer||!await viewer.isVisible())setSection("Sheets");
+    await generateSheet({},filename);
+  });}
   function sheetOption(key:string,value:unknown){setting(key,value);if(sheet&&ready&&!busy)void run(()=>generateSheet({[key]:value}));}
   const installed=!!runtime?.status.installed;
   const setupBusy=!!(runtime?.status.installing||runtime?.status.validating);

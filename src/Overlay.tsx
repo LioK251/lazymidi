@@ -60,14 +60,14 @@ export default function Overlay({kind}:{kind:string}) {
     <div className="monitor-values"><span>{sequence[(status.selected+sequence.length-1)%sequence.length]}</span><strong>{status.target??status.current??"—"}</strong><span>{sequence[(status.selected+1)%sequence.length]}</span></div>
     <div className="button-row monitor-controls"><button disabled={busy||!status.armed||status.busy||status.editing} onClick={()=>void command("previous")}>Previous</button><button title={!bindingsReady?"Assign Up/Down in Transposer.":undefined} disabled={busy||(!status.armed&&(!bindingsReady||status.editing))} onClick={()=>void command("toggle")}>{status.armed?"Pause":"Resume"}</button><button disabled={busy||!status.armed||status.busy||status.editing} onClick={()=>void command("next")}>Next</button></div>
   </>:<>
-    <div className="button-row"><button onClick={()=>void api.whilePaused(()=>open({multiple:false,filters:[{name:"Sheet",extensions:["txt","png","jpg","jpeg","webp"]}]}).then(path=>path&&invoke("overlay_sheet",{path,text:null}))).catch(e=>setError(api.errorText(e)))}>Open sheet</button>
-      {sheet.image&&<label>Zoom<input aria-label="Sheet zoom" type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={e=>setZoom(+e.target.value)}/></label>}
-      {sheet.image&&modeControl}
+    <SheetTools text={sheet.image?"":sheet.text??""} image={!!sheet.image} colored={colored} onColored={setColored} centered={centered} onCentered={setCentered} zoom={zoom} onZoom={setZoom} onError={setError} hideLegend onSendTransposes={sendTransposes} busy={busy}
+      onOpen={()=>void api.whilePaused(()=>open({multiple:false,filters:[{name:"Sheet",extensions:["txt","png","jpg","jpeg","webp"]}]}).then(path=>path&&invoke("overlay_sheet",{path,text:null}))).catch(e=>setError(api.errorText(e)))}
+      viewOptions={<>
       <label>Opacity<input aria-label="Sheet opacity" type="range" min="0.2" max="1" step="0.05" value={opacity} onChange={e=>setOpacity(+e.target.value)}/></label>
       <label><input type="checkbox" checked={top} onChange={e=>options(e.target.checked)}/> Stay on top</label>
-    </div>{!sheet.image&&<SheetTools text={sheet.text??""} colored={colored} onColored={setColored} centered={centered} onCentered={setCentered} zoom={zoom} onZoom={setZoom} onError={setError} hideLegend onSendTransposes={sendTransposes} busy={busy}>
+    </>}>
       {modeControl}
-    </SheetTools>}
+    </SheetTools>
     {busy&&<p role="status">Working…</p>}
     <div className="sheet-scroll" ref={scroll}>{sheet.image?<img alt="Piano sheet" src={sheet.image} style={{width:`${zoom*100}%`}}/>:sheet.text?<SheetText text={sheet.text} colored={colored} centered={centered} zoom={zoom}
       lineContent={manual?(line,i)=>{const match=/^Transpose by:\s*([+-]?\d+)/i.exec(line);const chord=sheet.source?.line_chord_map[i];return match&&chord!=null&&chord>=0?<TransposeValue value={Number(match[1])} chord={chord} disabled={busy} onCommit={value=>changePoint(chord,value)} onError={setError}/>:null;}:undefined}

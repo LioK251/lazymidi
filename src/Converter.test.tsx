@@ -1,14 +1,17 @@
 import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {act,cleanup,fireEvent,render,screen,waitFor,within} from "@testing-library/react";
 import {invoke} from "@tauri-apps/api/core";
+import {WebviewWindow} from "@tauri-apps/api/webviewWindow";
 import Converter from "./Converter";
 import {thumbnailSrc} from "./ConverterPreviews";
 
 vi.mock("@tauri-apps/api/core",()=>({invoke:vi.fn(),convertFileSrc:(p:string)=>`http://converter.localhost/${p}`,isTauri:()=>true}));
 vi.mock("./backend",async()=>({...await vi.importActual<typeof import("./backend")>("./backend"),whilePaused:async(action:()=>Promise<unknown>)=>action(),ask:async()=>true}));
 vi.mock("@tauri-apps/api/event",()=>({listen:vi.fn(async()=>()=>{})}));
+vi.mock("@tauri-apps/api/webviewWindow",()=>({WebviewWindow:{getByLabel:vi.fn()}}));
 const file={filename:"test.mid",video_title:"Test piano",time_str:"Today",file_size:100,source_type:"midi"};
 beforeEach(()=>{
+  vi.mocked(WebviewWindow.getByLabel).mockResolvedValue(null);
   let revision=0;
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
     if(command==="converter_status")return {status:{installed:"cpu",running:true,installing:false,received:0,total:0,error:null},packs:[]} as never;
@@ -67,6 +70,24 @@ it.each(["recent","library"])("automatically generates from the %s Sheet action"
   expect(await screen.findByText("[etu]")).toBeTruthy();
   expect(invoke).toHaveBeenCalledWith("generate_sheet",expect.objectContaining({midiFilename:"test.mid",expectedRevision:null}));
   expect(invoke).not.toHaveBeenCalledWith("app_command",expect.anything());expect(error).not.toHaveBeenCalled();
+});
+it.each(["recent","library"])("keeps the %s section selected when the floating sheet is visible",async(location)=>{
+  vi.mocked(WebviewWindow.getByLabel).mockResolvedValue({isVisible:async()=>true} as WebviewWindow);
+  const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
+  const section=location==="library"?"Library":"Convert";
+  fireEvent.click(screen.getByRole("button",{name:section}));
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  expect(screen.getByRole("button",{name:section}).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button",{name:"Sheets"}).getAttribute("aria-pressed")).toBe("false");
+  expect(invoke).toHaveBeenCalledWith("generate_sheet",expect.objectContaining({midiFilename:"test.mid"}));
+  expect(error).not.toHaveBeenCalled();
+});
+it("opens Sheets when the floating viewer exists but is hidden",async()=>{
+  vi.mocked(WebviewWindow.getByLabel).mockResolvedValue({isVisible:async()=>false} as WebviewWindow);
+  await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  expect(screen.getByRole("button",{name:"Sheets"}).getAttribute("aria-pressed")).toBe("true");
+  expect(await screen.findByText("[etu]")).toBeTruthy();
 });
 it("generates the completed conversion's MIDI from Make sheet",async()=>{
   const original=vi.mocked(invoke).getMockImplementation()!;

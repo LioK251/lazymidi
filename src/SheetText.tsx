@@ -47,15 +47,19 @@ export function SheetText({text,colored=true,centered=false,zoom=1,lineAction,li
   return <div className={`sheet-text${centered?" sheet-centered":""}`} style={{fontSize:18*zoom}} aria-label="Piano sheet">{lines.map((line,i)=><Fragment key={i}><div className="sheet-line"><span>{lineContent?.(line,i)??sheetLine(line,colored)}</span>{lineAction?.(i)}</div>{i<lines.length-1?"\n":null}</Fragment>)}</div>;
 }
 
-export function SheetTools({text,colored,onColored,centered,onCentered,zoom,onZoom,onError,children,onSendTransposes,hideLegend=false,busy=false}:{text:string;colored:boolean;onColored:(v:boolean)=>void;centered:boolean;onCentered:(v:boolean)=>void;zoom:number;onZoom:(v:number)=>void;onError:(message:string)=>void;children?:ReactNode;onSendTransposes?:(sequence:number[])=>Promise<void>;hideLegend?:boolean;busy?:boolean}){
+export function SheetTools({text,colored,onColored,centered,onCentered,zoom,onZoom,onError,children,onSendTransposes,hideLegend=false,busy=false,onOpen,viewOptions,image=false}:{text:string;colored:boolean;onColored:(v:boolean)=>void;centered:boolean;onCentered:(v:boolean)=>void;zoom:number;onZoom:(v:number)=>void;onError:(message:string)=>void;children?:ReactNode;onSendTransposes?:(sequence:number[])=>Promise<void>;hideLegend?:boolean;busy?:boolean;onOpen?:()=>void;viewOptions?:ReactNode;image?:boolean}){
   const transposes=transposeValues(text);
   async function copy(value:string){try{await navigator.clipboard.writeText(value);}catch{onError("Could not copy. Select the sheet text and copy it manually.");}}
   async function send(){try{await onSendTransposes?.(transposeSequence(text));}catch(error){onError(error instanceof Error?error.message:String(error));}}
-  return <div className="sheet-tools" role="group" aria-label="Sheet view controls">
-    <label><input type="checkbox" checked={colored} onChange={e=>onColored(e.target.checked)}/> Colors</label>
-    <label><input type="checkbox" checked={centered} onChange={e=>onCentered(e.target.checked)}/> Center</label>
+  const viewControls=<>{viewOptions}
+    <label><input type="checkbox" disabled={image} checked={colored} onChange={e=>onColored(e.target.checked)}/> Colors</label>
+    <label><input type="checkbox" disabled={image} checked={centered} onChange={e=>onCentered(e.target.checked)}/> Center</label>
     <label>Zoom<input aria-label="Sheet zoom" type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={e=>onZoom(+e.target.value)}/></label>
+  </>;
+  return <div className={`sheet-tools${onOpen?" sheet-toolbar":""}`} role="group" aria-label="Sheet view controls">
+    {onOpen?<button onClick={onOpen}>Open sheet</button>:viewControls}
     <button disabled={!text} onClick={()=>void copy(text)}>Copy sheet</button><span className="sheet-transpose-tools"><button disabled={!transposes||busy} onClick={()=>void (onSendTransposes?send():copy(transposes))}>{onSendTransposes?"Send to Transposer":"Copy transposes"}</button>{children}</span>
+    {onOpen&&<details className="sheet-view-options" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget))e.currentTarget.open=false;}} onKeyDown={e=>{if(e.key==="Escape"){e.currentTarget.open=false;e.currentTarget.querySelector("summary")?.focus();e.stopPropagation();}}}><summary>View</summary><div className="sheet-view-panel" role="group" aria-label="Sheet appearance">{viewControls}</div></details>}
     {!hideLegend&&<details className="sheet-legend"><summary>Tempo colors</summary><span style={{color:colors.sixteenth}}>- fast</span><span style={{color:colors.eighth}}>space</span><span style={{color:colors.quarter}}> - </span><span style={{color:colors.half}}>, </span><span style={{color:colors.whole}}>... pause</span><span style={{color:colors.long}}>| long pause</span><span><u>:key</u> Ctrl note</span></details>}
   </div>;
 }

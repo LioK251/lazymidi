@@ -47,11 +47,25 @@ it("colors floating sheets and applies the native stay-on-top control",async()=>
   vi.mocked(invoke).mockImplementation(async command=>command==="get_sheet"?{text:"Transpose by: -2\n[etu] - :1"}:{});
   await act(async()=>{render(<Overlay kind="sheet"/>);});
   expect(screen.getByLabelText("Piano sheet").querySelector(".sheet-extended")?.textContent).toBe(":1");
+  const view=screen.getByText("View",{exact:true}).closest("details")!;
+  expect(view.open).toBe(false);
+  for(const name of ["Stay on top","Colors","Center","Sheet zoom","Sheet opacity"])expect(screen.getByLabelText(name).closest("details")).toBe(view);
+  for(const name of ["Open sheet","Copy sheet","Send to Transposer"])expect(screen.getByRole("button",{name})).toBeTruthy();
+  expect(screen.getByRole("combobox",{name:"Transpose mode"})).toBeTruthy();
+  fireEvent.click(screen.getByText("View",{exact:true}));
+  expect(view.open).toBe(true);
   expect((screen.getByLabelText("Stay on top") as HTMLInputElement).checked).toBe(true);
   fireEvent.click(screen.getByLabelText("Stay on top"));
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith("overlay_options",{kind:"sheet",top:false}));
   fireEvent.click(screen.getByLabelText("Colors"));
   expect(screen.getByLabelText("Piano sheet").querySelector(".sheet-chord")).toBeNull();
+  fireEvent.click(screen.getByLabelText("Center"));
+  expect(screen.getByLabelText("Piano sheet").classList.contains("sheet-centered")).toBe(true);
+  fireEvent.change(screen.getByLabelText("Sheet zoom"),{target:{value:"1.5"}});
+  expect(screen.getByLabelText("Piano sheet").style.fontSize).toBe("27px");
+  fireEvent.keyDown(screen.getByText("View",{exact:true}),{key:"Escape"});
+  expect(view.open).toBe(false);
+  expect(document.activeElement).toBe(screen.getByText("View",{exact:true}));
   expect(screen.queryByLabelText("Click through")).toBeNull();
   expect((screen.getByLabelText("Transpose mode") as HTMLSelectElement).disabled).toBe(true);
   expect(screen.queryByText("Tempo colors")).toBeNull();
@@ -132,7 +146,20 @@ it("removes an explicit manual transpose and lets opacity reach both endpoints",
   await act(async()=>{fireEvent.click(remove);});
   expect(invoke).toHaveBeenLastCalledWith("generate_sheet",expect.objectContaining({settings:expect.objectContaining({manual_transpose_points:[]})}));
   expect(screen.queryByRole("button",{name:"Remove transpose at chord 2"})).toBeNull();
+  fireEvent.click(screen.getByText("View",{exact:true}));
   const opacity=screen.getByLabelText("Sheet opacity") as HTMLInputElement;
   fireEvent.change(opacity,{target:{value:"0.2"}});expect(opacity.closest(".overlay")?.getAttribute("style")).toContain("opacity: 0.2");
   fireEvent.change(opacity,{target:{value:"1"}});expect(opacity.closest(".overlay")?.getAttribute("style")).toContain("opacity: 1");
+});
+
+it("keeps image-sheet zoom and native window options in View",async()=>{
+  vi.mocked(invoke).mockResolvedValue({image:"data:image/png;base64,iVBORw0KGgo="});
+  await act(async()=>{render(<Overlay kind="sheet"/>);});
+  expect((screen.getByRole("button",{name:"Copy sheet"}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button",{name:"Send to Transposer"}) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByLabelText("Sheet zoom").closest("details")?.open).toBe(false);
+  fireEvent.click(screen.getByText("View",{exact:true}));
+  expect((screen.getByRole("checkbox",{name:"Colors"}) as HTMLInputElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("Sheet zoom"),{target:{value:"2"}});
+  expect(screen.getByAltText("Piano sheet").style.width).toBe("200%");
 });
