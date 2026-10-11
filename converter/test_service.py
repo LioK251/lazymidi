@@ -136,9 +136,16 @@ class ServiceTests(unittest.TestCase):
         saved={"transpose_mode":"manual","manual_transpose_points":[{"chord":0,"value":-3}],"show_bpm_changes_as_comments":False,"show_tempo_timing_marks":True,"quantize":50,"break_lines_how":"manually","break_lines_every":8}
         self.assertEqual(self.client.post("/api/settings",headers=self.headers,json=saved).status_code,200)
         self.assertEqual(self.client.get("/api/settings",headers=self.headers).json,saved)
-        for key in ("show_bpm_changes_as_comments","show_tempo_timing_marks"):
+        saved["always_open_float"]=True
+        self.assertEqual(self.client.post("/api/settings",headers=self.headers,json=saved).status_code,200)
+        self.assertEqual(self.client.get("/api/settings",headers=self.headers).json,saved)
+        for key in ("show_bpm_changes_as_comments","show_tempo_timing_marks","always_open_float"):
             self.assertEqual(self.client.post("/api/settings",headers=self.headers,json={key:"false"}).status_code,400)
             self.assertEqual(self.client.get("/api/settings",headers=self.headers).json,saved)
+        self.assertEqual(self.client.post("/api/settings",headers=self.headers,json={"always_open_float":0}).status_code,400)
+        saved["always_open_float"]=False
+        self.assertEqual(self.client.post("/api/settings",headers=self.headers,json=saved).status_code,200)
+        self.assertEqual(self.client.get("/api/settings",headers=self.headers).json,saved)
     def test_manual_headers_split_at_exact_chords_and_report_line_starts(self):
         midi=pretty_midi.PrettyMIDI(initial_tempo=120);piano=pretty_midi.Instrument(0)
         for i in range(6):piano.notes.append(pretty_midi.Note(80,60+i,i*.25,i*.25+.1))

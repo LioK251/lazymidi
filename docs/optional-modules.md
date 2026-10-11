@@ -272,7 +272,14 @@ these preferences across launches without altering source MIDI or game output.
 
 Sheet buttons in Convert, Library and conversion results generate immediately.
 When the floating sheet is visible, these actions update it without switching
-the main converter to Sheets. Otherwise, they open Sheets as before.
+the main converter to Sheets. A minimized viewer is restored before generation,
+also without switching sections. Otherwise, they open Sheets as before.
+Enable **Always open Float** in Sheets to open the floating viewer first and
+keep the current converter section on every Sheet action, even if the viewer
+was closed. This preference saves immediately and defaults off.
+Library search accepts the active profile's MIDI → QWERTY output, including
+analog-generated notes, so it remains usable with normal typing disabled in
+Wootility. Other editors and file dialogs still pause generated piano keys.
 The main and floating views share source MIDI, effective settings, line/chord
 positions and transient revisions. Both use the native generate_sheet command;
 stale requests cannot publish or replace saved output. Failed regeneration keeps
@@ -291,6 +298,12 @@ Click-through has been removed; Stay on top, opacity, colors and zoom remain.
 The floating viewer groups opacity, Stay on top, colors, centering and zoom under
 View. Open sheet, Copy sheet, Send to Transposer and the mode selector stay visible.
 Editable headings and point controls keep the same line spacing as the notes.
+The viewer saves zoom, opacity, Colors, Center and Stay on top immediately and
+restores them after closing the window or restarting the app. These are viewer
+preferences, independent of converter formatting and profile settings.
+Floating-window position, normal size and maximized state save on close and
+periodically while open. Restore adjusts sizes for DPI, recovers off-screen
+positions and reads the geometry backup if its primary file is invalid.
 
 Converter navigation is Convert, Library, Sheets. Each library card's Preview piano
 image opens the same reusable native window. A new song loads

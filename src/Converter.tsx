@@ -60,13 +60,18 @@ export default function Converter({active,onError}:{active:boolean;onError:(mess
   function acceptSheet(value:SheetContent){
     if(value.source?.midi_filename!==selectedRef.current||(value.revision??0)<=sheetRevision.current)return;
     sheetRevision.current=value.revision??0;setSheet(value.text??"");setSheetId(value.sheets_filename??"");setLineMap(value.source.line_chord_map);
-    setSettings(s=>({...s,...value.source!.settings}));setPoints(JSON.stringify(gamePoints(value.source.settings)));
+    setSettings(s=>({...s,...value.source!.settings,always_open_float:s.always_open_float}));setPoints(JSON.stringify(gamePoints(value.source.settings)));
   }
   useEffect(()=>{let disposed=false;let stop=()=>{};void listen<SheetContent>("sheet-content",e=>{if(!disposed)acceptSheet(e.payload);}).then(f=>{if(disposed)f();else stop=f;});return()=>{disposed=true;stop();};},[]);
   const openVisualizer=(filename:string)=>run(()=>invoke("open_visualizer",{midiFilename:filename}));
   async function upload(kind:string){const result=await dialog<{task_id?:string;midi_filename?:string;copied?:number;midis?:number;history?:number;skipped?:number}|null>("converter_pick",{kind,device});if(!result)return;if(result.task_id){setJobId(result.task_id);setJob({status:"queued"});}if(result.midi_filename){chooseMidi(result.midi_filename);setSection("Library");setMessage("MIDI imported.");}if(result.copied!==undefined){setSection("Library");setMessage(`Imported ${result.midis??0} MIDI files and ${result.history??0} history entries · ${result.copied} files copied${result.skipped?` · ${result.skipped} already present`:""}.`);}await refresh();}
   const importLibrary=()=>run(()=>upload("import"));
   function setting(key:string,value:unknown){setSettings(s=>({...s,[key]:value}));}
+  async function alwaysFloat(enabled:boolean){
+    const latest=await converterRequest<Values>("/api/settings");
+    await converterRequest("/api/settings",{...latest,always_open_float:enabled});
+    setting("always_open_float",enabled);
+  }
   function manualPoints(){const value=JSON.parse(points) as {chord:number;value:number}[];if(!Array.isArray(value)||value.some(p=>!p||!Number.isInteger(p.chord)||p.chord<0||!Number.isInteger(p.value)||p.value < -50||p.value>50))throw new Error("Manual points need a chord index and value from −50 to 50.");return value;}
   function sheetSettings(overrides:Values={}){return {...settings,...overrides,manual_transpose_points:manualPoints().map(p=>({...p,value:-p.value}))};}
   async function saveSettings(){const saved=sheetSettings();const latest=await converterRequest<Values>("/api/settings");await converterRequest("/api/settings",{...latest,...Object.fromEntries(Object.entries(saved).filter(([key])=>!visualizerSetting(key)))});setSettings(saved);setMessage("Converter settings saved.");}
@@ -77,9 +82,14 @@ export default function Converter({active,onError}:{active:boolean;onError:(mess
     }catch(e){if(request===generation.current&&selectedRef.current===filename)throw e;}
   }
   function openSheet(filename:string){chooseMidi(filename);void run(async()=>{
-    const viewer=api.desktop?await (await import("@tauri-apps/api/webviewWindow")).WebviewWindow.getByLabel("sheet"):null;
+    if(settings.always_open_float)await api.openOverlay("sheet");
+    else{
+      const viewer=api.desktop?await (await import("@tauri-apps/api/webviewWindow")).WebviewWindow.getByLabel("sheet"):null;
+      if(selectedRef.current!==filename)return;
+      if(viewer&&(await viewer.isVisible()||await viewer.isMinimized()))await api.openOverlay("sheet");
+      else setSection("Sheets");
+    }
     if(selectedRef.current!==filename)return;
-    if(!viewer||!await viewer.isVisible())setSection("Sheets");
     await generateSheet({},filename);
   });}
   function sheetOption(key:string,value:unknown){setting(key,value);if(sheet&&ready&&!busy)void run(()=>generateSheet({[key]:value}));}
@@ -126,7 +136,7 @@ export default function Converter({active,onError}:{active:boolean;onError:(mess
           <p className="help">Use the lazymidi extension for supported links or an already downloaded MuseScore MIDI.</p>
           <button disabled={!installed||busy||setupBusy||!!jobId} onClick={()=>void run(()=>dialog("converter_install",{variant:"cpu",local:true}))}>Replace runtime from pack</button></details>
         </aside></div>}
-      {section==="Library"&&<section className="converter-library-section"><div className="button-row converter-library-toolbar"><input aria-label="Search library" placeholder="Search library…" value={search} onChange={e=>setSearch(e.target.value)}/><button disabled={!ready||busy} onClick={()=>void run(refresh)}>Refresh</button><button disabled={!ready||busy} onClick={()=>void run(()=>upload("midi"))}>Import MIDI</button><button disabled={!ready||busy||!!jobId} onClick={()=>void importLibrary()}>Import history & MIDI folder</button></div><p className="help">Import from your old converter folder, AudioConverterData, or any folder of MIDI files. Existing files are preserved.</p>
+      {section==="Library"&&<section className="converter-library-section"><div className="button-row converter-library-toolbar"><input data-midi-typing aria-label="Search library" placeholder="Search library…" value={search} onChange={e=>setSearch(e.target.value)}/><button disabled={!ready||busy} onClick={()=>void run(refresh)}>Refresh</button><button disabled={!ready||busy} onClick={()=>void run(()=>upload("midi"))}>Import MIDI</button><button disabled={!ready||busy||!!jobId} onClick={()=>void importLibrary()}>Import history & MIDI folder</button></div><p className="help">Import from your old converter folder, AudioConverterData, or any folder of MIDI files. Existing files are preserved.</p>
         <div className="converter-library">{matchingFiles.slice(currentPage*24,(currentPage+1)*24).map(f=><article className="song-card" key={f.filename} aria-label={f.video_title||f.filename}>
           <SongPreview title={f.video_title||f.filename} thumbnail={f.thumbnail_url} disabled={!ready||busy} onClick={()=>void openVisualizer(f.filename)}/>
           <div className="song-card-info"><h2 title={f.video_title||f.filename}>{f.video_title||f.filename}</h2><small>{f.time_str} · {size(f.file_size)} · {f.source_type||"MIDI"}</small></div>
@@ -136,7 +146,7 @@ export default function Converter({active,onError}:{active:boolean;onError:(mess
         {!matchingFiles.length&&<div className="converter-empty"><h2>{files.length?"No matching MIDI":"Your MIDI library is empty"}</h2><p>{files.length?"Try another search.":"Convert piano audio or import a MIDI to get started."}</p></div>}<details><summary>Conversion history ({history.length})</summary>{history.filter(h=>`${h.video_title} ${h.midi_name}`.toLowerCase().includes(search.toLowerCase())).map((h,i)=><div className="details-row converter-history-row" key={i}><span>{h.video_title||h.midi_name}</span><small>{h.type} · {new Date(h.timestamp*1000).toLocaleString()}</small><button onClick={()=>void run(async()=>{if(await api.ask("Delete this history entry and associated output?")){await converterRequest("/api/history/delete",{timestamp:h.timestamp});if(selected===h.midi_name)chooseMidi("");await refresh();}})}>Delete</button></div>)}</details>
       </section>}
       {section==="Sheets"&&<label className="field">MIDI<select value={selected} onChange={e=>{chooseMidi(e.target.value);}}><option value="">Select MIDI</option>{files.map(f=><option key={f.filename} value={f.filename}>{f.video_title||f.filename}</option>)}</select></label>}
-      {section==="Sheets"&&<div className="split converter-workflow"><section className="primary-panel"><h2>Virtual Piano sheet</h2>
+      {section==="Sheets"&&<div className="split converter-workflow"><section className="primary-panel"><div className="section-heading"><h2>Virtual Piano sheet</h2><label className="toggle"><input type="checkbox" disabled={!ready||busy} checked={!!settings.always_open_float} onChange={e=>void run(()=>alwaysFloat(e.target.checked))}/>Always open Float</label></div>
         <div className="segmented sheet-modes" role="group" aria-label="Transpose mode">{Object.entries(transposeModes).map(([value,label])=><button key={value} disabled={busy} aria-pressed={settings.transpose_mode===value} onClick={()=>sheetOption("transpose_mode",value)}>{label}</button>)}</div>
         <p className="help">{transposeHelp[settings.transpose_mode as keyof typeof transposeHelp]}</p>
         <div className="button-row"><button className="primary" disabled={!ready||busy||!selected} onClick={()=>void run(()=>generateSheet())}>Generate</button><button disabled={!sheetId||busy} onClick={()=>void exportFile(sheetId)}>Export</button><button disabled={!sheet||busy} onClick={()=>void run(async()=>{await api.openOverlay("sheet");})}>Float sheet</button></div>

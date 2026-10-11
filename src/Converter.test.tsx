@@ -83,16 +83,94 @@ it.each(["recent","library"])("keeps the %s section selected when the floating s
   expect(error).not.toHaveBeenCalled();
 });
 it("opens Sheets when the floating viewer exists but is hidden",async()=>{
-  vi.mocked(WebviewWindow.getByLabel).mockResolvedValue({isVisible:async()=>false} as WebviewWindow);
+  vi.mocked(WebviewWindow.getByLabel).mockResolvedValue({isVisible:async()=>false,isMinimized:async()=>false} as WebviewWindow);
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
   expect(screen.getByRole("button",{name:"Sheets"}).getAttribute("aria-pressed")).toBe("true");
   expect(await screen.findByText("[etu]")).toBeTruthy();
 });
-it("generates the completed conversion's MIDI from Make sheet",async()=>{
+it.each([true,false])("restores a minimized sheet before generating without redirecting (visible: %s)",async(visible)=>{
+  vi.mocked(WebviewWindow.getByLabel).mockResolvedValue({isVisible:async()=>visible,isMinimized:async()=>true} as WebviewWindow);
+  const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  expect(vi.mocked(invoke).mock.calls.filter(([command])=>["open_overlay","generate_sheet"].includes(command)).map(([command])=>command)).toEqual(["open_overlay","generate_sheet"]);
+  expect(screen.getByRole("button",{name:"Convert"}).getAttribute("aria-pressed")).toBe("true");
+  expect(error).not.toHaveBeenCalled();
+});
+it("saves Always open Float immediately without saving draft formatting, and restores it on reopening",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  let saved:Record<string,unknown>={quantize:35,visualizer_style:"neon"};
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    const a=args as {path?:string;body?:Record<string,unknown>};
+    if(a?.path==="/api/settings"){if(a.body)saved=a.body;return saved;}
+    return original(command,args);
+  });
+  const view=render(<Converter active onError={vi.fn()}/>);
+  await screen.findByText("Ready");
+  fireEvent.click(screen.getByRole("button",{name:"Sheets"}));
+  expect((screen.getByLabelText("Always open Float") as HTMLInputElement).checked).toBe(false);
+  fireEvent.change(screen.getByLabelText("Chord grouping (ms)"),{target:{value:"80"}});
+  await act(async()=>{fireEvent.click(screen.getByLabelText("Always open Float"));});
+  expect(saved).toEqual({quantize:35,visualizer_style:"neon",always_open_float:true});
+  expect((screen.getByLabelText("Chord grouping (ms)") as HTMLInputElement).value).toBe("80");
+  view.unmount();
+  await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
+  fireEvent.click(screen.getByRole("button",{name:"Sheets"}));
+  expect((screen.getByLabelText("Always open Float") as HTMLInputElement).checked).toBe(true);
+  await act(async()=>{fireEvent.click(screen.getByLabelText("Always open Float"));});
+  expect(saved.always_open_float).toBe(false);
+});
+it.each(["recent","library"])("opens Float before generating from %s without redirecting when the preference is on",async(location)=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    if((args as {path?:string})?.path==="/api/settings")return {always_open_float:true};
+    const value=await original(command,args);
+    if(command==="generate_sheet")(value as {source:{settings:Record<string,unknown>}}).source.settings={always_open_float:false};
+    return value;
+  });
+  const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
+  const section=location==="library"?"Library":"Convert";
+  fireEvent.click(screen.getByRole("button",{name:section}));
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  expect(invoke).toHaveBeenCalledWith("open_overlay",{kind:"sheet"});
+  expect(vi.mocked(invoke).mock.calls.filter(([command])=>["open_overlay","generate_sheet"].includes(command)).map(([command])=>command)).toEqual(["open_overlay","generate_sheet"]);
+  expect(screen.getByRole("button",{name:section}).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button",{name:"Sheets"}).getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(screen.getByRole("button",{name:"Sheets"}));
+  expect((screen.getByLabelText("Always open Float") as HTMLInputElement).checked).toBe(true);
+  expect(error).not.toHaveBeenCalled();
+});
+it("retains the previous preference when saving fails",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    const a=args as {path?:string;body?:unknown};
+    if(a?.path==="/api/settings"&&a.body)throw new Error("Save failed");
+    return original(command,args);
+  });
+  const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
+  fireEvent.click(screen.getByRole("button",{name:"Sheets"}));
+  await act(async()=>{fireEvent.click(screen.getByLabelText("Always open Float"));});
+  expect(error).toHaveBeenCalledWith("Save failed");
+  expect((screen.getByLabelText("Always open Float") as HTMLInputElement).checked).toBe(false);
+});
+it("does not redirect or generate if opening Float fails",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    if(command==="open_overlay")throw new Error("Window unavailable");
+    if((args as {path?:string})?.path==="/api/settings")return {always_open_float:true};
+    return original(command,args);
+  });
+  const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  expect(error).toHaveBeenCalledWith("Window unavailable");
+  expect(invoke).not.toHaveBeenCalledWith("generate_sheet",expect.anything());
+  expect(screen.getByRole("button",{name:"Convert"}).getAttribute("aria-pressed")).toBe("true");
+});
+it.each([false,true])("generates the completed conversion's MIDI from Make sheet (always Float: %s)",async(alwaysFloat)=>{
   const original=vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
     if(command==="converter_pick")return {task_id:"job-test"};
+    if((args as {path?:string})?.path==="/api/settings")return {always_open_float:alwaysFloat};
     if((args as {path?:string})?.path==="/api/status/job-test")return {status:"completed",midi_name:"test.mid"};
     return original(command,args);
   });
@@ -100,7 +178,10 @@ it("generates the completed conversion's MIDI from Make sheet",async()=>{
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Choose audio or video"}));});
   await screen.findByRole("button",{name:"Make sheet"});
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Make sheet"}));});
-  expect(await screen.findByText("[etu]")).toBeTruthy();
+  if(alwaysFloat){
+    expect(invoke).toHaveBeenCalledWith("open_overlay",{kind:"sheet"});
+    expect(screen.getByRole("button",{name:"Convert"}).getAttribute("aria-pressed")).toBe("true");
+  }else expect(await screen.findByText("[etu]")).toBeTruthy();
   expect(invoke).toHaveBeenCalledWith("generate_sheet",expect.objectContaining({midiFilename:"test.mid"}));
 });
 it("rejects malformed manual points before submitting a conversion",async()=>{

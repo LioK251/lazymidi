@@ -8,6 +8,22 @@ import TitleBar from "./TitleBar";
 import {gamePoints,transposeModes} from "./converter-api";
 import type {Point,SheetContent,Values} from "./converter-api";
 
+const viewKey="lazymidi.sheet-view.v1";
+const defaultView={zoom:1,opacity:1,top:true,colored:true,centered:false};
+type SheetView=typeof defaultView;
+function savedView():SheetView{
+  try{
+    const v=JSON.parse(localStorage.getItem(viewKey)??"{}");
+    return {
+      zoom:typeof v?.zoom==="number"&&Number.isFinite(v.zoom)&&v.zoom>=0.5&&v.zoom<=3?v.zoom:1,
+      opacity:typeof v?.opacity==="number"&&Number.isFinite(v.opacity)&&v.opacity>=0.2&&v.opacity<=1?v.opacity:1,
+      top:typeof v?.top==="boolean"?v.top:true,
+      colored:typeof v?.colored==="boolean"?v.colored:true,
+      centered:typeof v?.centered==="boolean"?v.centered:false,
+    };
+  }catch{return defaultView;}
+}
+
 function TransposeValue({value,chord,disabled,onCommit,onError}:{value:number;chord:number;disabled:boolean;onCommit:(value:number)=>void;onError:(message:string)=>void}){
   const [draft,setDraft]=useState(String(value));useEffect(()=>setDraft(String(value)),[value]);
   function commit(){const next=Number(draft);if(!draft.trim()||!Number.isInteger(next)||next < -50||next>50){setDraft(String(value));onError("Transpose must be an integer from −50 to 50.");return;}if(next!==value)onCommit(next);}
@@ -18,10 +34,17 @@ export default function Overlay({kind}:{kind:string}) {
   const [state,setState]=useState(api.initialState());
   const [sheet,setSheet]=useState<SheetContent>({text:""});const sheetRef=useRef(sheet);sheetRef.current=sheet;
   const scroll=useRef<HTMLDivElement>(null);const restoreScroll=useRef<number|null>(null);const [busy,setBusy]=useState(false);
-  const [zoom,setZoom]=useState(1); const [opacity,setOpacity]=useState(1);
-  const [top,setTop]=useState(true);
-  const [colored,setColored]=useState(true);const [centered,setCentered]=useState(false);
+  const [view,setView]=useState(()=>kind==="sheet"?savedView():defaultView);
+  const viewRef=useRef(view);viewRef.current=view;
+  const {zoom,opacity,top,colored,centered}=view;
+  const topQueue=useRef(Promise.resolve());
   const [error,setError]=useState("");
+  function changeView(changes:Partial<SheetView>){
+    const next={...viewRef.current,...changes};viewRef.current=next;setView(next);
+    try{localStorage.setItem(viewKey,JSON.stringify(next));}catch{setError("Could not save sheet view settings.");}
+  }
+  function applyTop(newTop:boolean){topQueue.current=topQueue.current.then(()=>invoke<void>("overlay_options",{kind,top:newTop})).catch(e=>setError(api.errorText(e)));}
+  useEffect(()=>{if(kind==="sheet")applyTop(viewRef.current.top);},[kind]);
   useEffect(()=>{if(kind==="sheet")document.documentElement.classList.add("sheet-window");return()=>document.documentElement.classList.remove("sheet-window");},[kind]);
   useEffect(()=>{let stop=()=>{};let sheetStop=()=>{};let disposed=false;
     const accept=(s:api.Snapshot)=>setState(p=>s.state_sequence>=p.state_sequence?s:p);
@@ -44,7 +67,7 @@ export default function Overlay({kind}:{kind:string}) {
     catch(e){setError(api.errorText(e));}finally{setBusy(false);}
   }
   async function sendTransposes(values:number[]){setBusy(true);setError("");try{accept(await api.sendTransposeSequence(values));}catch(e){setError(api.errorText(e));}finally{setBusy(false);}}
-  const options=(newTop:boolean)=>void invoke("overlay_options",{kind,top:newTop}).then(()=>setTop(newTop)).catch(e=>setError(api.errorText(e)));
+  const options=(newTop:boolean)=>{changeView({top:newTop});applyTop(newTop);};
   useLayoutEffect(()=>{if(restoreScroll.current!==null&&scroll.current){scroll.current.scrollTop=restoreScroll.current;restoreScroll.current=null;}},[sheet]);
   async function regenerate(changes:Values){const current=sheetRef.current;if(!current.source||busy)return;setBusy(true);setError("");restoreScroll.current=scroll.current?.scrollTop??0;
     try{const value=await invoke<SheetContent>("generate_sheet",{midiFilename:current.source.midi_filename,settings:{...current.source.settings,...changes},expectedRevision:current.revision??null});setSheet(p=>(value.revision??0)>=(p.revision??0)?value:p);}
@@ -60,10 +83,10 @@ export default function Overlay({kind}:{kind:string}) {
     <div className="monitor-values"><span>{sequence[(status.selected+sequence.length-1)%sequence.length]}</span><strong>{status.target??status.current??"—"}</strong><span>{sequence[(status.selected+1)%sequence.length]}</span></div>
     <div className="button-row monitor-controls"><button disabled={busy||!status.armed||status.busy||status.editing} onClick={()=>void command("previous")}>Previous</button><button title={!bindingsReady?"Assign Up/Down in Transposer.":undefined} disabled={busy||(!status.armed&&(!bindingsReady||status.editing))} onClick={()=>void command("toggle")}>{status.armed?"Pause":"Resume"}</button><button disabled={busy||!status.armed||status.busy||status.editing} onClick={()=>void command("next")}>Next</button></div>
   </>:<>
-    <SheetTools text={sheet.image?"":sheet.text??""} image={!!sheet.image} colored={colored} onColored={setColored} centered={centered} onCentered={setCentered} zoom={zoom} onZoom={setZoom} onError={setError} hideLegend onSendTransposes={sendTransposes} busy={busy}
+    <SheetTools text={sheet.image?"":sheet.text??""} image={!!sheet.image} colored={colored} onColored={colored=>changeView({colored})} centered={centered} onCentered={centered=>changeView({centered})} zoom={zoom} onZoom={zoom=>changeView({zoom})} onError={setError} hideLegend onSendTransposes={sendTransposes} busy={busy}
       onOpen={()=>void api.whilePaused(()=>open({multiple:false,filters:[{name:"Sheet",extensions:["txt","png","jpg","jpeg","webp"]}]}).then(path=>path&&invoke("overlay_sheet",{path,text:null}))).catch(e=>setError(api.errorText(e)))}
       viewOptions={<>
-      <label>Opacity<input aria-label="Sheet opacity" type="range" min="0.2" max="1" step="0.05" value={opacity} onChange={e=>setOpacity(+e.target.value)}/></label>
+      <label>Opacity<input aria-label="Sheet opacity" type="range" min="0.2" max="1" step="0.05" value={opacity} onChange={e=>changeView({opacity:+e.target.value})}/></label>
       <label><input type="checkbox" checked={top} onChange={e=>options(e.target.checked)}/> Stay on top</label>
     </>}>
       {modeControl}

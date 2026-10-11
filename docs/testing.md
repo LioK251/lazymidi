@@ -1,5 +1,70 @@
 # Verification and release qualification
 
+## Version 0.1.6 release candidate — 2026-10-12
+
+81 frontend tests, 54 Rust checks, 45 SDK-free core checks and 14 private-service
+tests pass; one optional inference test remains skipped. Formatting,
+TypeScript/Vite and Clippy pass. The optimized Windows executable reports 0.1.6.
+Packaged native frontend, minimize/restore, converter, generated-sheet and
+visualizer checks pass with the existing environment and isolated data. The
+NSIS archive integrity check passes. No SDK or generated keys were enabled.
+Live game/hardware typing, multi-monitor/DPI transitions and non-Windows native
+qualification were not repeated for this release.
+
+## Sheet viewer persistence and minimized restore — 2026-10-12
+
+The reopen regression reproduced opacity and zoom returning to defaults. Viewer
+preferences now persist immediately in WebView storage: zoom, opacity, Colors,
+Center and Stay on top. Tests cover reopening, invalid fields, unavailable
+storage and reapplying native Stay on top. Window geometry saves periodically
+and on close, retains normal dimensions while maximized, skips minimized sizes
+and recovers from its backup. Native helper tests cover legacy files, large
+screens, DPI scaling, minimum sizes and corrupt-primary recovery.
+
+Sheet actions also restore an existing minimized viewer before generation,
+preserving the main section. Both visible and hidden minimized cases reproduced
+the missing restore call before the fix. All 81 frontend tests, TypeScript/Vite,
+54 Rust checks, 45 SDK-free core checks, formatting and Clippy pass. Native smoke
+now uses isolated settings as well as converter data, and exercises minimizing
+then restoring the sheet window. Live multi-monitor/DPI changes remain a manual
+qualification gate. No version bump or publication.
+The final optimized Windows executable and NSIS installer are in `target/latest`.
+Packaged native frontend, minimize/restore, converter, sheet-generation and
+visualizer checks pass with the existing Python environment and isolated data.
+SDK initialization and generated keyboard output remain off during these checks.
+
+## Generated-key typing in converter search — 2026-10-12
+
+The focused converter Library search previously requested `pause: true`, stopping
+the analog → MIDI → QWERTY path used for typing when Wootility digital outputs
+were disabled. The App/Converter regression reproduced that request before the
+fix. Search now opts out of the editor pause; mappings, other editors and dialogs
+retain their existing behavior. Both player switches remain enabled. Native
+hardware typing still requires manual verification with the user's mapping.
+All 76 frontend tests and TypeScript/Vite checks pass. The fresh executable and
+NSIS installer are in `target/latest`; native frontend, overlays, converter,
+sheet generation and visualizer smoke checks pass with isolated data. No SDK or
+keyboard injection was enabled during smoke verification. No publication.
+
+## Always open Float local preview — 2026-10-12
+
+75 frontend/visualizer tests pass. New cases cover the default-off preference,
+immediate persistence without saving draft formatting, reopening, all Sheet entry
+points, opening before generation, failed saves/windows and old sheet settings
+preserving the current preference. TypeScript/Vite and 14 private-service tests
+pass; the optional inference test remains skipped. Service validation rejects
+non-boolean values and old settings without the field remain compatible.
+
+Browser checks at 900 × 620 and 1120 × 760 confirm the toggle layout and Library
+retention after opening Float. These checks mock native windows. The optimized
+Windows executable in `target/always-float-preview` passes native frontend,
+overlay, converter, sheet-generation and visualizer smoke checks with isolated
+data and the existing Python environment. No SDK or game keys were enabled.
+
+This initial preview retained all text-field pauses; the later generated-key
+search fix above supersedes that behavior. This preview is unpublished;
+live hardware/fullscreen behavior remains unqualified.
+
 ## Confirmed sheet-window polish for replacement 0.1.4
 
 69 frontend/visualizer tests pass, including text/image appearance controls, keyboard dismissal and Sheet actions preserving Convert/Library while the floating viewer is visible. A hidden or closed viewer retains the original Sheets navigation. TypeScript/Vite checks pass.

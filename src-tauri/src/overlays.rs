@@ -2,15 +2,50 @@ use crate::commands::{App, Error};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+static GEOMETRY_SAVE: Mutex<()> = Mutex::new(());
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Geometry {
     x: i32,
     y: i32,
     width: u32,
     height: u32,
+    #[serde(default)]
+    scale: Option<f64>,
+    #[serde(default)]
+    maximized: bool,
+}
+fn load_geometry(path: &Path) -> BTreeMap<String, Geometry> {
+    lazymidi_core::config::read_json(path)
+        .or_else(|_| lazymidi_core::config::read_json(&path.with_extension("backup")))
+        .unwrap_or_default()
+}
+fn restored_size(kind: &str, g: &Geometry, scale: f64, bounds: (u32, u32)) -> (u32, u32) {
+    if kind == "monitor" {
+        return ((260. * scale).round() as u32, (130. * scale).round() as u32);
+    }
+    let ratio = g
+        .scale
+        .filter(|s| s.is_finite() && *s > 0.)
+        .map_or(1., |saved| scale / saved);
+    let minimum = if kind == "visualizer" {
+        (900., 620.)
+    } else {
+        (320., 190.)
+    };
+    let min_width = (minimum.0 * scale).round() as u32;
+    let min_height = (minimum.1 * scale).round() as u32;
+    (
+        ((g.width as f64 * ratio).round() as u32).clamp(min_width, bounds.0.max(min_width)),
+        ((g.height as f64 * ratio).round() as u32).clamp(min_height, bounds.1.max(min_height)),
+    )
 }
 fn geometry_path(app: &tauri::AppHandle) -> PathBuf {
     app.state::<App>()
@@ -42,6 +77,7 @@ pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Err
     }
     if let Some(window) = app.get_webview_window(&kind) {
         window.show().map_err(|e| e.to_string())?;
+        window.unminimize().map_err(|e| e.to_string())?;
         if kind == "visualizer" {
             window
                 .emit("visualizer-visibility", true)
@@ -49,9 +85,7 @@ pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Err
         }
         return Ok(());
     }
-    let saved =
-        lazymidi_core::config::read_json::<BTreeMap<String, Geometry>>(&geometry_path(&app))
-            .unwrap_or_default();
+    let saved = load_geometry(&geometry_path(&app));
     let builder = WebviewWindowBuilder::new(
         &app,
         &kind,
@@ -99,21 +133,23 @@ pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Err
     let window = builder.build().map_err(|e| e.to_string())?;
     if let Some(g) = saved.get(&kind) {
         let scale = window.scale_factor().map_err(|e| e.to_string())?;
-        // Keep the monitor compact when restoring older, larger geometry.
-        let (width, height) = if kind == "monitor" {
-            ((260. * scale) as u32, (130. * scale) as u32)
-        } else {
-            (
-                g.width
-                    .clamp(if kind == "visualizer" { 900 } else { 320 }, 2400),
-                g.height
-                    .clamp(if kind == "visualizer" { 620 } else { 190 }, 1600),
-            )
-        };
+        let monitors = window.available_monitors().map_err(|e| e.to_string())?;
+        let bounds = (
+            monitors
+                .iter()
+                .map(|m| m.size().width)
+                .max()
+                .unwrap_or(2400),
+            monitors
+                .iter()
+                .map(|m| m.size().height)
+                .max()
+                .unwrap_or(1600),
+        );
+        let (width, height) = restored_size(&kind, g, scale, bounds);
         window
             .set_size(tauri::PhysicalSize::new(width, height))
             .map_err(|e| e.to_string())?;
-        let monitors = window.available_monitors().map_err(|e| e.to_string())?;
         if monitors.iter().any(|m| {
             let p = m.position();
             let s = m.size();
@@ -128,26 +164,49 @@ pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Err
         } else {
             window.center().map_err(|e| e.to_string())?;
         }
+        if g.maximized && kind != "monitor" {
+            window.maximize().map_err(|e| e.to_string())?;
+        }
     }
+    save_geometry(&window.as_ref().window());
     Ok(())
 }
 pub fn save_geometry(window: &tauri::Window) {
     if !["monitor", "sheet", "visualizer"].contains(&window.label()) {
         return;
     }
+    if window.is_minimized().unwrap_or(true) {
+        return;
+    }
+    let maximized = window.is_maximized().unwrap_or(false);
+    let scale = window.scale_factor().ok();
     if let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) {
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+        let _guard = GEOMETRY_SAVE.lock().unwrap_or_else(|e| e.into_inner());
         let path = geometry_path(window.app_handle());
-        let mut saved = lazymidi_core::config::read_json::<BTreeMap<String, Geometry>>(&path)
-            .unwrap_or_default();
-        saved.insert(
-            window.label().into(),
+        let mut saved = load_geometry(&path);
+        let mut geometry = if maximized {
+            let Some(previous) = saved.get(window.label()) else {
+                return;
+            };
+            previous.clone()
+        } else {
             Geometry {
                 x: position.x,
                 y: position.y,
                 width: size.width,
                 height: size.height,
-            },
-        );
+                scale,
+                maximized: false,
+            }
+        };
+        geometry.maximized = maximized;
+        if saved.get(window.label()) == Some(&geometry) {
+            return;
+        }
+        saved.insert(window.label().into(), geometry);
         let _ = lazymidi_core::config::atomic_save(&path, &saved);
     }
 }
@@ -279,4 +338,48 @@ pub fn get_visualizer(app: tauri::State<App>) -> serde_json::Value {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn geometry_restores_legacy_sizes_large_screens_and_changed_dpi() {
+        let mut g: Geometry =
+            serde_json::from_str(r#"{"x":10,"y":20,"width":2800,"height":1800}"#).unwrap();
+        assert_eq!(restored_size("sheet", &g, 1., (3840, 2160)), (2800, 1800));
+        assert_eq!(restored_size("sheet", &g, 1., (1920, 1080)), (1920, 1080));
+        assert!(!g.maximized);
+        g.width = 1000;
+        g.height = 600;
+        g.scale = Some(1.25);
+        assert_eq!(restored_size("sheet", &g, 1.5, (3840, 2160)), (1200, 720));
+        assert_eq!(restored_size("monitor", &g, 1.5, (3840, 2160)), (390, 195));
+        g.width = 0;
+        g.height = 0;
+        assert_eq!(restored_size("sheet", &g, 1.5, (3840, 2160)), (480, 285));
+    }
+
+    #[test]
+    fn geometry_roundtrips_and_recovers_from_backup() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("overlays.json");
+        let mut saved = BTreeMap::new();
+        saved.insert(
+            "sheet".into(),
+            Geometry {
+                x: 20,
+                y: 30,
+                width: 900,
+                height: 620,
+                scale: Some(1.25),
+                maximized: true,
+            },
+        );
+        lazymidi_core::config::atomic_save(&path, &saved).unwrap();
+        lazymidi_core::config::atomic_save(&path, &saved).unwrap();
+        std::fs::write(&path, "invalid").unwrap();
+        assert_eq!(load_geometry(&path), saved);
+    }
 }

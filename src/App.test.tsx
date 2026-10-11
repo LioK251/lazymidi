@@ -11,6 +11,7 @@ import App from "./App";
 import { defaultProfile } from "./backend";
 import * as api from "./backend";
 import { createPauseController } from "./pause";
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
 
 beforeEach(() => {
   vi.spyOn(api, "pauseOutput").mockImplementation(createPauseController(paused =>
@@ -158,6 +159,27 @@ describe("lazymidi interface", () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith({ type: "pause", paused: false }));
     expect(screen.queryByRole("button", { name: "Resume generated keys" })).toBeNull();
     expect((screen.getByRole("switch", { name: "Enable analog input" }) as HTMLInputElement).checked).toBe(true);
+  });
+  it("keeps generated keys available for converter search while both player switches stay enabled", async () => {
+    const initial = { ...api.initialState(), analog_enabled: true, qwerty_enabled: true };
+    initial.settings.show_converter = true;
+    vi.spyOn(api, "getState").mockResolvedValue(initial);
+    const command = vi.spyOn(api, "command").mockImplementation(async request => ({
+      ...initial, paused: request.type === "pause" && Boolean(request.paused),
+    }));
+    await act(async () => { render(<App />); });
+    await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Convert" })); });
+    fireEvent.click(screen.getByRole("button", { name: "Library" }));
+    const search = screen.getByRole("textbox", { name: "Search library" });
+    await act(async () => { search.focus(); });
+    expect(command).not.toHaveBeenCalledWith({ type: "pause", paused: true });
+    fireEvent.change(search, { target: { value: "piano" } });
+    expect((search as HTMLInputElement).value).toBe("piano");
+    await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Play" })); });
+    expect((screen.getByRole("switch", { name: "Enable analog input" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("switch", { name: "MIDI → QWERTY" }) as HTMLInputElement).checked).toBe(true);
+    await act(async () => { screen.getByLabelText("Analog shift amount").focus(); });
+    expect(command).toHaveBeenCalledWith({ type: "pause", paused: true });
   });
   it("keeps the exact analog preset and independent inverse mapping", () => {
     const p = defaultProfile();

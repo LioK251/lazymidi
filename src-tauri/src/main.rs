@@ -13,7 +13,12 @@ fn main() {
     } else {
         None
     };
-    let runtime = Runtime::start().expect("Cannot create application worker threads");
+    let runtime = if let Some(path) = &smoke_path {
+        Runtime::start_at(path.with_extension("settings.json"))
+    } else {
+        Runtime::start()
+    }
+    .expect("Cannot create application worker threads");
     let smoke_flags: Vec<_> = arguments.collect();
     let smoke_overlays = smoke_path.is_some() && smoke_flags.iter().any(|a| a == "--overlays");
     let smoke_converter = smoke_path.is_some() && smoke_flags.iter().any(|a| a == "--converter");
@@ -69,11 +74,16 @@ fn main() {
             std::thread::spawn(move || {
                 use tauri::Emitter;
                 let mut shortcuts = None;
+                let mut geometry_saved = std::time::Instant::now();
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(34));
                     let state = handle.state::<commands::App>();
                     if state.runtime.is_stopped() {
                         break;
+                    }
+                    if geometry_saved.elapsed() >= std::time::Duration::from_secs(1) {
+                        overlays::save_all(&handle);
+                        geometry_saved = std::time::Instant::now();
                     }
                     let snapshot = state.runtime.snapshot();
                     if !snapshot.settings.show_converter && !state.smoke_converter {
@@ -87,7 +97,10 @@ fn main() {
                     }
                     for (name, enabled) in [
                         ("monitor", snapshot.settings.show_transposer),
-                        ("visualizer", snapshot.settings.show_converter),
+                        (
+                            "visualizer",
+                            snapshot.settings.show_converter || state.smoke_converter,
+                        ),
                         (
                             "sheet",
                             snapshot.settings.show_transposer || snapshot.settings.show_converter,

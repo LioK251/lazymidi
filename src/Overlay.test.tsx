@@ -1,4 +1,4 @@
-import {afterEach,expect,it,vi} from "vitest";
+import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {act,cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {invoke} from "@tauri-apps/api/core";
 import type {SheetContent} from "./converter-api";
@@ -8,7 +8,49 @@ import * as api from "./backend";
 let sheetEvent:(event:{payload:SheetContent})=>void=()=>{};
 vi.mock("@tauri-apps/api/core",()=>({invoke:vi.fn(),isTauri:()=>false}));
 vi.mock("@tauri-apps/api/event",()=>({listen:vi.fn(async(_name,listener)=>{sheetEvent=listener;return()=>{};})}));
+beforeEach(()=>localStorage.clear());
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.clearAllMocks();});
+
+it("restores sheet appearance and native Stay on top after closing and reopening",async()=>{
+  vi.mocked(invoke).mockImplementation(async command=>command==="get_sheet"?{text:"[etu]"}:{});
+  const first=render(<Overlay kind="sheet"/>);
+  await screen.findByLabelText("Piano sheet");
+  fireEvent.click(screen.getByText("View",{exact:true}));
+  fireEvent.change(screen.getByLabelText("Sheet opacity"),{target:{value:"0.6"}});
+  fireEvent.change(screen.getByLabelText("Sheet zoom"),{target:{value:"1.5"}});
+  fireEvent.click(screen.getByLabelText("Colors"));
+  fireEvent.click(screen.getByLabelText("Center"));
+  await act(async()=>{fireEvent.click(screen.getByLabelText("Stay on top"));});
+  first.unmount();vi.mocked(invoke).mockClear();
+  await act(async()=>{render(<Overlay kind="sheet"/>);});
+  expect((screen.getByLabelText("Sheet opacity") as HTMLInputElement).value).toBe("0.6");
+  expect((screen.getByLabelText("Sheet zoom") as HTMLInputElement).value).toBe("1.5");
+  expect((screen.getByLabelText("Colors") as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByLabelText("Center") as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByLabelText("Stay on top") as HTMLInputElement).checked).toBe(false);
+  expect(invoke).toHaveBeenCalledWith("overlay_options",{kind:"sheet",top:false});
+});
+
+it("validates saved view settings without discarding valid fields",async()=>{
+  localStorage.setItem("lazymidi.sheet-view.v1",JSON.stringify({opacity:0,zoom:"2",top:false,colored:"false",centered:true}));
+  vi.mocked(invoke).mockResolvedValue({text:""});
+  await act(async()=>{render(<Overlay kind="sheet"/>);});
+  expect((screen.getByLabelText("Sheet opacity") as HTMLInputElement).value).toBe("1");
+  expect((screen.getByLabelText("Sheet zoom") as HTMLInputElement).value).toBe("1");
+  expect((screen.getByLabelText("Colors") as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByLabelText("Center") as HTMLInputElement).checked).toBe(true);
+  expect(invoke).toHaveBeenCalledWith("overlay_options",{kind:"sheet",top:false});
+});
+
+it("keeps sheet controls working and reports unavailable preference storage",async()=>{
+  vi.spyOn(Storage.prototype,"getItem").mockImplementation(()=>{throw new Error("Blocked");});
+  vi.spyOn(Storage.prototype,"setItem").mockImplementation(()=>{throw new Error("Blocked");});
+  vi.mocked(invoke).mockResolvedValue({text:""});
+  await act(async()=>{render(<Overlay kind="sheet"/>);});
+  fireEvent.change(screen.getByLabelText("Sheet zoom"),{target:{value:"1.5"}});
+  expect((screen.getByLabelText("Sheet zoom") as HTMLInputElement).value).toBe("1.5");
+  expect(screen.getByRole("alert").textContent).toBe("Could not save sheet view settings.");
+});
 
 it("shows only the centered performance controls below monitor values and clears old errors",async()=>{
   vi.mocked(invoke).mockResolvedValue({text:""});
@@ -36,7 +78,7 @@ it("shows only the centered performance controls below monitor values and clears
 
 it("keeps a newly sent sheet when the initial get_sheet reply arrives late",async()=>{
   let finish:(value:unknown)=>void=()=>{};
-  vi.mocked(invoke).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  vi.mocked(invoke).mockImplementation(command=>command==="get_sheet"?new Promise(resolve=>{finish=resolve;}):Promise.resolve());
   await act(async()=>{render(<Overlay kind="sheet"/>);});
   await act(async()=>{sheetEvent({payload:{text:"New sheet"}});finish({text:"Old sheet"});});
   expect(screen.getByLabelText("Piano sheet").textContent).toBe("New sheet");

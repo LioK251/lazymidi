@@ -238,6 +238,14 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
       const size=(await monitor.innerSize()).toLogical(await monitor.scaleFactor());
       if(size.width>261||size.height>131)throw new Error("Transpose monitor did not restore compact geometry.");
       await openOverlay("sheet");
+      const sheet=await WebviewWindow.getByLabel("sheet");
+      if(!sheet)throw new Error("Sheet window did not open.");
+      await sheet.minimize();
+      for(let wait=0;wait<40&&!await sheet.isMinimized();wait++)await new Promise(resolve=>setTimeout(resolve,25));
+      if(!await sheet.isMinimized())throw new Error("Sheet window did not minimize.");
+      await openOverlay("sheet");
+      for(let wait=0;wait<40&&await sheet.isMinimized();wait++)await new Promise(resolve=>setTimeout(resolve,25));
+      if(await sheet.isMinimized()||!await sheet.isVisible())throw new Error("Sheet window did not restore after minimizing.");
     }
     if (converter) {
       await invoke("converter_request",{method:"GET",path:"/api/health",body:null});

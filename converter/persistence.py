@@ -54,7 +54,7 @@ def validate_settings(value):
             raise ValueError(f"Invalid {key}")
     for key,options in {"transpose_mode": ("none","auto","multi","manual"), "place_shifted_notes": ("start","end","inorder"), "place_out_of_range_notes": ("start","end","inorder"), "break_lines_how": ("manually","automatically")}.items():
         if key in value and value[key] not in options: raise ValueError(f"Invalid {key}")
-    for key in ("show_bpm_changes_as_comments", "show_tempo_timing_marks"):
+    for key in ("show_bpm_changes_as_comments", "show_tempo_timing_marks", "always_open_float"):
         if key in value and type(value[key]) is not bool: raise ValueError(f"Invalid {key}")
     points = value.get("manual_transpose_points", [])
     if not isinstance(points,list) or len(points)>10000 or any(not isinstance(p,dict) or type(p.get("chord")) is not int or p["chord"]<0 or type(p.get("value")) is not int or not -50<=p["value"]<=50 for p in points):
