@@ -36,7 +36,7 @@ export function sheetLine(line:string,colored=true):ReactNode {
 export function transposeValues(text:string){return [...text.matchAll(/^\s*Transpose by:\s*([+-]?\d+)/gmi)].map(m=>Number(m[1])).join(" ");}
 export function transposeSequence(text:string):number[] {
   return text.split("\n").filter(line=>/^\s*Transpose by:/i.test(line)).map(line=>{
-    const match=/^\s*Transpose by:\s*([+-]?\d+)\s*$/i.exec(line);
+    const match=/^\s*Transpose by:\s*([+-]?\d+)(?:\s+\([+-]\d+\))?\s*$/i.exec(line);
     if(!match)throw new Error("A transpose heading contains an invalid value.");
     return Number(match[1]);
   });

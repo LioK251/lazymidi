@@ -68,6 +68,15 @@ it("disables monitor resume until Up and Down are configured",async()=>{
   expect(screen.getByRole("button",{name:"Resume"}).getAttribute("title")).toBe("Assign Up/Down in Transposer.");
 });
 
+it("sends Multi headings with relative-change annotations as absolute targets",async()=>{
+  vi.mocked(invoke).mockResolvedValue({text:"Transpose by: 4\na\nTranspose by: -3 (-7)\nb\nTranspose by: -3 (+0)\nc\nTranspose by: 2 (+5)\nd",source:{midi_filename:"test.mid",settings:{transpose_mode:"multi"},line_chord_map:[]}});
+  const send=vi.spyOn(api,"sendTransposeSequence").mockResolvedValue(api.initialState());
+  await act(async()=>{render(<Overlay kind="sheet"/>);});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Send to Transposer"}));});
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(send).toHaveBeenCalledWith([4,-3,-3,2]);
+});
+
 it("allows automatic zero-baseline recovery from the monitor without manual sync",async()=>{
   vi.mocked(invoke).mockResolvedValue({text:""});
   const state=api.initialState();state.transpose.current=null;

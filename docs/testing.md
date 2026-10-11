@@ -1,5 +1,13 @@
 # Verification and release qualification
 
+## Version 0.1.5 parser fix
+
+The floating-sheet Send to Transposer test reproduced the exact invalid-heading error with generated Multi-style headings (`Transpose by: -3 (-7)`). After accepting the optional signed-integer change annotation, it sends only the absolute targets, preserving order and duplicates. Parser regressions cover CRLF, signed targets, zero changes and malformed annotations; the existing backend tests retain length/range validation and automatic-resume coverage.
+
+Local Windows checks: 65 frontend/visualizer tests and 52 Rust workspace tests passed. The patch does not change transpose delivery timing or musical processing. Live Roblox pulse reception remains a manual qualification.
+
+The optimized 0.1.5 Windows executable passed native frontend, floating-window, converter-service, sheet-generation and visualizer smoke checks using isolated test data and the existing Python environment. SDK initialization and musical keyboard output stayed disabled during these checks.
+
 ## Version 0.1.4 preparation
 
 Local Windows checks on 2026-10-12: 52 Rust workspace tests, 45 SDK-free core/integration tests and 64 frontend/visualizer tests passed. Formatting, Clippy with warnings denied, TypeScript/Vite build and clean `npm ci` passed. The npm audit reported no vulnerabilities at preparation time.

@@ -5,7 +5,8 @@ import {SheetText,SheetTools,transposeValues,transposeSequence} from "./SheetTex
 afterEach(cleanup);
 it("preserves heading order, signs and duplicates and rejects malformed headings",()=>{
   expect(transposeSequence("Transpose by: +4\na\nTranspose by: -3\nTranspose by: -3\n<!-- Transpose by: 9 -->")).toEqual([4,-3,-3]);
-  for(const text of ["Transpose by: 1.5","Transpose by: nope","Transpose by: 3 trailing"])
+  expect(transposeSequence("Transpose by: +4\r\nTranspose by: -3 (-7)\r\nTranspose by: -3 (+0)\r\nTranspose by: 2 (+5)\r\n")).toEqual([4,-3,-3,2]);
+  for(const text of ["Transpose by: 1.5","Transpose by: nope","Transpose by: 3 trailing","Transpose by: 3 (+1.5)","Transpose by: 3 (nope)","Transpose by: 3 (+2) trailing"])
     expect(()=>transposeSequence(text)).toThrow("invalid value");
 });
 it("preserves exact sheet text while coloring timing, Ctrl notes and metadata safely",()=>{
