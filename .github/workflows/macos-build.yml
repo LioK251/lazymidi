@@ -28,6 +28,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -43,8 +45,18 @@ jobs:
       - run: cargo test -p lazymidi-core --no-default-features --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo fetch --locked
-      - name: Build ad-hoc signed DMG (not notarized)
-        run: npm run bundle -- --bundles dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
+      - name: Build ad-hoc signed app (not notarized)
+        run: npm run bundle -- --bundles app --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
+      - name: Create DMG using native disk-image tools
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          mkdir -p "$RUNNER_TEMP/lazymidi-installer" target/release/bundle/dmg
+          ditto target/release/bundle/macos/lazymidi.app "$RUNNER_TEMP/lazymidi-installer/lazymidi.app"
+          ln -s /Applications "$RUNNER_TEMP/lazymidi-installer/Applications"
+          hdiutil create -verbose -volname lazymidi -srcfolder "$RUNNER_TEMP/lazymidi-installer" -format UDZO -fs HFS+ "target/release/bundle/dmg/lazymidi_${version}_${EXPECTED_ARCH}.dmg"
       - name: Verify packaged app and SDK-free startup
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
@@ -54,7 +66,7 @@ jobs:
           test "${#dmg[@]}" -eq 1
           hdiutil verify "${dmg[0]}"
           mkdir -p "$RUNNER_TEMP/lazymidi-dmg"
-          printf 'Y\n' | hdiutil attach "${dmg[0]}" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/lazymidi-dmg"
+          hdiutil attach "${dmg[0]}" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/lazymidi-dmg"
           trap 'hdiutil detach "$RUNNER_TEMP/lazymidi-dmg"' EXIT
           python - <<'PY'
           import json, os, pathlib, plistlib, subprocess, tempfile
