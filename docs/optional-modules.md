@@ -155,7 +155,7 @@ lazy. Controls are added to open supported tabs and remain visible offline.
 If all discovery ports are occupied, close obsolete lazymidi instances.
 Extension access is
 limited to submissions/import and its own jobs, not library/settings/history.
-The current extension source downloads MuseScore MIDI directly using LibreScore's dynamic MD5 authorization and legacy fallback, then uses the existing scoped MIDI import. The previously published v0.1.5 extension ZIP uses a file picker. No additional page button is added. Full notices for the adapted MIT code and bundled MD5 helper are under `extension/vendor/`. Native-player token interception is not included; upstream API or CDN changes and website verification can still prevent downloading.
+The replacement v0.1.5 extension downloads MuseScore MIDI directly using LibreScore's dynamic MD5 authorization and legacy fallback, then uses the existing scoped MIDI import. Replace the older unpacked extension, which used a file picker. No additional page button is added. Full notices for the adapted MIT code and bundled MD5 helper are under `extension/vendor/`. Native-player token interception is not included; upstream API or CDN changes and website verification can still prevent downloading.
 
 ## Build and qualification
 
