@@ -25,6 +25,70 @@ beforeEach(()=>{
   });
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
+it("saves the compute preference immediately, restores it, and keeps draft formatting unsaved",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  let saved:Record<string,unknown>={quantize:35};
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    if(command==="converter_status")return {status:{installed:"cuda",running:true},packs:[]};
+    const a=args as {path?:string;body?:Record<string,unknown>};
+    if(a?.path==="/api/settings"){if(a.body)saved=a.body;return saved;}
+    return original(command,args);
+  });
+  const first=render(<Converter active onError={vi.fn()}/>);await screen.findByText("Ready");
+  fireEvent.click(screen.getByRole("button",{name:"Sheets"}));
+  fireEvent.change(screen.getByLabelText("Chord grouping (ms)"),{target:{value:"80"}});
+  fireEvent.click(screen.getByRole("button",{name:"Convert"}));
+  await act(async()=>{fireEvent.change(screen.getByLabelText("Compute device"),{target:{value:"cuda"}});});
+  expect(saved).toEqual({quantize:35,compute_device:"cuda"});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Choose audio or video"}));});
+  expect(invoke).toHaveBeenCalledWith("converter_pick",{kind:"media",device:"cuda"});
+  first.unmount();await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
+  expect((screen.getByLabelText("Compute device") as HTMLSelectElement).value).toBe("cuda");
+  await act(async()=>{fireEvent.change(screen.getByLabelText("Compute device"),{target:{value:"cpu"}});});
+  expect(saved.compute_device).toBe("cpu");
+});
+it("uses CPU when a saved CUDA preference is unavailable without overwriting it",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>(args as {path?:string})?.path==="/api/settings"?{compute_device:"cuda"}:original(command,args));
+  await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
+  expect((screen.getByLabelText("Compute device") as HTMLSelectElement).value).toBe("cpu");
+  expect(vi.mocked(invoke).mock.calls.some(([,a])=>(a as {path?:string;body?:unknown})?.path==="/api/settings"&&(a as {body?:unknown}).body)).toBe(false);
+});
+it("keeps the previous compute device when saving fails",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    if(command==="converter_status")return {status:{installed:"cuda",running:true},packs:[]};
+    const a=args as {path?:string;body?:unknown};if(a?.path==="/api/settings"&&a.body)throw new Error("Save failed");
+    return original(command,args);
+  });
+  const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
+  await act(async()=>{fireEvent.change(screen.getByLabelText("Compute device"),{target:{value:"cuda"}});});
+  expect(error).toHaveBeenCalledWith("Save failed");
+  expect((screen.getByLabelText("Compute device") as HTMLSelectElement).value).toBe("cpu");
+});
+it("places Cancel beside Convert link and keeps file cancellation available",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>(args as {path?:string})?.path==="/api/convert"?{task_id:"link-job"}:original(command,args));
+  await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
+  fireEvent.click(screen.getByRole("button",{name:"Media link"}));
+  fireEvent.change(screen.getByLabelText("Media link"),{target:{value:"https://youtube.com/watch?v=test"}});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Convert link"}));});
+  const cancel=screen.getByRole("button",{name:"Cancel"});
+  expect(cancel.parentElement).toBe(screen.getByRole("button",{name:"Convert link"}).parentElement);
+  await act(async()=>{fireEvent.click(cancel);});
+  expect(invoke).toHaveBeenCalledWith("converter_request",expect.objectContaining({path:"/api/stop/link-job"}));
+  fireEvent.click(screen.getByRole("button",{name:"Local file"}));
+  expect(screen.getByRole("button",{name:"Cancel"})).toBeTruthy();
+});
+it("refreshes browser conversions when returning to the app without changing selection",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;let external=false;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>(args as {path?:string})?.path==="/api/midi-files"&&external?{midi_files:[file,{...file,filename:"browser.mid",video_title:"Browser song"}]}:original(command,args));
+  await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
+  fireEvent.click(screen.getByRole("button",{name:"Library"}));external=true;
+  await act(async()=>{fireEvent.focus(window);});
+  expect(screen.getByRole("article",{name:"Browser song"})).toBeTruthy();
+  expect(screen.getByRole("button",{name:"Library"}).getAttribute("aria-pressed")).toBe("true");
+});
 it("reuses an existing environment with validation progress and CUDA capability",async()=>{
   const original=vi.mocked(invoke).getMockImplementation()!;
   let phase="empty";

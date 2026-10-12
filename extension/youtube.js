@@ -1,4 +1,4 @@
-// YouTube / TikTok → AudioConverter
+// YouTube / TikTok → lazymidi
 //
 // Floating button on video pages. Click hands the URL to the local app, which
 // downloads the audio and runs the Transkun transcription; progress is polled
@@ -8,7 +8,7 @@
   'use strict';
 
   const BTN_ID = 'audioconverter-convert-btn';
-  const IDLE_LABEL = '⬇ MIDI → AudioConverter';
+  const IDLE_LABEL = 'Convert with lazymidi';
   const POLL_INTERVAL = 2000;
   const MAX_POLLS = 900; // 2s each — 30 min, same ceiling as the web UI
   const HEALTH_INTERVAL = 3000;
@@ -155,7 +155,7 @@
 
       throw new Error('Timed out after 30 minutes');
     } catch (err) {
-      console.error('AudioConverter:', err);
+      console.error('lazymidi:', err);
       setState(btn, '✕ ' + err.message, 'error');
       btn.title = err.message;
       resetLater(btn, 8000);

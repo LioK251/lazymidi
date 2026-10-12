@@ -102,8 +102,8 @@ function Status({
 }
 
 function isEditor(target: EventTarget | null): boolean {
-  // Search needs generated keys when a Wootility profile disables normal typing.
-  return target instanceof Element && !target.hasAttribute("data-midi-typing") && target.matches(
+  // Converter fields need generated keys when Wootility disables normal typing.
+  return target instanceof Element && !target.closest("[data-midi-typing]") && target.matches(
     "input:not([type=checkbox]):not([type=radio]), textarea, select, [contenteditable=true]",
   );
 }

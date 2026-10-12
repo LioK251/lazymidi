@@ -160,7 +160,7 @@ describe("lazymidi interface", () => {
     expect(screen.queryByRole("button", { name: "Resume generated keys" })).toBeNull();
     expect((screen.getByRole("switch", { name: "Enable analog input" }) as HTMLInputElement).checked).toBe(true);
   });
-  it("keeps generated keys available for converter search while both player switches stay enabled", async () => {
+  it("keeps generated keys available throughout converter fields while both player switches stay enabled", async () => {
     const initial = { ...api.initialState(), analog_enabled: true, qwerty_enabled: true };
     initial.settings.show_converter = true;
     vi.spyOn(api, "getState").mockResolvedValue(initial);
@@ -175,6 +175,15 @@ describe("lazymidi interface", () => {
     expect(command).not.toHaveBeenCalledWith({ type: "pause", paused: true });
     fireEvent.change(search, { target: { value: "piano" } });
     expect((search as HTMLInputElement).value).toBe("piano");
+    fireEvent.click(screen.getByRole("button", { name: "Convert" }));
+    fireEvent.click(screen.getByRole("button", { name: "Media link" }));
+    await act(async () => { screen.getByRole("textbox", { name: "Media link" }).focus(); });
+    expect(command).not.toHaveBeenCalledWith({ type: "pause", paused: true });
+    fireEvent.click(screen.getByRole("button", { name: "Sheets" }));
+    for (const name of ["Chord grouping (ms)","Transpose resilience","Extended note separator"]) {
+      await act(async () => { screen.getByLabelText(name).focus(); });
+      expect(command).not.toHaveBeenCalledWith({ type: "pause", paused: true });
+    }
     await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Play" })); });
     expect((screen.getByRole("switch", { name: "Enable analog input" }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("switch", { name: "MIDI → QWERTY" }) as HTMLInputElement).checked).toBe(true);

@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "lazymidi Converter",
-  "version": "0.1.6",
-  "description": "Send YouTube and TikTok conversions to lazymidi and import downloaded MuseScore MIDI files into its optional converter.",
+  "version": "0.1.5",
+  "description": "Send YouTube, TikTok and Discord media to lazymidi and import downloaded MuseScore MIDI files.",
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "contextMenus"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",

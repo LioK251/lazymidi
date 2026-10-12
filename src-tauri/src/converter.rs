@@ -466,6 +466,7 @@ impl Converter {
             .current_dir(&data)
             .env("LAZYMIDI_CONVERTER_DATA", &data)
             .env("LAZYMIDI_CONVERTER_TOKEN", &token)
+            .env("LAZYMIDI_COMPUTE_CAPABILITY", &runtime.variant)
             .env("LAZYMIDI_READY_FILE", &ready)
             .env("OMP_NUM_THREADS", "2")
             .env("MKL_NUM_THREADS", "2")

@@ -52,7 +52,7 @@ def validate_settings(value):
     for key,(low,high) in ranges.items():
         if key in value and (type(value[key]) not in (int,float) or not math.isfinite(value[key]) or not low <= value[key] <= high):
             raise ValueError(f"Invalid {key}")
-    for key,options in {"transpose_mode": ("none","auto","multi","manual"), "place_shifted_notes": ("start","end","inorder"), "place_out_of_range_notes": ("start","end","inorder"), "break_lines_how": ("manually","automatically")}.items():
+    for key,options in {"compute_device": ("cpu","cuda"), "transpose_mode": ("none","auto","multi","manual"), "place_shifted_notes": ("start","end","inorder"), "place_out_of_range_notes": ("start","end","inorder"), "break_lines_how": ("manually","automatically")}.items():
         if key in value and value[key] not in options: raise ValueError(f"Invalid {key}")
     for key in ("show_bpm_changes_as_comments", "show_tempo_timing_marks", "always_open_float"):
         if key in value and type(value[key]) is not bool: raise ValueError(f"Invalid {key}")

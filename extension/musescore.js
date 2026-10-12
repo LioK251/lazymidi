@@ -71,7 +71,7 @@
       acSetGlassState(button, '✓ Added to app', 'done');
       button.title = `Imported ${response.midi_name || file.name}`;
     } catch (error) {
-      console.error('AudioConverter MuseScore import:', error);
+      console.error('lazymidi MuseScore import:', error);
       acSetGlassState(button, `✕ ${error.message}`, 'error');
       button.title = error.message;
     } finally {
@@ -89,7 +89,7 @@
   function injectButton() {
     if (document.getElementById(BTN_ID) || !isScorePage()) return;
     const button = acCreateGlassButton(BTN_ID, IDLE_LABEL);
-    button.title = 'Download MIDI from MuseScore, then choose the file to import into AudioConverter';
+    button.title = 'Download MIDI from MuseScore, then choose the file to import into lazymidi';
     const picker = document.createElement('input');
     picker.id = PICKER_ID;
     picker.type = 'file';

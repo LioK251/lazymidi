@@ -2,9 +2,9 @@
 
 A compact desktop utility for playing virtual piano games with a Wooting analog keyboard or a MIDI controller. Rust engine, Tauri 2, React, TypeScript. No external MIDI cable connects its modules. Musical input sends keyboard/MIDI events; the optional converter also has an audio visualizer.
 
-Windows downloads: [GitHub releases](https://github.com/LioK251/lazymidi/releases). Version **0.1.6** provides the current-user installer and portable ZIP. Extract the whole ZIP and keep its `_up_` resource folder beside `lazymidi.exe`; the standalone executable does not include the converter service files. Builds are unsigned; the Wooting SDK remains a separate installation. Linux/macOS installers and full platform hardware qualification are still outstanding.
+Windows downloads: [GitHub releases](https://github.com/LioK251/lazymidi/releases). Version **0.1.5** provides the current-user installer and portable ZIP. Extract the whole ZIP and keep its `_up_` resource folder beside `lazymidi.exe`; the standalone executable does not include the converter service files. Builds are unsigned; the Wooting SDK remains a separate installation. Linux/macOS installers and full platform hardware qualification are still outstanding.
 
-Version 0.1.6 adds **Always open Float**, restores minimized sheet windows, saves viewer preferences and fixes generated-key typing in converter search. It includes **Discord Rich Presence**, a **Transposer** with floating monitor/sheets, and an optional **Convert** module. See the [release notes](docs/releases/0.1.6.md) and [optional modules](docs/optional-modules.md).
+Version 0.1.5 adds **Always open Float**, restores minimized sheet windows, saves viewer preferences and fixes generated-key typing throughout converter fields, remembers compute-device selection and adds Discord browser attachment conversion. It includes **Discord Rich Presence**, a **Transposer** with floating monitor/sheets, and an optional **Convert** module. See the [release notes](docs/releases/0.1.5.md) and [optional modules](docs/optional-modules.md).
 
 ## Optional tools
 
@@ -13,7 +13,9 @@ Version 0.1.6 adds **Always open Float**, restores minimized sheet windows, save
 - **Converter:** enable its tab in Settings (Off by default), then choose **Use existing converter environment** and select a compatible mp3converter installation or Python environment. Validation checks dependencies, Transkun's model and FFmpeg; it does not install CUDA, drivers or packages. Runtime downloads are unavailable in this release; CPU/CUDA packs are not distributed. Existing user data can be copied separately without modifying the original installation.
 - **Sheets and visualizer:** Sheet generates immediately. Floating sheets support Auto/Multi/Manual/Original modes and Send to Transposer. Song cards open a separate visualizer with Basic synth or imported `.sf2` fonts, styles, hand editing and exports. Closing it stops playback and keeps its loaded font cached until lazymidi exits. Converted songs never automatically play into Roblox.
 
-An optional Chromium extension is included in the portable ZIP and as a separate ZIP. Extract it, load `extension/` as an unpacked extension, then use **Pair browser extension** in Convert. Pairing expires and must be repeated after restarting lazymidi. MuseScore imports use MIDI files already downloaded by the user.
+An optional Chromium extension is included in the portable ZIP and as a separate ZIP. Extract it, load `extension/` as an unpacked extension, then use **Pair browser extension** in Convert. YouTube/TikTok have page buttons; Discord browser attachments have a **Convert with lazymidi** right-click action. MuseScore imports use MIDI files already downloaded by the user. Pairing expires and must be repeated after restarting lazymidi. See [extension setup](extension/README.md).
+
+The converter remembers the chosen compute device immediately, including for browser submissions. Unavailable CUDA falls back to CPU without erasing the preference. Cancel is beside Convert link during a link job. Converter fields keep generated keys available for typing when Wootility disables ordinary keyboard input; musical mapping editors still pause output.
 
 ## Play Visual Pianos
 
@@ -38,7 +40,7 @@ In **Mapping**, select Analog → MIDI or MIDI → QWERTY. The 88-key piano span
 
 Output notes can have Shift and Ctrl modifiers. The game adapter pulses modifiers around each key-down, rather than holding them through the note. Profiles use drafts; **Apply profile** validates and saves all edits, releases output, and requires re-enabling it. Duplicate, import/export, restore, and MIDI learn are available. Imports never enable generated keys. The original default JSON is embedded in `crates/lazymidi-core/resources/presets/default-analog.json`.
 
-Switching between Play and Mapping keeps Analog and MIDI → QWERTY enabled. Mapping, editing fields and dialogs temporarily pause generated keys; returning to Play resumes once all pause reasons clear. Converter Library search accepts generated keys, including analog → MIDI → QWERTY typing with digital keys disabled in Wootility. Held notes must be released and pressed again after a pause. This does not interrupt ordinary MIDI routes or unload the SDK. A keyboard-send failure disables only QWERTY output while preserving working analog input.
+Switching between Play and Mapping keeps Analog and MIDI → QWERTY enabled. Mapping, editing fields and dialogs temporarily pause generated keys; returning to Play resumes once all pause reasons clear. Converter text and number fields accept generated keys, including analog → MIDI → QWERTY typing with digital keys disabled in Wootility. Held notes must be released and pressed again after a pause. This does not interrupt ordinary MIDI routes or unload the SDK. A keyboard-send failure disables only QWERTY output while preserving working analog input.
 
 On Windows, analog input uses a high-resolution timer while enabled. New settings default to 1000 Hz; saved polling preferences remain unchanged. Already-queued notes share an ordered keyboard batch without waiting to collect more notes, reducing redundant velocity commands within that batch. Timing diagnostics are opt-in; see [testing](docs/testing.md) for measurements and limitations.
 

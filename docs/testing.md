@@ -1,14 +1,14 @@
 # Verification and release qualification
 
-## Version 0.1.6 release candidate — 2026-10-12
+## Version 0.1.5 replacement release candidate — 2026-10-12
 
-81 frontend tests, 54 Rust checks, 45 SDK-free core checks and 14 private-service
+98 frontend/extension tests, 54 Rust checks, 45 SDK-free core checks and 15 private-service
 tests pass; one optional inference test remains skipped. Formatting,
-TypeScript/Vite and Clippy pass. The optimized Windows executable reports 0.1.6.
+TypeScript/Vite and Clippy pass. The optimized Windows executable reports 0.1.5.
 Packaged native frontend, minimize/restore, converter, generated-sheet and
 visualizer checks pass with the existing environment and isolated data. The
 NSIS archive integrity check passes. No SDK or generated keys were enabled.
-Live game/hardware typing, multi-monitor/DPI transitions and non-Windows native
+Live website downloads, game/hardware typing, multi-monitor/DPI transitions and non-Windows native
 qualification were not repeated for this release.
 
 ## Sheet viewer persistence and minimized restore — 2026-10-12

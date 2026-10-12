@@ -5,6 +5,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ORIGINAL_CWD = os.getcwd()
 TEMP = tempfile.TemporaryDirectory()
@@ -24,6 +25,31 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/health", headers={**self.headers,"Origin":"https://evil.example"}).status_code, 401)
         self.assertEqual(self.client.get("/", headers=self.headers).status_code, 404)
         self.assertFalse("torch" in sys.modules, "Service startup must not import PyTorch")
+    def test_compute_preference_validation_and_extension_submission(self):
+        original=self.client.get("/api/settings",headers=self.headers).json
+        pair=self.client.post("/api/pairing",headers=self.headers,json={}).json
+        token=self.client.post("/api/pair",json={"code":pair["code"]}).json["token"]
+        headers={"X-Lazymidi-Token":token}
+        url="https://cdn.discordapp.com/attachments/123/456/piano.mp3?ex=123&hm=signature"
+        try:
+            for invalid in ("gpu",None,[],False):
+                self.assertEqual(self.client.post("/api/settings",headers=self.headers,json={"compute_device":invalid}).status_code,400)
+            for preference,capability,explicit,expected in (("cuda","cuda",None,"cuda"),("cuda","cpu",None,"cpu"),("cuda","cuda","cpu","cpu"),("cpu","cuda",None,"cpu")):
+                self.assertEqual(self.client.post("/api/settings",headers=self.headers,json={"compute_device":preference}).status_code,200)
+                self.assertEqual(self.client.get("/api/settings",headers=self.headers).json["compute_device"],preference)
+                with patch.dict(os.environ,{"LAZYMIDI_COMPUTE_CAPABILITY":capability}), patch.object(service.upstream,"Thread") as thread:
+                    body={"media_url":url}
+                    if explicit:body["device"]=explicit
+                    response=self.client.post("/api/convert",headers=headers,json=body)
+                    self.assertEqual(response.status_code,202,response.json)
+                    task=response.json["task_id"]
+                    try:
+                        self.assertEqual(thread.call_args.kwargs["args"],(task,url,expected))
+                        self.assertEqual(self.client.get("/api/status/"+task,headers=headers).status_code,200)
+                        self.assertEqual(self.client.get("/api/settings",headers=headers).status_code,403)
+                        self.assertEqual(self.client.get("/api/status/not-owned",headers=headers).status_code,403)
+                    finally:service.upstream.conversion_tasks.pop(task,None)
+        finally:self.client.post("/api/settings",headers=self.headers,json=original)
     def test_runtime_switch_preserves_active_jobs_and_blocks_new_submissions(self):
         for body in ([], {}, {"prepare":"true"}):
             self.assertEqual(self.client.post("/api/runtime-switch",headers=self.headers,json=body).status_code,400)

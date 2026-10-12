@@ -1918,7 +1918,7 @@ dependencies = [
 
 [[package]]
 name = "lazymidi"
-version = "0.1.6"
+version = "0.1.5"
 dependencies = [
  "base64 0.22.1",
  "lazymidi-core",
@@ -1940,7 +1940,7 @@ dependencies = [
 
 [[package]]
 name = "lazymidi-core"
-version = "0.1.6"
+version = "0.1.5"
 dependencies = [
  "core-graphics",
  "crossbeam-channel",

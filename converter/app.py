@@ -1715,6 +1715,9 @@ def api_convert():
             return jsonify({"error": "Invalid URL format. Please enter a valid YouTube, TikTok, Discord, or MuseScore URL"}), 400
 
         device = data.get("device", None)
+        if device is None:
+            preference = read_json(SETTINGS_FILE, {}).get("compute_device", "cpu")
+            device = "cuda" if preference == "cuda" and os.environ.get("LAZYMIDI_COMPUTE_CAPABILITY") == "cuda" else "cpu"
         if device not in ["gpu", "mps", "cuda", "cpu"]:
             device = None
         
