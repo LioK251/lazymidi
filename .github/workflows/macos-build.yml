@@ -54,7 +54,7 @@ jobs:
           test "${#dmg[@]}" -eq 1
           hdiutil verify "${dmg[0]}"
           mkdir -p "$RUNNER_TEMP/lazymidi-dmg"
-          hdiutil attach "${dmg[0]}" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/lazymidi-dmg"
+          printf 'Y\n' | hdiutil attach "${dmg[0]}" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/lazymidi-dmg"
           trap 'hdiutil detach "$RUNNER_TEMP/lazymidi-dmg"' EXIT
           python - <<'PY'
           import json, os, pathlib, plistlib, subprocess, tempfile
