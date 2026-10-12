@@ -1332,7 +1332,7 @@ mod tests {
                                 }
                                 batches += 1;
                                 assert!(actions.len() <= 16);
-                                for pair in actions.chunks_exact(2) {
+                                for pair in actions.as_chunks::<2>().0 {
                                     assert!(matches!(
                                         pair,
                                         [

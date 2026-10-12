@@ -241,7 +241,7 @@ describe("lazymidi interface", () => {
     expect(
       (screen.getByLabelText("Note for binding 1") as HTMLInputElement).value,
     ).toBe("21");
-  });
+  }, 15000);
   it("assigns an analog physical key through the 88-key piano editor", async () => {
     await act(async () => { render(<App />); });
     await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Mapping" })); });

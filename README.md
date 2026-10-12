@@ -84,6 +84,8 @@ npm run bundle -- --bundles nsis
 
 Use `--bundles deb` on Linux and `--bundles dmg` on macOS. The SDK loader is an optional core Cargo feature; the desktop build includes the loader, not the SDK. Linux/macOS need native build hosts. macOS window configuration keeps native traffic lights. Release signing/notarization require the distributor's certificates; no signing identity is supplied here.
 
+To build experimental macOS installers from Windows, run the **macOS DMG** workflow in [GitHub Actions](https://github.com/LioK251/lazymidi/actions/workflows/macos-build.yml). It builds separate Apple Silicon (`aarch64`) and Intel (`x86_64`) DMGs for macOS 14+, tests the native core and packaged SDK-free startup, and uploads installers with SHA-256 checksums as workflow artifacts for 30 days. It does not publish or modify a release. These builds use ad-hoc signatures, are not notarized, and still need real-device MIDI, keyboard permission, Wooting and Roblox checks. Optional converter packs remain Windows-only; no Python/model runtime is included in the DMG.
+
 ## Persistence and recovery
 
 Settings live in the platform application configuration directory returned by `directories::ProjectDirs` (`app / lazymidi / lazymidi`), not alongside the executable. Files use a version 1 envelope. Existing v1 profiles without game/modifier fields load with safe defaults. Profiles missing the new sustain/extended-key toggles preserve their previous output behavior. Legacy unversioned analog JSON can be imported. Future versions are rejected. JSON imports are limited to 1 MiB.

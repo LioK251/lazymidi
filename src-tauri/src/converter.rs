@@ -141,7 +141,9 @@ fn spawn_managed(command: &mut Command, control: Arc<Control>) -> Result<Managed
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
+    let child = command.spawn().map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    let mut child = child;
     #[cfg(windows)]
     unsafe {
         use std::os::windows::io::AsRawHandle;
