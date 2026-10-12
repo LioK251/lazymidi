@@ -403,7 +403,6 @@ fn approved(path: &str, method: &str) -> bool {
             "/api/history/delete",
             "/api/settings",
             "/api/convert-to-sheets",
-            "/api/pairing",
             "/api/runtime-switch",
         ]
         .contains(&base),
@@ -483,6 +482,9 @@ impl Converter {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        if app.state::<super::commands::App>().smoke_path.is_some() {
+            command.env("LAZYMIDI_EXTENSION_PORT", "0");
+        }
         let process = spawn_managed(&mut command, self.control.clone())?;
         let mut service = Service {
             process,

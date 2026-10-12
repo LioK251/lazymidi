@@ -19,6 +19,44 @@ class ServiceTests(unittest.TestCase):
     def setUp(self):
         self.client = service.app.test_client()
         self.headers = {"X-Lazymidi-Token": "test-private-token"}
+    def test_automatic_extension_connection_rejects_websites(self):
+        headers={"X-Lazymidi-Extension":"1"}
+        response=self.client.get("/api/extension-connect",headers=headers)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json["application"],"lazymidi-converter")
+        token=response.json["token"]
+        self.assertNotEqual(token,"test-private-token")
+        self.assertEqual(self.client.get("/api/extension-health",headers={"X-Lazymidi-Token":token}).status_code,200)
+        self.assertEqual(self.client.get("/api/history",headers={"X-Lazymidi-Token":token}).status_code,403)
+        self.assertEqual(self.client.get("/api/extension-connect").status_code,401)
+        for origin in ("https://evil.example","null"):
+            self.assertEqual(self.client.get("/api/extension-connect",headers={**headers,"Origin":origin}).status_code,401)
+            self.assertEqual(self.client.options("/api/extension-connect",headers={"Origin":origin,"Access-Control-Request-Headers":"X-Lazymidi-Extension"}).status_code,401)
+    def test_extension_ports_skip_conflicts_and_smoke_uses_ephemeral_port(self):
+        with patch.dict(os.environ,{"LAZYMIDI_EXTENSION_PORT":""}), patch("werkzeug.serving.make_server",side_effect=[SystemExit(1),object()]) as make:
+            self.assertIsNotNone(service.create_server())
+            self.assertEqual([call.args[:2] for call in make.call_args_list],[("127.0.0.1",27653),("127.0.0.1",27654)])
+        with patch.dict(os.environ,{"LAZYMIDI_EXTENSION_PORT":"0"}), patch("werkzeug.serving.make_server") as make:
+            service.create_server()
+            self.assertEqual(make.call_args.args[:2],("127.0.0.1",0))
+    def test_automatic_connection_over_real_loopback_http(self):
+        import json
+        import threading
+        import urllib.request
+        import urllib.error
+        server=service.create_server()
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        base=f"http://127.0.0.1:{server.server_port}"
+        try:
+            with urllib.request.urlopen(urllib.request.Request(base+"/api/extension-connect",headers={"X-Lazymidi-Extension":"1"}),timeout=3) as response:
+                connection=json.load(response)
+            self.assertEqual(connection["application"],"lazymidi-converter")
+            with urllib.request.urlopen(urllib.request.Request(base+"/api/extension-health",headers={"X-Lazymidi-Token":connection["token"]}),timeout=3) as response:
+                self.assertEqual(json.load(response)["status"],"ok")
+            with self.assertRaises(urllib.error.HTTPError) as denied:
+                urllib.request.urlopen(urllib.request.Request(base+"/api/extension-connect",headers={"X-Lazymidi-Extension":"1","Origin":"https://evil.example"}),timeout=3)
+            self.assertEqual(denied.exception.code,401)
+        finally:server.shutdown();server.server_close();thread.join(timeout=3)
     def test_auth_and_operation_scope(self):
         self.assertEqual(self.client.get("/api/health").status_code, 401)
         self.assertEqual(self.client.get("/api/health", headers=self.headers).status_code, 200)
@@ -27,8 +65,7 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse("torch" in sys.modules, "Service startup must not import PyTorch")
     def test_compute_preference_validation_and_extension_submission(self):
         original=self.client.get("/api/settings",headers=self.headers).json
-        pair=self.client.post("/api/pairing",headers=self.headers,json={}).json
-        token=self.client.post("/api/pair",json={"code":pair["code"]}).json["token"]
+        token=self.client.get("/api/extension-connect",headers={"X-Lazymidi-Extension":"1"}).json["token"]
         headers={"X-Lazymidi-Token":token}
         url="https://cdn.discordapp.com/attachments/123/456/piano.mp3?ex=123&hm=signature"
         try:
@@ -118,15 +155,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("Transpose by: 3",response.json["sheet_text"])
         self.assertEqual((service.DATA/"converted"/response.json["sheets_filename"]).read_bytes(),saved)
         self.assertEqual(self.client.get("/api/sheet-content?filename=../../settings.json",headers=self.headers).status_code,400)
-    def test_one_job_and_extension_pairing(self):
+    def test_one_job_and_automatic_extension_scope(self):
         service.upstream.conversion_tasks["test"]={"status":"queued"}
         response=self.client.post("/api/convert",headers=self.headers,json={"media_url":"https://youtube.com/watch?v=test"})
         self.assertEqual(response.status_code,409)
         del service.upstream.conversion_tasks["test"]
-        pair=self.client.post("/api/pairing",headers=self.headers,json={}).json
         origin={"Origin":"chrome-extension://test"}
-        self.assertEqual(self.client.post("/api/pair",headers=origin,json={"code":"wrong"}).status_code,403)
-        token=self.client.post("/api/pair",headers=origin,json={"code":pair["code"]}).json["token"]
+        response=self.client.get("/api/extension-connect",headers={**origin,"X-Lazymidi-Extension":"1"})
+        self.assertEqual(response.headers["Access-Control-Allow-Origin"],origin["Origin"])
+        token=response.json["token"]
         self.assertEqual(self.client.get("/api/history",headers={**origin,"X-Lazymidi-Token":token}).status_code,403)
     def test_sheet_modes_tempo_and_timing_controls_preserve_midi(self):
         import mido

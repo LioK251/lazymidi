@@ -11,7 +11,6 @@ import secrets
 import shutil
 import stat
 import threading
-import time
 import uuid
 
 DATA = pathlib.Path(os.environ["LAZYMIDI_CONVERTER_DATA"]).resolve()
@@ -20,10 +19,7 @@ os.chdir(DATA)
 os.environ["UPLOAD_FOLDER"] = str(DATA / "uploads")
 os.environ["CONVERTED_FOLDER"] = str(DATA / "converted")
 TOKEN = os.environ.pop("LAZYMIDI_CONVERTER_TOKEN")
-PAIR_CODE = secrets.token_hex(4).upper()
-PAIR_EXPIRES = time.monotonic() + 300
-EXTENSION_TOKEN = None
-PAIR_ATTEMPTS = 0
+EXTENSION_TOKEN = secrets.token_urlsafe(32)
 EXTENSION_JOBS = set()
 from flask import request, jsonify, abort
 from persistence import atomic_json, read_json, validate_settings
@@ -48,21 +44,19 @@ def tracked_job(function):
 upstream.run_conversion_task = tracked_job(upstream.run_conversion_task)
 upstream.run_file_conversion_task = tracked_job(upstream.run_file_conversion_task)
 FINAL = {"completed", "error", "cancelled"}
-JSON_ENDPOINTS = {"/api/health", "/api/convert", "/api/history", "/api/history/delete", "/api/settings", "/api/convert-to-sheets", "/api/upload-midi", "/api/import-midi", "/api/upload-media", "/api/midi-files", "/api/sheet-content", "/api/soundfonts", "/api/upload-soundfont", "/api/visualizer-background", "/api/import-data", "/api/pairing", "/api/extension-health", "/api/runtime-switch"}
+JSON_ENDPOINTS = {"/api/health", "/api/convert", "/api/history", "/api/history/delete", "/api/settings", "/api/convert-to-sheets", "/api/upload-midi", "/api/import-midi", "/api/upload-media", "/api/midi-files", "/api/sheet-content", "/api/soundfonts", "/api/upload-soundfont", "/api/visualizer-background", "/api/import-data", "/api/extension-health", "/api/runtime-switch"}
 
 @app.before_request
 def authenticate():
-    global EXTENSION_TOKEN, PAIR_ATTEMPTS, PAIR_EXPIRES
     origin = request.headers.get("Origin", "")
     extension = origin.startswith(("chrome-extension://", "moz-extension://"))
-    if request.path == "/api/pair" and (extension or not origin):
-        if request.method == "OPTIONS": return "", 204
-        code = (request.get_json(silent=True) or {}).get("code", "")
-        PAIR_ATTEMPTS += 1
-        if PAIR_ATTEMPTS > 5 or not isinstance(code, str) or time.monotonic() > PAIR_EXPIRES or not hmac.compare_digest(code, PAIR_CODE): abort(403)
-        EXTENSION_TOKEN = secrets.token_urlsafe(32)
-        PAIR_EXPIRES = 0
-        return jsonify(token=EXTENSION_TOKEN)
+    if request.path == "/api/extension-connect":
+        if origin and not extension: abort(401)
+        if request.method == "OPTIONS" and extension: return "", 204
+        # Websites cannot send this header without an approved CORS preflight.
+        if request.headers.get("X-Lazymidi-Extension") != "1": abort(401)
+        if request.method != "GET": abort(405)
+        return jsonify(application="lazymidi-converter", protocol=1, token=EXTENSION_TOKEN)
     provided = request.headers.get("X-Lazymidi-Token", "")
     internal = hmac.compare_digest(provided, TOKEN) and not origin
     extension_auth = (extension or not origin) and EXTENSION_TOKEN and hmac.compare_digest(provided, EXTENSION_TOKEN)
@@ -93,7 +87,7 @@ def private_headers(response):
     if origin.startswith(("chrome-extension://", "moz-extension://")):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Vary"] = "Origin"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Lazymidi-Token"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Lazymidi-Token, X-Lazymidi-Extension"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     else: response.headers.pop("Access-Control-Allow-Origin", None)
     if getattr(g, "extension_auth", False):
@@ -125,16 +119,8 @@ def runtime_switch():
         _submission.release()
     return jsonify(status="ok")
 
-@app.route("/api/pair", methods=["POST", "OPTIONS"])
-def pair(): abort(403)
-
-@app.route("/api/pairing", methods=["POST"])
-def pairing():
-    global PAIR_CODE, PAIR_EXPIRES, PAIR_ATTEMPTS
-    PAIR_CODE = secrets.token_hex(4).upper()
-    PAIR_EXPIRES = time.monotonic() + 300
-    PAIR_ATTEMPTS = 0
-    return jsonify(code=PAIR_CODE, expires_seconds=300, endpoint="http://"+request.host)
+@app.route("/api/extension-connect")
+def extension_connect(): abort(401)
 
 @app.route("/api/upload-soundfont", methods=["POST"])
 def upload_soundfont():
@@ -247,8 +233,15 @@ def import_data():
         return jsonify(copy_import(body["source"], DATA))
     except (OSError, ValueError, KeyError, TypeError) as error: return jsonify(error=str(error)), 400
 
-if __name__ == "__main__":
+def create_server():
     from werkzeug.serving import make_server
-    server = make_server("127.0.0.1", 0, app, threaded=True)
+    ports = [0] if os.environ.get("LAZYMIDI_EXTENSION_PORT") == "0" else [*range(27653,27661),0]
+    for port in ports:
+        try: return make_server("127.0.0.1", port, app, threaded=True)
+        except (OSError, SystemExit):
+            if port == 0: raise
+
+if __name__ == "__main__":
+    server = create_server()
     atomic_json(pathlib.Path(os.environ["LAZYMIDI_READY_FILE"]), {"port": server.server_port})
     server.serve_forever()

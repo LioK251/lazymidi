@@ -22,7 +22,7 @@
     "https://*.musescore.com/*"
   ],
   "action": {
-    "default_title": "Pair lazymidi Converter",
+    "default_title": "lazymidi Converter",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

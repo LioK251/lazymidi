@@ -139,15 +139,21 @@ collisions. The original folder remains untouched. Invalid JSON is retained,
 settings/history have atomic saves and one backup. Runtime data and credentials
 are never saved in musical profiles.
 
-The service binds a random 127.0.0.1 port and uses a random per-launch token
+The service tries 127.0.0.1 ports 27653–27660, falling back to a random port
+if all are occupied, and uses a random per-launch token
 kept by Rust. The frontend receives approved JSON operations and scoped file
 IDs. Custom media protocol reads only converter storage, with canonical path
 and origin checks. The browser extension has a different, limited token.
 
 Load the repository's `extension/` directory as an unpacked Chromium extension
-if desired. Click Pair browser extension in Convert; enter the endpoint and
-five-minute code in its popup. Pairing is single use, rate limited, and stored
-in extension session storage; re-pair after app restart. Extension access is
+if desired. With Converter enabled and a compatible environment selected,
+connection is automatic. The worker discovers the local service, receives a
+separate scoped token and reconnects after app restarts. Website origins cannot
+use discovery: its custom header requires a CORS preflight, which is denied to
+websites. The service prepares while the module is enabled; inference remains
+lazy. Controls are added to open supported tabs and remain visible offline.
+If all discovery ports are occupied, close obsolete lazymidi instances.
+Extension access is
 limited to submissions/import and its own jobs, not library/settings/history.
 MuseScore integration imports an already downloaded MIDI chosen by the user.
 
@@ -181,7 +187,7 @@ site workflows remain manual qualification gates.
 - Keyboard pulse completion/cancellation and existing stuck-key/navigation tests.
 - Pack checksum/traversal/case-collision/cancellation and previous-active recovery.
 - Actual CPU pack extraction into an isolated folder and import of Torch/Transkun.
-- Fourteen private-service tests: authentication/origin/scope, MIDI→sheet, paired
+- Private-service tests: authentication/origin/scope, MIDI→sheet, automatic
   extension scope, single-job cleanup, copy import and invalid-settings recovery.
 - Real CPU and CUDA transcription of generated test audio and cancellation.
 - Browser visualizer loading/playback/styles/hand controls and WebM export state.

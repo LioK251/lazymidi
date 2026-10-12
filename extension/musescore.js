@@ -6,6 +6,9 @@
   const BTN_ID = 'audioconverter-ms-btn';
   const PICKER_ID = 'audioconverter-ms-picker';
   const IDLE_LABEL = 'Import downloaded MIDI';
+  const timers=[];let stopped=false;
+  globalThis.lazymidiScoreCleanup?.();
+  globalThis.lazymidiScoreCleanup=()=>{stopped=true;timers.forEach(clearInterval);removeButton();};
   let busy = false;
   let syncing = false;
 
@@ -105,27 +108,29 @@
   }
 
   async function syncButton() {
-    if (syncing || busy) return;
+    if (stopped || syncing || busy) return;
     syncing = true;
     try {
       if (!isScorePage()) { removeButton(); return; }
+      injectButton();
       const response = await sendToWorker({ action: 'ping' }, 6000).catch(() => null);
       const alive = !!(response?.success && response.alive);
-      if (alive) injectButton();
-      else removeButton();
+      const button=document.getElementById(BTN_ID);
+      if(button&&!busy)button.title=alive?'Download MIDI from MuseScore, then choose the file to import into lazymidi':'Open lazymidi with Converter enabled.';
     } finally { syncing = false; }
   }
 
   function boot() {
+    if(stopped)return;
     syncButton();
     let lastPath = location.pathname;
-    setInterval(() => {
+    timers.push(setInterval(() => {
       if (location.pathname !== lastPath) {
         lastPath = location.pathname;
         if (!busy) removeButton();
       }
       syncButton();
-    }, 3000);
+    }, 3000));
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();

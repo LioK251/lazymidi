@@ -9,6 +9,9 @@
 
   const BTN_ID = 'audioconverter-convert-btn';
   const IDLE_LABEL = 'Convert with lazymidi';
+  const timers=[];let stopped=false;
+  globalThis.lazymidiVideoCleanup?.();
+  globalThis.lazymidiVideoCleanup=()=>{stopped=true;timers.forEach(clearInterval);document.getElementById(BTN_ID)?.remove();};
   const POLL_INTERVAL = 2000;
   const MAX_POLLS = 900; // 2s each — 30 min, same ceiling as the web UI
   const HEALTH_INTERVAL = 3000;
@@ -171,10 +174,9 @@
     document.body.appendChild(btn);
   }
 
-  // Show the button only on a video page while the app answers /api/health,
-  // and take it away again when the app is closed.
+  // Keep supported-page controls visible even before the app connects.
   async function syncButton() {
-    if (syncing || busy) return;
+    if (stopped || syncing || busy) return;
     syncing = true;
 
     try {
@@ -186,25 +188,23 @@
         return;
       }
 
+      injectButton();
       const alive = await isAppRunning();
       const current = document.getElementById(BTN_ID);
 
-      if (alive && !current) {
-        injectButton();
-      } else if (!alive && current && !busy) {
-        current.remove();
-      }
+      if(current&&!busy)current.title=alive?'':'Open lazymidi with Converter enabled.';
     } finally {
       syncing = false;
     }
   }
 
   function boot() {
+    if(stopped)return;
     syncButton();
 
     // YouTube and TikTok are SPAs: re-check after client-side navigation
     let lastUrl = location.href;
-    setInterval(() => {
+    timers.push(setInterval(() => {
       if (location.href !== lastUrl) {
         lastUrl = location.href;
         if (!busy) {
@@ -213,10 +213,10 @@
         }
         syncButton();
       }
-    }, 1500);
+    }, 1500));
 
-    // Appear/disappear as the app is started or closed
-    setInterval(syncButton, HEALTH_INTERVAL);
+    // Refresh connection status as the app starts or closes.
+    timers.push(setInterval(syncButton, HEALTH_INTERVAL));
   }
 
   if (document.readyState === 'loading') {

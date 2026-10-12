@@ -118,8 +118,6 @@ export default function App() {
   const stateRef = useRef(state);
   stateRef.current = state;
   const [tab, setTab] = useState<Tab>("Play");
-  const [converterOpened,setConverterOpened]=useState(false);
-  useEffect(()=>{if(tab==="Convert")setConverterOpened(true);},[tab]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
@@ -1330,7 +1328,7 @@ export default function App() {
             </p>
           </div>
         )}
-        {state.settings.show_converter && converterOpened && <div style={{display:tab==="Convert"?"block":"none",height:"100%"}}><Converter active={tab==="Convert"} onError={setError}/></div>}
+        {state.settings.show_converter && <div style={{display:tab==="Convert"?"block":"none",height:"100%"}}><Converter active={tab==="Convert"} onError={setError}/></div>}
         {tab === "Transposer" && <Transposer state={state} profile={workingProfile} edit={editProfile} send={send} apply={() => run(() => applySettings(draft!,draftRevision))} discard={() => setDraft(null)} dirty={!!draft} busy={busy} />}
         {tab === "Settings" && (
           <div className="split settings">

@@ -2,7 +2,7 @@
 
 ## Version 0.1.5 replacement release candidate — 2026-10-12
 
-98 frontend/extension tests, 54 Rust checks, 45 SDK-free core checks and 15 private-service
+107 frontend/extension tests, 54 Rust checks, 45 SDK-free core checks and 18 private-service
 tests pass; one optional inference test remains skipped. Formatting,
 TypeScript/Vite and Clippy pass. The optimized Windows executable reports 0.1.5.
 Packaged native frontend, minimize/restore, converter, generated-sheet and
@@ -10,6 +10,23 @@ visualizer checks pass with the existing environment and isolated data. The
 NSIS archive integrity check passes. No SDK or generated keys were enabled.
 Live website downloads, game/hardware typing, multi-monitor/DPI transitions and non-Windows native
 qualification were not repeated for this release.
+
+## Automatic browser connection — 2026-10-12
+
+Before the fix, page-control regression tests failed on YouTube, TikTok and
+MuseScore with no stored pairing. The empty-session connection check also
+returned unavailable. Controls now remain visible, discover the converter on
+loopback, reconnect after authentication expiry and inject into already-open
+supported tabs. Reinjection retains one button and cleans page timers. The
+popup shows connection/job state without an endpoint or pairing form.
+The actual extension worker also discovered an isolated Python service and
+imported a MIDI over loopback without stored credentials or manual pairing;
+this used no model inference or user data.
+
+Service checks cover real loopback HTTP discovery, website-origin rejection,
+restricted extension scope and occupied-port fallback. Model inference remains
+lazy; enabling Converter prepares only its service. Live browser installation
+and authenticated website downloads still need manual qualification.
 
 ## Sheet viewer persistence and minimized restore — 2026-10-12
 

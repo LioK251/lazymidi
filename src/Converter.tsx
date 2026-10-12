@@ -34,7 +34,6 @@ export default function Converter({active,onError}:{active:boolean;onError:(mess
   const [busy,setBusy]=useState(false);const [message,setMessage]=useState("");
   const [ready,setReady]=useState(false);const [loadError,setLoadError]=useState("");
   const [retry,setRetry]=useState(0);const pending=useRef(0);
-  const [pairing,setPairing]=useState<{code:string;expires_seconds:number;endpoint:string}|null>(null);
   const sheetRevision=useRef(0);const generation=useRef(0);
   async function run<T>(action:()=>Promise<T>):Promise<T|undefined>{pending.current++;setBusy(true);try{return await action();}catch(e){onError(api.errorText(e));}finally{setBusy(--pending.current>0);}}
   async function refresh(){const [library,h]=await Promise.all([converterRequest<{midi_files:MidiFile[]}>("/api/midi-files"),converterRequest<History[]>("/api/history?limit=10000")]);setFiles(library.midi_files);setHistory(h);}
@@ -134,8 +133,7 @@ export default function Converter({active,onError}:{active:boolean;onError:(mess
           <button disabled={!ready||busy||!!jobId} onClick={()=>void importLibrary()}>Import history & MIDI folder</button><p className="help">Choose the old converter folder or its converted folder. Files are copied; originals stay untouched.</p>
           {files.slice(0,3).map(f=><div className="details-row converter-recent" key={f.filename}><span title={f.video_title||f.filename}>{f.video_title||f.filename}</span><button disabled={!ready||busy} onClick={()=>openSheet(f.filename)}>Sheet</button></div>)}
           <details className="converter-advanced"><summary>Extension and runtime</summary>
-          <button disabled={!ready||busy} onClick={()=>void run(async()=>setPairing(await converterRequest("/api/pairing",{})))}>Pair browser extension</button>{pairing&&<p>Endpoint: <code>{pairing.endpoint}</code><br/>Pairing code: <code>{pairing.code}</code> · valid 5 minutes</p>}
-          <p className="help">Use the lazymidi extension for supported links or an already downloaded MuseScore MIDI.</p>
+          <p className="help">The browser extension connects automatically while Converter is enabled. Reload supported pages after installing it.</p>
           <button disabled={!installed||busy||setupBusy||!!jobId} onClick={()=>void run(()=>dialog("converter_install",{variant:"cpu",local:true}))}>Replace runtime from pack</button></details>
         </aside></div>}
       {section==="Library"&&<section className="converter-library-section"><div className="button-row converter-library-toolbar"><input aria-label="Search library" placeholder="Search library…" value={search} onChange={e=>setSearch(e.target.value)}/><button disabled={!ready||busy} onClick={()=>void run(refresh)}>Refresh</button><button disabled={!ready||busy} onClick={()=>void run(()=>upload("midi"))}>Import MIDI</button><button disabled={!ready||busy||!!jobId} onClick={()=>void importLibrary()}>Import history & MIDI folder</button></div><p className="help">Import from your old converter folder, AudioConverterData, or any folder of MIDI files. Existing files are preserved.</p>

@@ -1,19 +1,37 @@
-// Paired loopback access stays in the extension worker.
-
-async function serverBase() {
-  const stored=await chrome.storage.session.get(['serverUrl','token']);
-  if(!/^http:\/\/127\.0\.0\.1:\d+$/.test(stored.serverUrl||'') || !stored.token) throw new Error('Pair the extension using lazymidi → Convert.');
-  return stored.serverUrl;
+// Local discovery and service credentials stay in the extension worker.
+let connecting;
+function connect() {
+  if(!connecting)connecting=(async()=>{
+    const bases=Array.from({length:8},(_,i)=>`http://127.0.0.1:${27653+i}`);
+    const stored=await chrome.storage.session.get(['serverUrl']);
+    if(bases.includes(stored.serverUrl))bases.unshift(...bases.splice(bases.indexOf(stored.serverUrl),1));
+    for(const base of bases){
+      const abort=new AbortController();const timer=setTimeout(()=>abort.abort(),500);
+      try{
+        const res=await fetch(base+'/api/extension-connect',{headers:{'X-Lazymidi-Extension':'1'},signal:abort.signal,redirect:'error',credentials:'omit'});
+        const data=await res.json();
+        if(res.ok&&data.application==='lazymidi-converter'&&data.protocol===1&&typeof data.token==='string'&&data.token.length>=24){
+          await chrome.storage.session.set({serverUrl:base});return {base,token:data.token};
+        }
+      }catch{/* Try the next local converter port. */}finally{clearTimeout(timer);}
+    }
+    throw new Error('Open lazymidi with Converter enabled and a compatible Python environment selected.');
+  })().catch(error=>{connecting=null;throw error;});
+  return connecting;
 }
-async function serviceFetch(url, options={}) {
-  const stored=await chrome.storage.session.get(['token']);
-  return fetch(url,{...options,headers:{...options.headers,'X-Lazymidi-Token':stored.token||''}});
+async function serviceFetch(path, options={},retry=true) {
+  const service=await connect();
+  let response;
+  try{response=await fetch(service.base+path,{...options,redirect:'error',credentials:'omit',headers:{...options.headers,'X-Lazymidi-Token':service.token}});}
+  catch(error){connecting=null;throw error;}
+  if(response.status===401&&retry){connecting=null;return serviceFetch(path,options,false);}
+  return response;
 }
 
 function describeFetchError(err) {
   const message = String((err && err.message) || err);
   return message.includes('Failed to fetch')
-    ? 'lazymidi converter is unavailable; pair again if it restarted'
+    ? 'lazymidi converter is unavailable; keep the app running with Converter enabled'
     : message;
 }
 
@@ -25,9 +43,8 @@ async function startConvert(value) {
       !(video || (discord && /^\/attachments\/\d+\/\d+\/[^/]+\.(mp3|wav|flac|ogg|opus|m4a|aac|mp4|webm|mov|mkv)$/i.test(url.pathname)))) {
     throw new Error('Choose a YouTube/TikTok video or a Discord audio/video attachment.');
   }
-  const base = await serverBase();
   // Preserve signed Discord queries; the service chooses the saved compute device.
-  const res = await serviceFetch(base + '/api/convert', {
+  const res = await serviceFetch('/api/convert', {
     method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({media_url:url.href}),
   });
   const payload = await res.json().catch(() => ({}));
@@ -37,11 +54,17 @@ async function startConvert(value) {
   return payload;
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async () => {
   chrome.contextMenus.removeAll(() => chrome.contextMenus.create({
     id:'lazymidi-discord', title:'Convert with lazymidi', contexts:['link','audio','video'],
     targetUrlPatterns:['https://cdn.discordapp.com/attachments/*','https://media.discordapp.net/attachments/*','https://cdn.discordapp.net/attachments/*','https://media.discordapp.com/attachments/*'],
   }));
+  for(const script of chrome.runtime.getManifest().content_scripts){
+    try{
+      const tabs=await chrome.tabs.query({url:script.matches});
+      await Promise.allSettled(tabs.filter(tab=>tab.id!==undefined).map(tab=>chrome.scripting.executeScript({target:{tabId:tab.id},files:script.js})));
+    }catch{/* Closed tabs and browser-denied pages can be skipped. */}
+  }
 });
 chrome.contextMenus.onClicked.addListener(async info => {
   if (info.menuItemId !== 'lazymidi-discord') return;
@@ -60,10 +83,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Content scripts only show their button while the app is reachable
     (async () => {
       try {
-        const base = await serverBase();
         const abort = new AbortController();
         const timer = setTimeout(() => abort.abort(), 3000);
-        const res = await serviceFetch(base + '/api/extension-health', { signal: abort.signal });
+        const res = await serviceFetch('/api/extension-health', { signal: abort.signal });
         clearTimeout(timer);
         const payload = await res.json().catch(() => ({}));
         sendResponse({ success: true, alive: res.ok && payload.status === 'ok' });
@@ -91,8 +113,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'convertStatus') {
     (async () => {
       try {
-        const base = await serverBase();
-        const res = await serviceFetch(`${base}/api/status/${encodeURIComponent(request.taskId)}`);
+        const res = await serviceFetch(`/api/status/${encodeURIComponent(request.taskId)}`);
         const payload = await res.json().catch(() => ({}));
 
         if (!res.ok) {
@@ -114,8 +135,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // host_permissions let it post to 127.0.0.1 without CORS headers.
     (async () => {
       try {
-        const base = await serverBase();
-
         const binary = atob(request.data || '');
         if (binary.length > 20 * 1024**2 || binary.slice(0,4) !== 'MThd') throw new Error('Choose a valid MIDI file under 20 MB.');
         const bytes = new Uint8Array(binary.length);
@@ -128,7 +147,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         form.append('thumbnail_url', request.thumbnailUrl || '');
         form.append('source', 'musescore');
 
-        const res = await serviceFetch(base + '/api/import-midi', { method: 'POST', body: form });
+        const res = await serviceFetch('/api/import-midi', { method: 'POST', body: form });
         const payload = await res.json().catch(() => ({}));
 
         if (!res.ok || !payload.success) {

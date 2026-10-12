@@ -1,3 +1,4 @@
+(()=>{
 // Shared "liquid glass" button, matching the cards in the AudioConverter UI:
 // translucent dark pane, blurred backdrop, thin light rim and a 2px lift on
 // hover. Loaded before the page scripts, which share this isolated world.
@@ -178,3 +179,6 @@ function acSetGlassState(btn, text, tone) {
   btn.textContent = text;
   btn.dataset.tone = tone || 'idle';
 }
+
+Object.assign(globalThis,{acCreateGlassButton,acSetGlassState});
+})();

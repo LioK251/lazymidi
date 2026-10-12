@@ -25,6 +25,11 @@ beforeEach(()=>{
   });
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
+it("prepares the service for automatic browser access while the converter tab is inactive",async()=>{
+  await act(async()=>{render(<Converter active={false} onError={vi.fn()}/>);});
+  expect(invoke).toHaveBeenCalledWith("converter_request",expect.objectContaining({path:"/api/health"}));
+  expect(screen.queryByRole("button",{name:"Pair browser extension"})).toBeNull();
+});
 it("saves the compute preference immediately, restores it, and keeps draft formatting unsaved",async()=>{
   const original=vi.mocked(invoke).getMockImplementation()!;
   let saved:Record<string,unknown>={quantize:35};
