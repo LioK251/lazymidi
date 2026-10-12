@@ -1,5 +1,6 @@
 // @vitest-environment node
 import {readFileSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {createContext,runInContext,runInNewContext} from "node:vm";
 import {JSDOM} from "jsdom";
 import {expect,it,vi} from "vitest";
@@ -115,6 +116,52 @@ it("imports a downloaded MuseScore MIDI with scoped credentials and rejects inva
   const [endpoint,options]=w.fetch.mock.calls.find(([endpoint])=>endpoint.endsWith("/api/import-midi")) as unknown as [string,RequestInit];
   expect(endpoint).toBe("http://127.0.0.1:27653/api/import-midi");expect((options.body as FormData).get("source")).toBe("musescore");
   w.fetch.mockClear();expect(await w.send({action:"importMidi",data:btoa("invalid")})).toMatchObject({success:false});expect(w.fetch).not.toHaveBeenCalled();
+});
+it.each([false,true])("downloads MuseScore MIDI using LibreScore authorization (fallback=%s)",async fallback=>{
+  const dom=new JSDOM('<head><meta property="og:title" content="Piano | MuseScore.com"><link href="https://musescore.com/static/public/build/musescore_es6/201.test.js"></head><body><button id="audioconverter-ms-btn">Old import</button><input id="audioconverter-ms-picker" type="file"></body>',{url:'https://musescore.com/user/120802646/scores/34743503'});
+  const messages:Array<Record<string,any>>=[];
+  let attempts=0;
+  const fetch=vi.fn(async(url:string)=>url.includes('201.test.js')?{ok:true,text:async()=>'md5(id+"suffix-from-current-bundle").substr(0,4)'}:
+    {ok:!fallback||++attempts>1,json:async()=>({info:{url:'https://s.musescore.com/score.mid?signature=keep'}})});
+  const state=vi.fn((button:HTMLButtonElement,label:string)=>button.textContent=label);
+  const context=createContext({document:dom.window.document,location:dom.window.location,URL,AbortController,fetch,
+    chrome:{runtime:{sendMessage:(request:Record<string,any>,reply:(response:unknown)=>void)=>{messages.push(request);reply(request.action==='ping'?{success:true,alive:true}:{success:true,midi_name:'piano.mid'});}}},
+    acCreateGlassButton:(id:string,label:string)=>{const button=dom.window.document.createElement('button');button.id=id;button.textContent=label;return button;},acSetGlassState:state,
+    setInterval:vi.fn(),clearInterval:vi.fn(),setTimeout,clearTimeout,console});
+  try{
+    for(const script of ['vendor/md5.min.js','musescore.js'])runInContext(readFileSync(new URL(`../extension/${script}`,import.meta.url),'utf8'),context);
+    dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+    const button=dom.window.document.getElementById('audioconverter-ms-btn') as HTMLButtonElement;
+    expect(dom.window.document.querySelector('input[type=file]')).toBeNull();
+    button.click();button.click();
+    await vi.waitFor(()=>expect(button.textContent).toBe('✓ Added to app'));
+    expect(dom.window.document.querySelectorAll('button')).toHaveLength(1);
+    const calls=fetch.mock.calls.filter(([url])=>url.startsWith('/api/jmuse')) as unknown as Array<[string,RequestInit]>;
+    expect(calls[0][0]).toBe('/api/jmuse?id=34743503&type=midi&index=0');
+    expect(calls[0][1].headers).toEqual({Authorization:createHash('md5').update('34743503midi0suffix-from-current-bundle').digest('hex').slice(0,4)});
+    if(fallback)expect(calls[1][1].headers).toEqual({Authorization:createHash('md5').update('34743503midi09654,4e').digest('hex').slice(0,4)});
+    expect(messages.filter(message=>message.action==='downloadMuseScore')).toEqual([{action:'downloadMuseScore',url:'https://s.musescore.com/score.mid?signature=keep',title:'Piano',sourceUrl:dom.window.location.href,thumbnailUrl:''}]);
+  }finally{runInContext('globalThis.lazymidiScoreCleanup?.()',context);dom.window.close();}
+});
+it('downloads and imports a MuseScore MIDI without exposing local credentials to the CDN',async()=>{
+  const w=worker();const normal=w.fetch.getMockImplementation()!;
+  const url='https://s.musescore.com/score.mid?signature=keep';
+  w.fetch.mockImplementation(async(endpoint:string)=>endpoint===url?new Response('MThdtest') as never:normal(endpoint));
+  expect(await w.send({action:'downloadMuseScore',url,sourceUrl:'https://musescore.com/user/1/scores/123',title:'Piano'})).toMatchObject({success:true});
+  const [,options]=w.fetch.mock.calls.find(([endpoint])=>endpoint===url) as unknown as [string,RequestInit];
+  expect(options).toMatchObject({credentials:'omit',redirect:'error'});expect(options.headers).toBeUndefined();
+  const [,imported]=w.fetch.mock.calls.find(([endpoint])=>endpoint.endsWith('/api/import-midi')) as unknown as [string,RequestInit];
+  expect((imported.body as FormData).get('title')).toBe('Piano');
+  expect(await ((imported.body as FormData).get('file') as File).text()).toBe('MThdtest');
+});
+it.each(['https://musescore.com.evil.test/score.mid','http://127.0.0.1/private.mid','https://s.musescore.com:123/score.mid','https://user:pass@s.musescore.com/score.mid','https://s3.ultimate-guitar.com/private.mid'])('rejects an unsafe MuseScore download %s before fetching',async url=>{
+  const w=worker();expect(await w.send({action:'downloadMuseScore',url,sourceUrl:'https://musescore.com/user/1/scores/123'})).toMatchObject({success:false});expect(w.fetch).not.toHaveBeenCalled();
+});
+it.each(['html','length','stream'])('rejects invalid or oversized MuseScore download (%s)',async kind=>{
+  const w=worker();const normal=w.fetch.getMockImplementation()!;const url='https://s.musescore.com/score.mid';
+  w.fetch.mockImplementation(async(endpoint:string)=>endpoint!==url?normal(endpoint):new Response(kind==='html'?'<html>Not MIDI</html>':new Uint8Array(kind==='stream'?20*1024**2+1:4),{headers:kind==='length'?{'Content-Length':String(20*1024**2+1)}:{}}) as never);
+  expect(await w.send({action:'downloadMuseScore',url,sourceUrl:'https://musescore.com/user/1/scores/123'})).toMatchObject({success:false});
+  expect(w.fetch.mock.calls.some(([endpoint])=>endpoint.endsWith('/api/import-midi'))).toBe(false);
 });
 it.each([false,true])("shows browser conversion status or errors in the popup (error=%s)",async failed=>{
   const dom=new JSDOM(readFileSync(new URL("../extension/popup.html",import.meta.url),"utf8"));

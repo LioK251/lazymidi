@@ -129,19 +129,61 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // async response
   }
 
-  if (request.action === 'importMidi') {
+  if (request.action === 'importMidi' || request.action === 'downloadMuseScore') {
     // Push a MIDI fetched by the MuseScore content script into the local app.
     // Sent from here, not the content script: the service worker's
     // host_permissions let it post to 127.0.0.1 without CORS headers.
     (async () => {
       try {
-        const binary = atob(request.data || '');
-        if (binary.length > 20 * 1024**2 || binary.slice(0,4) !== 'MThd') throw new Error('Choose a valid MIDI file under 20 MB.');
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        let bytes;
+        let filename = request.filename || 'score.mid';
+        if (request.action === 'downloadMuseScore') {
+          const source = new URL(request.sourceUrl);
+          const score = /\/scores?\/(\d+)\/?$/.exec(source.pathname)?.[1];
+          const url = new URL(request.url);
+          const allowed = url.hostname === 'musescore.com' || url.hostname.endsWith('.musescore.com') ||
+            url.hostname === 'musescore-public.s3.amazonaws.com' ||
+            (url.hostname === 's3.ultimate-guitar.com' && url.pathname.startsWith('/musescore/'));
+          if (source.protocol !== 'https:' || !['musescore.com','www.musescore.com','s.musescore.com'].includes(source.hostname) ||
+              source.username || source.password || source.port || !score ||
+              !allowed || url.protocol !== 'https:' || url.username || url.password || url.port) {
+            throw new Error('MuseScore returned an unsupported MIDI download URL.');
+          }
+          await connect();
+          const abort = new AbortController();
+          const timer = setTimeout(() => abort.abort(), 30000);
+          try {
+            const download = await fetch(url.href, {signal:abort.signal, credentials:'omit', redirect:'error'});
+            if (!download.ok) throw new Error(`MIDI download returned HTTP ${download.status}`);
+            const limit = 20 * 1024**2;
+            if (Number(download.headers.get('Content-Length')) > limit) throw new Error('MIDI file is too large.');
+            const reader = download.body.getReader();
+            const chunks = []; let length = 0;
+            try {
+              while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                length += value.length;
+                if (length > limit) throw new Error('MIDI file is too large.');
+                chunks.push(value);
+              }
+            } finally { await reader.cancel(); }
+            bytes = new Uint8Array(length);
+            let offset = 0;
+            for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+          } finally { clearTimeout(timer); }
+          filename = `musescore-${score}.mid`;
+        } else {
+          const binary = atob(request.data || '');
+          if (binary.length > 20 * 1024**2) throw new Error('Choose a valid MIDI file under 20 MB.');
+          bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+        }
+        if (bytes.length < 4 || bytes[0] !== 0x4d || bytes[1] !== 0x54 || bytes[2] !== 0x68 || bytes[3] !== 0x64) {
+          throw new Error('MuseScore did not return a valid MIDI file.');
+        }
 
         const form = new FormData();
-        form.append('file', new Blob([bytes], { type: 'audio/midi' }), request.filename || 'score.mid');
+        form.append('file', new Blob([bytes], { type: 'audio/midi' }), filename);
         form.append('title', request.title || '');
         form.append('source_url', request.sourceUrl || '');
         form.append('thumbnail_url', request.thumbnailUrl || '');

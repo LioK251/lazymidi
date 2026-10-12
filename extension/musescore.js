@@ -1,14 +1,15 @@
-// Import a MIDI obtained through the score page's own download controls.
-// MuseScore's old jmuse token endpoint is no longer a dependable export path.
+// Adapted from LibreScore/dl-librescore (MIT), revision 5a9491f977f900943cb6f1ed3d703eb701bb03a6.
+// Full notice: vendor/dl-librescore-LICENSE.txt.
 (function () {
   'use strict';
 
   const BTN_ID = 'audioconverter-ms-btn';
-  const PICKER_ID = 'audioconverter-ms-picker';
-  const IDLE_LABEL = 'Import downloaded MIDI';
+  const IDLE_LABEL = 'Download MIDI to lazymidi';
   const timers=[];let stopped=false;
+  let activeDownload;
   globalThis.lazymidiScoreCleanup?.();
-  globalThis.lazymidiScoreCleanup=()=>{stopped=true;timers.forEach(clearInterval);removeButton();};
+  removeButton();
+  globalThis.lazymidiScoreCleanup=()=>{stopped=true;activeDownload?.abort();timers.forEach(clearInterval);removeButton();};
   let busy = false;
   let syncing = false;
 
@@ -41,43 +42,62 @@
     });
   }
 
-  function bytesToBase64(buffer) {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  async function midiUrl(signal, sourceUrl) {
+    const id = /\/scores?\/(\d+)(?:\/|$)/.exec(new URL(sourceUrl).pathname)?.[1];
+    if (!id) throw new Error('Open a MuseScore score first');
+    let suffix = null;
+    const scripts = [...document.querySelectorAll('script[src],link[href]')]
+      .map(node => new URL(node.src || node.href, sourceUrl))
+      .filter(url => url.origin === location.origin && /\/static\/public\/build\/musescore.*\/20.*\.js$/.test(url.pathname));
+    for (const url of [...new Set(scripts.map(url => url.href))].slice(0, 8)) {
+      try {
+        const response = await fetch(url, {signal, credentials:'same-origin', redirect:'error'});
+        if (!response.ok) continue;
+        const text = await response.text();
+        suffix = /["']([^"']+)["']\)\.substr\(0,\s*4\)/.exec(text)?.[1] ?? null;
+        if (suffix !== null) break;
+      } catch (error) { if (signal.aborted) throw error; }
     }
-    return btoa(binary);
+    for (const value of [...new Set([suffix, '9654,4e'])]) {
+      const auth = md5(`${id}midi0${value}`).slice(0, 4);
+      const response = await fetch(`/api/jmuse?id=${id}&type=midi&index=0`, {
+        headers:{Authorization:auth}, signal, credentials:'same-origin', redirect:'error',
+      });
+      if (!response.ok) continue;
+      const payload = await response.json();
+      if (typeof payload?.info?.url === 'string') return payload.info.url;
+    }
+    // shortcut: native-player token capture is not included; revisit if MuseScore stops accepting both upstream token variants.
+    throw new Error('MuseScore did not provide a MIDI download for this score.');
   }
 
-  async function importFile(file, button) {
+  async function downloadMidi(button) {
     busy = true;
     button.disabled = true;
-    acSetGlassState(button, 'Importing MIDI…', 'busy');
+    acSetGlassState(button, 'Downloading MIDI…', 'busy');
+    const controller = new AbortController();
+    activeDownload = controller;
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const sourceUrl = location.href.split(/[?#]/)[0];
+    const title = meta('og:title').replace(/\s*\|\s*MuseScore\.com\s*$/i, '').trim();
+    const thumbnailUrl = meta('og:image');
     try {
-      if (file.size > 20 * 1024 * 1024) throw new Error('MIDI file is too large');
-      const buffer = await file.arrayBuffer();
-      const head = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength));
-      if (head.length !== 4 || head[0] !== 0x4d || head[1] !== 0x54 ||
-          head[2] !== 0x68 || head[3] !== 0x64) {
-        throw new Error('Choose a MIDI (.mid or .midi) file');
-      }
+      const health = await sendToWorker({action:'ping'}, 6000);
+      if (!health?.alive) throw new Error('Open lazymidi with Converter enabled.');
+      const url = await midiUrl(controller.signal, sourceUrl);
+      if (controller.signal.aborted) throw new Error('MIDI download cancelled.');
       const response = await sendToWorker({
-        action: 'importMidi',
-        data: bytesToBase64(buffer),
-        filename: file.name,
-        title: meta('og:title').replace(/\s*\|\s*MuseScore\.com\s*$/i, '').trim(),
-        sourceUrl: location.href.split('?')[0],
-        thumbnailUrl: meta('og:image'),
+        action: 'downloadMuseScore', url, title, sourceUrl, thumbnailUrl,
       });
       if (!response?.success) throw new Error(response?.error || 'Import failed');
       acSetGlassState(button, '✓ Added to app', 'done');
-      button.title = `Imported ${response.midi_name || file.name}`;
+      button.title = `Imported ${response.midi_name || 'score.mid'}`;
     } catch (error) {
       console.error('lazymidi MuseScore import:', error);
       acSetGlassState(button, `✕ ${error.message}`, 'error');
       button.title = error.message;
     } finally {
+      clearTimeout(timeout);
       busy = false;
       button.disabled = false;
       setTimeout(() => { if (!busy) acSetGlassState(button, IDLE_LABEL, ''); }, 5000);
@@ -86,25 +106,15 @@
 
   function removeButton() {
     document.getElementById(BTN_ID)?.remove();
-    document.getElementById(PICKER_ID)?.remove();
+    document.getElementById('audioconverter-ms-picker')?.remove();
   }
 
   function injectButton() {
     if (document.getElementById(BTN_ID) || !isScorePage()) return;
     const button = acCreateGlassButton(BTN_ID, IDLE_LABEL);
-    button.title = 'Download MIDI from MuseScore, then choose the file to import into lazymidi';
-    const picker = document.createElement('input');
-    picker.id = PICKER_ID;
-    picker.type = 'file';
-    picker.accept = '.mid,.midi,audio/midi';
-    picker.style.display = 'none';
-    picker.addEventListener('change', () => {
-      const file = picker.files?.[0];
-      picker.value = '';
-      if (file) importFile(file, button);
-    });
-    button.addEventListener('click', () => { if (!busy) picker.click(); });
-    document.body.append(button, picker);
+    button.title = 'Download this score’s MIDI directly into lazymidi';
+    button.addEventListener('click', () => { if (!busy) downloadMidi(button); });
+    document.body.append(button);
   }
 
   async function syncButton() {
@@ -116,7 +126,7 @@
       const response = await sendToWorker({ action: 'ping' }, 6000).catch(() => null);
       const alive = !!(response?.success && response.alive);
       const button=document.getElementById(BTN_ID);
-      if(button&&!busy)button.title=alive?'Download MIDI from MuseScore, then choose the file to import into lazymidi':'Open lazymidi with Converter enabled.';
+      if(button&&!busy)button.title=alive?'Download this score’s MIDI directly into lazymidi':'Open lazymidi with Converter enabled.';
     } finally { syncing = false; }
   }
 

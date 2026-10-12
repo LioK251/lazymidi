@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "lazymidi Converter",
   "version": "0.1.5",
-  "description": "Send YouTube, TikTok and Discord media to lazymidi and import downloaded MuseScore MIDI files.",
+  "description": "Send YouTube, TikTok and Discord media to lazymidi and download MuseScore MIDI into the library.",
   "permissions": [
     "activeTab",
     "storage",
@@ -19,7 +19,9 @@
     "https://vm.tiktok.com/*",
     "https://vt.tiktok.com/*",
     "https://musescore.com/*",
-    "https://*.musescore.com/*"
+    "https://*.musescore.com/*",
+    "https://musescore-public.s3.amazonaws.com/*",
+    "https://s3.ultimate-guitar.com/musescore/*"
   ],
   "action": {
     "default_title": "lazymidi Converter",
@@ -58,6 +60,7 @@
       ],
       "js": [
         "glass-button.js",
+        "vendor/md5.min.js",
         "musescore.js"
       ],
       "run_at": "document_idle"

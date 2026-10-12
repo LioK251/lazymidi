@@ -97,3 +97,17 @@ and exact versions are retained in each pack. The local Gyan FFmpeg build is
 GPLv3; its license, build configuration and FFmpeg source archive are under
 licenses/. Public pack redistribution remains gated on corresponding source
 verification for its external libraries; see docs/optional-modules.md.
+
+Browser extension MuseScore downloads:
+
+8. LibreScore/dl-librescore — MIT, Copyright (c) 2024 LibreScore.
+   https://github.com/LibreScore/dl-librescore
+   Revision 5a9491f977f900943cb6f1ed3d703eb701bb03a6, src/file.ts.
+   Dynamic authorization and legacy suffix fallback adapted in
+   extension/musescore.js; native-player hooks and score conversion excluded.
+   Full notice: extension/vendor/dl-librescore-LICENSE.txt.
+
+9. blueimp JavaScript-MD5 2.19.0 — MIT, Copyright (c) Sebastian Tschan.
+   https://github.com/blueimp/JavaScript-MD5/tree/v2.19.0
+   Unmodified js/md5.min.js bundled as extension/vendor/md5.min.js.
+   Full notice: extension/vendor/blueimp-md5-LICENSE.txt.
