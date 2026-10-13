@@ -2,6 +2,8 @@
 
 ## Version 0.1.6 library pagination — 2026-10-13
 
+The replacement 0.1.6 also fixes floating-sheet startup ordering. A deterministic regression delivered the previous song at revision 8 before the startup reply containing the requested song at revision 9; the viewer incorrectly kept the previous song. Startup replies now participate in revision comparison, while older delayed events remain ignored. The regression and all 122 frontend tests pass. The earlier late-startup-reply protection remains covered.
+
 The Sheet → return-focus regression failed in both normal and Always open Float modes before the fix: refreshing the MIDI file array reset the library to its first page. Pagination now resets for a changed search and clamps only when a page no longer exists. All 121 frontend tests pass, including preserving page two across sheet generation/focus, clamping after file removal, retaining that clamped page when files return and resetting a new search whose results still span multiple pages. Release-specific packaged/native results are recorded with the published build.
 
 ## Version 0.1.5 replacement release candidate — 2026-10-12

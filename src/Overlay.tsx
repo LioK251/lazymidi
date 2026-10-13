@@ -54,7 +54,7 @@ export default function Overlay({kind}:{kind:string}) {
     void listen<typeof sheet>("sheet-content",e=>{receivedSheet=true;if(!disposed)setSheet(p=>(e.payload.revision??0)>=(p.revision??0)?e.payload:p);}).then(async f=>{
       if(disposed){f();return;}sheetStop=f;
       const initial=await invoke<typeof sheet>("get_sheet");
-      if(!disposed&&!receivedSheet)setSheet(initial);
+      if(!disposed)setSheet(p=>!receivedSheet||(initial.revision??0)>(p.revision??0)?initial:p);
     }).catch(failed);
     return ()=>{disposed=true;stop();sheetStop();};},[]);
   const config=state.settings.profiles.find(p=>p.id===state.settings.selected_profile)!.transpose;const sequence=config.sequence;

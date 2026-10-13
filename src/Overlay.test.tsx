@@ -85,6 +85,19 @@ it("keeps a newly sent sheet when the initial get_sheet reply arrives late",asyn
   expect(screen.getByLabelText("Piano sheet").textContent).not.toContain("Old sheet");
 });
 
+it("loads the latest startup sheet even when an older event arrives first",async()=>{
+  let finish:(value:SheetContent)=>void=()=>{};
+  vi.mocked(invoke).mockImplementation(command=>command==="get_sheet"?new Promise(resolve=>{finish=resolve;}):Promise.resolve());
+  await act(async()=>{render(<Overlay kind="sheet"/>);});
+  await act(async()=>{
+    sheetEvent({payload:{text:"Previous song",revision:8}});
+    finish({text:"Requested song",revision:9});
+  });
+  expect(screen.getByLabelText("Piano sheet").textContent).toBe("Requested song");
+  await act(async()=>{sheetEvent({payload:{text:"Delayed previous song",revision:7}});});
+  expect(screen.getByLabelText("Piano sheet").textContent).toBe("Requested song");
+});
+
 it("colors floating sheets and applies the native stay-on-top control",async()=>{
   vi.mocked(invoke).mockImplementation(async command=>command==="get_sheet"?{text:"Transpose by: -2\n[etu] - :1"}:{});
   await act(async()=>{render(<Overlay kind="sheet"/>);});
