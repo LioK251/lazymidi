@@ -385,3 +385,43 @@ it("limits large libraries to 24 previews and searches across all pages",async()
   expect(screen.getAllByRole("article")).toHaveLength(11);
   expect(screen.queryByRole("button",{name:"Next page"})).toBeNull();
 });
+
+it.each([false,true])("keeps the library page after Sheet and returning focus (always Float: %s)",async(alwaysFloat)=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    const path=(args as {path?:string})?.path;
+    if(path==="/api/settings")return {always_open_float:alwaysFloat};
+    if(path==="/api/midi-files")return {midi_files:Array.from({length:26},(_,i)=>({...file,filename:`song-${i}.mid`,video_title:`Song ${i}`}))};
+    return original(command,args);
+  });
+  const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
+  fireEvent.click(screen.getByRole("button",{name:"Library"}));
+  fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  expect(screen.getByText("25–26 of 26")).toBeTruthy();
+  await act(async()=>{fireEvent.click(within(screen.getByRole("article",{name:"Song 24"})).getByRole("button",{name:"Sheet"}));});
+  expect(invoke).toHaveBeenCalledWith("generate_sheet",expect.objectContaining({midiFilename:"song-24.mid"}));
+  fireEvent.click(screen.getByRole("button",{name:"Library"}));
+  await act(async()=>{fireEvent(window,new Event("focus"));});
+  expect(screen.getByText("25–26 of 26")).toBeTruthy();
+  expect(screen.getByRole("article",{name:"Song 24"})).toBeTruthy();
+  expect(error).not.toHaveBeenCalled();
+});
+
+it("clamps removed library pages on refresh and resets to the first page only for a new search",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  let count=60;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>(args as {path?:string})?.path==="/api/midi-files"?{midi_files:Array.from({length:count},(_,i)=>({...file,filename:`song-${i}.mid`,video_title:`Song ${i}`}))}:original(command,args));
+  await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
+  fireEvent.click(screen.getByRole("button",{name:"Library"}));
+  fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  expect(screen.getByText("49–60 of 60")).toBeTruthy();
+  count=25;
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Refresh"}));});
+  expect(screen.getByText("25–25 of 25")).toBeTruthy();
+  count=60;
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Refresh"}));});
+  expect(screen.getByText("25–48 of 60")).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox",{name:"Search library"}),{target:{value:"Song"}});
+  expect(screen.getByText("1–24 of 60")).toBeTruthy();
+});

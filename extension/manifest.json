@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "lazymidi Converter",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Send YouTube, TikTok and Discord media to lazymidi and download MuseScore MIDI into the library.",
   "permissions": [
     "activeTab",

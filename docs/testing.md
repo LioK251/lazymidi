@@ -1,5 +1,9 @@
 # Verification and release qualification
 
+## Version 0.1.6 library pagination — 2026-10-13
+
+The Sheet → return-focus regression failed in both normal and Always open Float modes before the fix: refreshing the MIDI file array reset the library to its first page. Pagination now resets for a changed search and clamps only when a page no longer exists. All 121 frontend tests pass, including preserving page two across sheet generation/focus, clamping after file removal, retaining that clamped page when files return and resetting a new search whose results still span multiple pages. Release-specific packaged/native results are recorded with the published build.
+
 ## Version 0.1.5 replacement release candidate — 2026-10-12
 
 107 frontend/extension tests, 54 Rust checks, 45 SDK-free core checks and 18 private-service

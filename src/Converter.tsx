@@ -99,7 +99,8 @@ export default function Converter({active,onError}:{active:boolean;onError:(mess
   const useEnvironment=()=>run(()=>dialog("converter_use_environment",{}));
   const matchingFiles=files.filter(f=>`${f.filename} ${f.video_title} ${f.source_type}`.toLowerCase().includes(search.toLowerCase()));
   const pages=Math.max(1,Math.ceil(matchingFiles.length/24));const currentPage=Math.min(page,pages-1);
-  useEffect(()=>setPage(0),[search,files]);
+  useEffect(()=>setPage(0),[search]);
+  useEffect(()=>setPage(p=>Math.min(p,pages-1)),[pages]);
   let displayedPoints:{chord:number;value:number}[]=[];
   try{displayedPoints=manualPoints();}catch{/* Invalid JSON remains editable and is rejected on Generate/Save. */}
   const exportFile=(id:string)=>run(()=>dialog("converter_export",{id}));
