@@ -20,10 +20,8 @@ class ServiceTests(unittest.TestCase):
         self.client = service.app.test_client()
         self.headers = {"X-Lazymidi-Token": "test-private-token"}
     def test_background_upload_and_legacy_read(self):
-        from PIL import Image
-        image = io.BytesIO()
-        Image.new("RGB", (8,8), "white").save(image, format="PNG")
-        payload = image.getvalue()
+        from base64 import b64decode
+        payload = b64decode("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAFUlEQVR4nGP8//8/AzbAhFV00EoAAFbUAw037MyjAAAAAElFTkSuQmCC")
         uploaded = self.client.post("/api/visualizer-background", headers=self.headers,
             data={"file":(io.BytesIO(payload),"paper.png")})
         self.assertEqual(uploaded.status_code,200)
