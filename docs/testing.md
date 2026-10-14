@@ -1,6 +1,6 @@
 # Verification and release qualification
 
-## Version 0.1.7 release candidate — 2026-10-14
+## Version 0.1.7 release qualification — 2026-10-14
 
 148 frontend/extension checks, 56 Rust checks, 20 private-service checks and three
 Python environment checks pass. Six specialized Rust checks and one inference
@@ -39,12 +39,19 @@ floating-window/minimize/restore, converter, stale-sheet revision, large SoundFo
 range and visualizer reuse checks. Native background decoding requires a real
 PNG uploaded through the authenticated converter service. SDK and generated keys
 remain off. NSIS archive integrity passes; an interactive installation was not run.
-Artifacts are staged under `target/releases/v0.1.7-candidate`.
+Artifacts are staged under `target/releases/v0.1.7`.
 
-Windows artifacts are prepared locally. Native
-hardware audio/game input, live website downloads and non-Windows qualification
-remain outstanding. The earlier preview evidence below is historical; its hands
-feature is superseded and is absent from this candidate.
+Native GitHub Actions builds pass on Windows, Ubuntu, macOS Apple Silicon and
+macOS Intel. Both DMGs pass filesystem/signature/architecture/resource checks
+and SDK-free frontend startup from the mounted installer. Linux .deb and
+AppImage packages pass version/resource checks and SDK-free frontend startup
+under Xvfb. The .deb includes an explicit ALSA runtime dependency. Native
+artifact checksums are verified before release staging.
+
+Physical MIDI/analog hardware, keyboard permissions, Roblox/audio, live website
+downloads and Linux/macOS desktop/compositor behavior remain unqualified for
+this update. Converter runtime setup remains Windows x64 only. The earlier
+preview evidence below is historical; its hands feature is absent from 0.1.7.
 
 ## Drawn visualizer local preview — 2026-10-14
 
