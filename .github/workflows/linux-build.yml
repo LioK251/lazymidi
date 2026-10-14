@@ -40,7 +40,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo fetch --locked
       - name: Build Debian and AppImage packages
-        run: npm run bundle -- --bundles deb,appimage
+        run: npm run bundle -- --bundles deb,appimage --config '{"bundle":{"linux":{"deb":{"depends":["libasound2"]}}}}'
       - name: Verify packages and SDK-free startup
         env:
           GDK_BACKEND: x11
@@ -53,6 +53,7 @@ jobs:
           test "${#image[@]}" -eq 1
           version=$(node -p "require('./package.json').version")
           test "$(dpkg-deb -f "${deb[0]}" Version)" = "$version"
+          dpkg-deb -f "${deb[0]}" Depends | grep -qw libasound2
           mkdir -p "$RUNNER_TEMP/lazymidi-deb" "$RUNNER_TEMP/lazymidi-appimage" target/release/assets
           dpkg-deb -x "${deb[0]}" "$RUNNER_TEMP/lazymidi-deb"
           chmod +x "${image[0]}"
