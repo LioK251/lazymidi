@@ -118,15 +118,17 @@
   }
 
   async function syncButton() {
-    if (stopped || syncing || busy) return;
+    if (stopped || syncing) return;
     syncing = true;
     try {
       if (!isScorePage()) { removeButton(); return; }
-      injectButton();
+      const page=location.href;
       const response = await sendToWorker({ action: 'ping' }, 6000).catch(() => null);
+      if(stopped||location.href!==page)return;
       const alive = !!(response?.success && response.alive);
+      if(alive&&!busy)injectButton();
       const button=document.getElementById(BTN_ID);
-      if(button&&!busy)button.title=alive?'Download this score’s MIDI directly into lazymidi':'Open lazymidi with Converter enabled.';
+      if(button){button.dataset.lazymidiOnline=String(alive);button.hidden=!alive;if(!alive&&!busy)removeButton();}
     } finally { syncing = false; }
   }
 

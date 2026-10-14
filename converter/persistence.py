@@ -48,6 +48,7 @@ def read_json(path, default):
 def validate_settings(value):
     if not isinstance(value, dict) or len(json.dumps(value, allow_nan=False)) > 1024**2:
         raise ValueError("Invalid converter settings")
+    value = {key: item for key, item in value.items() if key != "visualizer_hands"}
     ranges = {"quantize": (0,1000), "resilience": (0,100), "break_lines_every": (1,1000), "visualizer_speed": (50,800)}
     for key,(low,high) in ranges.items():
         if key in value and (type(value[key]) not in (int,float) or not math.isfinite(value[key]) or not low <= value[key] <= high):

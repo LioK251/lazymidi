@@ -25,6 +25,19 @@ beforeEach(()=>{
   });
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
+it("hides legacy conversion suffixes in song labels but keeps original IDs for actions",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    if((args as {path?:string})?.path==="/api/midi-files")return {midi_files:[{...file,filename:"Song_transkun.mid",video_title:""}]};
+    return original(command,args);
+  });
+  await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
+  expect(screen.queryByText("Song_transkun.mid")).toBeNull();
+  fireEvent.click(screen.getByRole("button",{name:"Library"}));
+  expect(screen.getByRole("heading",{name:"Song.mid"})).toBeTruthy();
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Export"}));});
+  expect(invoke).toHaveBeenCalledWith("converter_export",{id:"Song_transkun.mid"});
+});
 it("prepares the service for automatic browser access while the converter tab is inactive",async()=>{
   await act(async()=>{render(<Converter active={false} onError={vi.fn()}/>);});
   expect(invoke).toHaveBeenCalledWith("converter_request",expect.objectContaining({path:"/api/health"}));

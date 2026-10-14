@@ -1,3 +1,4 @@
+import {useNotice,useNoticeText} from "./notices";
 import {useEffect,useLayoutEffect,useRef,useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
@@ -38,7 +39,8 @@ export default function Overlay({kind}:{kind:string}) {
   const viewRef=useRef(view);viewRef.current=view;
   const {zoom,opacity,top,colored,centered}=view;
   const topQueue=useRef(Promise.resolve());
-  const [error,setError]=useState("");
+  const [error,setError]=useNotice();
+  const statusError=useNoticeText(state.transpose.error);
   function changeView(changes:Partial<SheetView>){
     const next={...viewRef.current,...changes};viewRef.current=next;setView(next);
     try{localStorage.setItem(viewKey,JSON.stringify(next));}catch{setError("Could not save sheet view settings.");}
@@ -96,5 +98,5 @@ export default function Overlay({kind}:{kind:string}) {
       lineContent={manual?(line,i)=>{const match=/^Transpose by:\s*([+-]?\d+)/i.exec(line);const chord=sheet.source?.line_chord_map[i];return match&&chord!=null&&chord>=0?<TransposeValue value={Number(match[1])} chord={chord} disabled={busy} onCommit={value=>changePoint(chord,value)} onError={setError}/>:null;}:undefined}
       lineAction={manual?i=>{const chord=sheet.source?.line_chord_map[i];const line=sheet.text?.split("\n")[i]??"";if(chord==null||chord<0||!line.trim()||/^<!--/.test(line))return null;const exists=points.some(p=>p.chord===chord);if(/^Transpose by:/i.test(line))return exists?<button className="sheet-point-action" disabled={busy} aria-label={`Remove transpose at chord ${chord}`} onClick={()=>removePoint(chord)}>−</button>:null;return !exists?<button className="sheet-point-action" disabled={busy} aria-label={`Add transpose at chord ${chord}`} onClick={()=>changePoint(chord,inheritedValue(chord))}>+</button>:null;}:undefined}
     />:<p className="muted">Open a sheet, or send one from Convert → Sheets.</p>}</div>
-  </>}{(error||status.error)&&<p role="alert" title={error||status.error||undefined}>{error||status.error}</p>}</div></div>;
+  </>}{(error||statusError)&&<p role="alert" title={error||statusError||undefined}>{error||statusError}</p>}</div></div>;
 }

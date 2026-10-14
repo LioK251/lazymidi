@@ -113,6 +113,6 @@ it("ignores an old MIDI response after a newer song has loaded",async()=>{
     const old=w.openPianoVisualizer("old.mid");await started;await w.openPianoVisualizer("new.mid");
     finishOld({ok:true,arrayBuffer:async()=>midi.toArray().buffer});await old;
     expect(parsed).toHaveBeenCalledOnce();expect(w.document.getElementById("pv-export-hands").disabled).toBe(false);
-    expect(w.document.getElementById("pv-title").textContent).toContain("new");
+    expect(w.document.getElementById("pv-title")).toBeNull();
   }finally{w.close();}
 });

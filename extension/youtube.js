@@ -174,9 +174,9 @@
     document.body.appendChild(btn);
   }
 
-  // Keep supported-page controls visible even before the app connects.
+  // Presence follows converter health, including app restart and SPA navigation.
   async function syncButton() {
-    if (stopped || syncing || busy) return;
+    if (stopped || syncing) return;
     syncing = true;
 
     try {
@@ -188,11 +188,12 @@
         return;
       }
 
-      injectButton();
+      const page=location.href;
       const alive = await isAppRunning();
+      if(stopped||location.href!==page)return;
+      if(alive&&!busy)injectButton();
       const current = document.getElementById(BTN_ID);
-
-      if(current&&!busy)current.title=alive?'':'Open lazymidi with Converter enabled.';
+      if(current){current.dataset.lazymidiOnline=String(alive);current.hidden=!alive;if(!alive&&!busy)current.remove();}
     } finally {
       syncing = false;
     }

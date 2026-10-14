@@ -4,6 +4,7 @@ import App from "./App";
 import Overlay from "./Overlay";
 import Visualizer from "./Visualizer";
 import "./styles.css";
+import "../public/controls.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

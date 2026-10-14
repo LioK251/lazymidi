@@ -18,7 +18,7 @@ const AC_GLASS_CSS = `
   bottom: 18px !important;
   z-index: 2147483647 !important;
 
-  display: inline-flex !important;
+  display: none !important;
   align-items: center !important;
   justify-content: center !important;
   gap: 8px !important;
@@ -108,6 +108,7 @@ const AC_GLASS_CSS = `
 .ac-glass-btn:disabled {
   cursor: default !important;
 }
+.ac-glass-btn[data-lazymidi-online='true']:not([hidden]) { display: inline-flex !important; }
 
 /* Tints: the glass stays, only the colour behind it shifts */
 .ac-glass-btn[data-tone='busy'] {
@@ -154,8 +155,9 @@ const AC_GLASS_CSS = `
 `;
 
 function acEnsureGlassStyles() {
-  if (document.getElementById(AC_GLASS_STYLE_ID)) return;
-  const style = document.createElement('style');
+  let style = document.getElementById(AC_GLASS_STYLE_ID);
+  if (style?.textContent === AC_GLASS_CSS) return;
+  if (!style) style = document.createElement('style');
   style.id = AC_GLASS_STYLE_ID;
   style.textContent = AC_GLASS_CSS;
   // documentElement, not head: survives pages that rewrite <head>
@@ -170,6 +172,7 @@ function acCreateGlassButton(id, label) {
   btn.type = 'button';
   btn.className = 'ac-glass-btn';
   btn.dataset.tone = 'idle';
+  btn.hidden = true;
   btn.textContent = label;
   return btn;
 }
@@ -180,5 +183,6 @@ function acSetGlassState(btn, text, tone) {
   btn.dataset.tone = tone || 'idle';
 }
 
+acEnsureGlassStyles();
 Object.assign(globalThis,{acCreateGlassButton,acSetGlassState});
 })();

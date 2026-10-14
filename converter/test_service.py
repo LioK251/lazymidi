@@ -19,6 +19,25 @@ class ServiceTests(unittest.TestCase):
     def setUp(self):
         self.client = service.app.test_client()
         self.headers = {"X-Lazymidi-Token": "test-private-token"}
+    def test_background_upload_and_legacy_read(self):
+        from PIL import Image
+        image = io.BytesIO()
+        Image.new("RGB", (8,8), "white").save(image, format="PNG")
+        payload = image.getvalue()
+        uploaded = self.client.post("/api/visualizer-background", headers=self.headers,
+            data={"file":(io.BytesIO(payload),"paper.png")})
+        self.assertEqual(uploaded.status_code,200)
+        name = pathlib.Path(uploaded.json["url"]).name
+        current = pathlib.Path(TEMP.name)/"visualizer_backgrounds"/name
+        self.assertEqual(current.read_bytes(),payload)
+        with self.client.get(uploaded.json["url"],headers=self.headers) as response:
+            self.assertEqual(response.data,payload)
+        legacy = pathlib.Path(TEMP.name)/"visualizer-backgrounds"
+        legacy.mkdir(exist_ok=True)
+        current.replace(legacy/name)
+        with self.client.get(uploaded.json["url"],headers=self.headers) as response:
+            self.assertEqual(response.data,payload)
+        self.assertEqual(self.client.get("/visualizer-backgrounds/../settings.json",headers=self.headers).status_code,404)
     def test_automatic_extension_connection_rejects_websites(self):
         headers={"X-Lazymidi-Extension":"1"}
         response=self.client.get("/api/extension-connect",headers=headers)
@@ -298,6 +317,23 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/settings",headers=self.headers).json["quantize"],35)
         self.assertTrue(list(path.parent.glob("settings.json.invalid-*")))
         self.assertEqual(self.client.post("/api/settings",headers=self.headers,json={"manual_transpose_points":[{"chord":0,"value":51}]}).status_code,400)
+        self.assertEqual(self.client.post("/api/settings",headers=self.headers,json={"always_open_float":"true"}).status_code,400)
+        saved={"visualizer_scenes":{"sketch":{"keyboard":"sketch","mode":"image","media_url":"/visualizer-backgrounds/"+"a"*32+".png"}}}
+        self.assertEqual(self.client.post("/api/settings",headers=self.headers,json={**saved,"visualizer_hands":True}).status_code,200)
+        self.assertEqual(self.client.get("/api/settings",headers=self.headers).json,saved)
+        self.assertEqual(read_json(path,{}),saved)
+        atomic_json(path,{**saved,"visualizer_hands":"legacy"})
+        self.assertEqual(self.client.get("/api/settings",headers=self.headers).json,saved)
+    def test_download_names_preserve_files_and_brand_legacy_outputs(self):
+        for name, expected in (("Song_transkun.mid","Song_lazymidi.mid"),("Song_transkun_2_sheets.txt","Song_lazymidi_2_sheets.txt"),("Song_transkun_remix.mid","Song_transkun_remix.mid")):
+            path=service.DATA/"converted"/name
+            path.write_bytes(b"original content")
+            response=self.client.get("/converted/"+name,headers=self.headers)
+            self.assertEqual(response.status_code,200)
+            self.assertIn(expected,response.headers["Content-Disposition"])
+            self.assertEqual(response.data,b"original content")
+            response.close()
+            self.assertEqual(path.read_bytes(),b"original content")
     def test_cancelled_worker_still_blocks_next_job_until_cleanup(self):
         service._active.add("cancelled-worker")
         try:

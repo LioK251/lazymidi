@@ -1,3 +1,4 @@
+import {useNotice,useNoticeText} from "./notices";
 import { useEffect, useRef, useState } from "react";
 import TitleBar from "./TitleBar";
 import { listen } from "@tauri-apps/api/event";
@@ -119,7 +120,8 @@ export default function App() {
   stateRef.current = state;
   const [tab, setTab] = useState<Tab>("Play");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useNotice();
+  const snapshotError=useNoticeText(state.error);
   const [draft, setDraft] = useState<Settings | null>(null);
   const [draftRevision, setDraftRevision] = useState(0);
   const [mapping, setMapping] = useState<"qwerty" | "analog">("analog");
@@ -419,12 +421,12 @@ export default function App() {
           </Status>
         </span>
       </nav>
-      {(error || state.error || state.warning) && (
+      {(error || snapshotError || state.warning) && (
         <div
-          className={`notice ${error || state.error ? "error" : ""}`}
-          role={error || state.error ? "alert" : "status"}
+          className={`notice ${error || snapshotError ? "error" : ""}`}
+          role={error || snapshotError ? "alert" : "status"}
         >
-          {error ?? state.error ?? state.warning}
+          {error || snapshotError || state.warning}
           {error && (
             <button aria-label="Dismiss error" onClick={() => setError(null)}>
               ×

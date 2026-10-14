@@ -179,7 +179,7 @@ def copy_import(source, target):
         folder = converted if directory == "converted" else source / directory
         if directory == "visualizer-backgrounds" and not folder.exists(): folder = source / "visualizer_backgrounds"
         if not folder.is_dir() or linked(folder): continue
-        destination = target / directory
+        destination = target / ("visualizer_backgrounds" if directory == "visualizer-backgrounds" else directory)
         if destination.exists() and linked(destination): raise ValueError("Import destination cannot be a link.")
         for path in folder.iterdir():
             if linked(path) or not path.is_file() or path.suffix.lower() not in extensions: continue

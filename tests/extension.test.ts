@@ -5,21 +5,43 @@ import {createContext,runInContext,runInNewContext} from "node:vm";
 import {JSDOM} from "jsdom";
 import {expect,it,vi} from "vitest";
 
+it("keeps stale page buttons hidden until the current extension confirms app health",()=>{
+  const dom=new JSDOM('<!doctype html><head><style id="audioconverter-glass-style">.ac-glass-btn {display:inline-flex!important}</style></head><body></body>');
+  try{
+    runInNewContext(readFileSync("extension/glass-button.js","utf8"),{document:dom.window.document});
+    const stale=dom.window.document.createElement("button");stale.className="ac-glass-btn";dom.window.document.body.append(stale);
+    expect(dom.window.getComputedStyle(stale).display).toBe("none");
+    stale.dataset.lazymidiOnline="true";
+    expect(dom.window.getComputedStyle(stale).display).toBe("inline-flex");
+    stale.dataset.lazymidiOnline="false";
+    expect(dom.window.getComputedStyle(stale).display).toBe("none");
+  }finally{dom.window.close();}
+});
+
 it.each([
   ["youtube.js","https://www.youtube.com/watch?v=abc","audioconverter-convert-btn"],
   ["youtube.js","https://www.tiktok.com/@piano/video/123","audioconverter-convert-btn"],
   ["musescore.js","https://musescore.com/user/1/scores/123","audioconverter-ms-btn"],
-])("keeps %s controls visible without manual pairing on %s",async(script,url,id)=>{
+])("shows %s controls only while lazymidi is reachable on %s",async(script,url,id)=>{
   const dom=new JSDOM("<!doctype html><body></body>",{url});
+  let alive=false;const ticks:(()=>unknown)[]=[];
   try{
     runInNewContext(readFileSync(new URL(`../extension/${script}`,import.meta.url),"utf8"),{
       document:dom.window.document,location:dom.window.location,URLSearchParams,
-      chrome:{runtime:{sendMessage:async()=>({success:true,alive:false})}},
+      chrome:{runtime:{sendMessage:(_request:unknown,reply?:(response:unknown)=>void)=>{const response={success:true,alive};reply?.(response);return Promise.resolve(response);}}},
       acCreateGlassButton:(id:string,label:string)=>{const button=dom.window.document.createElement("button");button.id=id;button.textContent=label;return button;},acSetGlassState:vi.fn(),
-      setInterval:vi.fn(),clearInterval:vi.fn(),setTimeout:vi.fn(),clearTimeout:vi.fn(),console,
+      setInterval:vi.fn((fn:()=>unknown)=>{ticks.push(fn);}),clearInterval:vi.fn(),setTimeout:vi.fn(),clearTimeout:vi.fn(),console,
     });
     dom.window.document.dispatchEvent(new dom.window.Event("DOMContentLoaded"));
+    await vi.waitFor(()=>expect(ticks.length).toBeGreaterThan(0));
+    await new Promise(resolve=>setImmediate(resolve));
+    expect(dom.window.document.getElementById(id)).toBeNull();
+    alive=true;ticks.forEach(fn=>fn());
     await vi.waitFor(()=>expect(dom.window.document.getElementById(id)).not.toBeNull());
+    alive=false;ticks.forEach(fn=>fn());
+    await vi.waitFor(()=>expect(dom.window.document.getElementById(id)).toBeNull());
+    alive=true;ticks.forEach(fn=>fn());
+    await vi.waitFor(()=>expect(dom.window.document.querySelectorAll(`#${id}`)).toHaveLength(1));
   }finally{dom.window.close();}
 });
 it("can reinject controls without duplicate buttons or active page timers",async()=>{
@@ -131,6 +153,7 @@ it.each([false,true])("downloads MuseScore MIDI using LibreScore authorization (
   try{
     for(const script of ['vendor/md5.min.js','musescore.js'])runInContext(readFileSync(new URL(`../extension/${script}`,import.meta.url),'utf8'),context);
     dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+    await vi.waitFor(()=>expect(dom.window.document.getElementById('audioconverter-ms-btn')).not.toBeNull());
     const button=dom.window.document.getElementById('audioconverter-ms-btn') as HTMLButtonElement;
     expect(dom.window.document.querySelector('input[type=file]')).toBeNull();
     button.click();button.click();

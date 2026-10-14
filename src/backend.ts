@@ -254,6 +254,12 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
       const response=await fetch(convertFileSrc("converted/smoke.mid","converter"));
       if(!response.ok||new TextDecoder().decode((await response.arrayBuffer()).slice(0,4))!=="MThd")
         throw new Error("Native MIDI preview could not read its scoped asset.");
+      const appearance=await invoke<{visualizer_scenes?:Record<string,{media_url?:string}>}>("converter_request",{method:"GET",path:"/api/settings",body:null});
+      const background=appearance.visualizer_scenes?.sketch?.media_url;
+      if(!background)throw new Error("Native background import fixture is missing.");
+      const image=new Image();image.crossOrigin="anonymous";image.src=convertFileSrc(background,"converter");
+      await image.decode();
+      if(image.naturalWidth!==8||image.naturalHeight!==8)throw new Error("Native imported background could not decode.");
       const sheet=await invoke<{revision:number;text:string}>("generate_sheet",{midiFilename:"smoke.mid",settings:{transpose_mode:"manual",manual_transpose_points:[{chord:0,value:-3}]},expectedRevision:null});
       if(!sheet.text.includes("Transpose by: 3"))throw new Error("Native sheet generation failed.");
       let rejected=false;try{await invoke("generate_sheet",{midiFilename:"smoke.mid",settings:{},expectedRevision:sheet.revision-1});}catch{rejected=true;}

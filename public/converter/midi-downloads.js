@@ -18,7 +18,7 @@
     const url = URL.createObjectURL(new Blob([data], { type: 'audio/midi' }));
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = filename.replace(/\.(mid|midi)$/i, '') + (split ? '_hands' : '') + '.mid';
+    anchor.download = window.ConverterNames.download(filename).replace(/\.(mid|midi)$/i, '') + (split ? '_hands' : '') + '.mid';
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }

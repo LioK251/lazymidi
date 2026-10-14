@@ -208,42 +208,7 @@
 .pv-volume-icon:hover {
     color: #e5e7eb;
 }
-.pv-volume-slider {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 80px;
-    height: 4px;
-    background: linear-gradient(to right, #9333ea var(--volume-pct, 80%), #374151 var(--volume-pct, 80%));
-    border-radius: 2px;
-    outline: none;
-    cursor: pointer;
-    transition: height 0.15s ease;
-}
-.pv-volume-slider:hover {
-    height: 6px;
-}
-.pv-volume-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--pv-accent, #a855f7);
-    border: 2px solid #1f2937;
-    cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-.pv-volume-slider::-webkit-slider-thumb:hover {
-    transform: scale(1.2);
-    box-shadow: 0 0 8px rgba(168, 85, 247, 0.5);
-}
-.pv-volume-slider::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--pv-accent, #a855f7);
-    border: 2px solid #1f2937;
-    cursor: pointer;
-}
+.pv-volume-slider { width: 80px; }
 
 /* ── SoundFont selector ── */
 .pv-soundfont-select {
@@ -270,49 +235,7 @@
 }
 
 /* ── Seek bar (progress under canvas) ── */
-.pv-seek-bar {
-    width: 100%;
-    height: 4px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: linear-gradient(to right, #9333ea var(--seek-pct, 0%), #1f2937 var(--seek-pct, 0%));
-    border: none;
-    outline: none;
-    cursor: pointer;
-    margin: 0;
-    padding: 0;
-    display: block;
-    flex-shrink: 0;
-    transition: height 0.15s ease;
-}
-.pv-seek-bar:hover {
-    height: 8px;
-}
-.pv-seek-bar::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 0;
-    height: 0;
-}
-.pv-seek-bar:hover::-webkit-slider-thumb {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--pv-accent, #a855f7);
-    border: 2px solid #0a0e17;
-}
-.pv-seek-bar::-moz-range-thumb {
-    width: 0;
-    height: 0;
-    border: none;
-    background: transparent;
-}
-.pv-seek-bar:hover::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--pv-accent, #a855f7);
-    border: 2px solid #0a0e17;
-}
+.pv-seek-bar { width: 100%; display: block; flex-shrink: 0; }
 
 /* ── Spacer element ── */
 .pv-spacer {

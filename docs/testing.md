@@ -1,5 +1,82 @@
 # Verification and release qualification
 
+## Version 0.1.7 release candidate — 2026-10-14
+
+148 frontend/extension checks, 56 Rust checks, 20 private-service checks and three
+Python environment checks pass. Six specialized Rust checks and one inference
+test remain opt-in. Production TypeScript/Vite builds pass.
+
+Animated hands and Three.js have been removed. Legacy hands settings are ignored
+on load and discarded on save; note hand correction, filtering and MIDI exports
+remain. Renderer tests cover darker falling black notes with hand/track colors,
+ghosted muted notes, drawn-key animation, pause/reduced motion and notices.
+
+Filename regressions cover legacy `_transkun` suffixes, duplicate-number suffixes,
+Unicode, unchanged ordinary names, MIDI/sheet export names and unchanged stored
+file IDs/content. Native exports, browser MIDI exports and converter attachment
+headers use `_lazymidi` in place of the legacy suffix.
+
+Background tests upload a real PNG through the authenticated service, retain
+both historical directory spellings and reject traversal. UI/bridge tests cover
+immediate preview, reset, explicit persistence and foreign-message rejection.
+Shared slider CSS covers WebKit and Firefox thumbs/tracks, focus and disabled
+states in both app and embedded player. Scrollbars use shared dark styling.
+The scrub regression reproduced 20 full canvas redraws during a burst of input
+events and invalid fractional slider positions. Continuous precision and
+frame-coalesced drawing fix both. Extension regressions reproduce an older
+injected script recreating a visible offline button; default-hidden CSS and
+health-confirmed visibility prevent the flash, including reused stylesheets.
+
+Browser checks at 1120 × 760 and 900 × 620 confirm the hand-free player,
+compact wrapping, cleaned song headings, darker black falling notes and shared
+slider styling. Arrow-key checks confirm zoom, opacity and appearance sliders
+retain keyboard control and visible focus. A real browser MIDI export produces
+`Drawn piano_lazymidi_hands.mid` with a valid MIDI header. An eleven-second WebM
+export decodes at 866 × 322 (4,834,632 bytes); physical audio quality was not tested.
+
+The optimized Windows 0.1.7 executable passes isolated packaged frontend,
+floating-window/minimize/restore, converter, stale-sheet revision, large SoundFont
+range and visualizer reuse checks. Native background decoding requires a real
+PNG uploaded through the authenticated converter service. SDK and generated keys
+remain off. NSIS archive integrity passes; an interactive installation was not run.
+Artifacts are staged under `target/releases/v0.1.7-candidate`.
+
+Windows artifacts are prepared locally. Native
+hardware audio/game input, live website downloads and non-Windows qualification
+remain outstanding. The earlier preview evidence below is historical; its hands
+feature is superseded and is absent from this candidate.
+
+## Drawn visualizer local preview — 2026-10-14
+
+All 130 frontend/extension tests pass, along with TypeScript/Vite, three Python
+environment checks and 18 private-service checks (one optional inference test
+skipped). Renderer regressions cover held drawn-key animation, pause/reduced
+motion, darker black-key highlights, ghosted hands/notes/keys, physical release
+versus sustain tails, crowded chords, scoped backgrounds and failed video loads.
+Bridge/UI checks cover immediate appearance updates without reopening MIDI,
+SoundFont import, canonical background persistence and foreign-message rejection.
+Extension checks cover hiding page buttons offline and restoring them on reconnect
+on YouTube, TikTok and MuseScore.
+
+Browser checks with generated MIDI at 1120 × 760 and 900 × 620 confirm the compact
+playback/SoundFont controls, single song heading, drawn hands, ghosted hand filters
+and immediate imported-background preview. The browser video renderer completed
+with a WebM success status; the resulting media was not independently decoded or
+audited for audio quality.
+
+The optimized Windows 0.1.6 executable and NSIS installer are staged in
+`target/previews/drawn-visualizer-20261014`. Installer archive integrity and bundled
+converter-source hashes pass. Packaged native frontend, floating-window,
+minimize/restore, converter-service, sheet-revision and visualizer reuse checks
+pass using isolated settings/data with drawn hands and an imported background.
+SDK initialization and generated keyboard output remained off. User profiles,
+the installed application and its existing converter environment were untouched.
+
+This is an unpublished local preview; version metadata remains 0.1.6. Fingering
+is estimated. Live website downloads, physical audio/game input and non-Windows
+native behavior were not qualified for these changes. Closing the visualizer
+still unloads its SoundFont; switching songs in the open window retains it.
+
 ## Version 0.1.6 library pagination — 2026-10-13
 
 The replacement 0.1.6 also fixes floating-sheet startup ordering. A deterministic regression delivered the previous song at revision 8 before the startup reply containing the requested song at revision 9; the viewer incorrectly kept the previous song. Startup replies now participate in revision comparison, while older delayed events remain ignored. The regression and all 122 frontend tests pass. The earlier late-startup-reply protection remains covered.

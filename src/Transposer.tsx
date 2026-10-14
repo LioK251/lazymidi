@@ -1,3 +1,4 @@
+import {useNoticeText} from "./notices";
 import { useState,useRef,useEffect,type KeyboardEvent } from "react";
 import * as api from "./backend";
 import { codeToHid,keyLabel } from "./Piano88";
@@ -15,6 +16,7 @@ export default function Transposer({state,profile,edit,send,apply,discard,dirty,
   const [error,setError]=useState("");
   const config=profile.transpose;
   const status=state.transpose;
+  const statusError=useNoticeText(status.error);
   useEffect(()=>{if(!dirty){setSequence(null);setError("");}},[dirty,profile.id]);
   function stopCapture(){setCapture(null);void api.pauseOutput(captureReason.current,false);}
   function captureKey(event:KeyboardEvent<HTMLButtonElement>,binding:Binding){
@@ -53,7 +55,7 @@ export default function Transposer({state,profile,edit,send,apply,discard,dirty,
     </section>
     <aside className="secondary-panel"><h2>Game state</h2><div className="transpose-current">{status.target??status.current??"—"}</div><p role="status">{status.busy?`Changing… ${status.completed} / ${status.total}` : status.armed?"Ready":"Paused"}</p>
       <p className="help">Automatically tracks from 0. Use shortcuts or the floating monitor while playing.</p>
-      {status.error&&<p className="notice error" role="alert">{status.error}</p>}
+      {statusError&&<p className="notice error" role="alert">{statusError}</p>}
       <div className="button-row"><button onClick={()=>void api.openOverlay("monitor").catch(e=>setError(api.errorText(e)))}>Float monitor</button><button onClick={()=>void api.openOverlay("sheet").catch(e=>setError(api.errorText(e)))}>Float sheet</button></div>
     </aside>
   </div>;

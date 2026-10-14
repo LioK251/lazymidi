@@ -48,17 +48,19 @@
   };
   const normalize = value => Object.prototype.hasOwnProperty.call(styles, value) ? value : 'classic';
   const keyboardStyles = {
-    theme: 'Match visualizer style', ivory: 'Ivory', sketch: 'Pencil sketch', neon: 'Neon keys',
+    theme: 'Match visualizer style', ivory: 'Ivory', sketch: 'Drawn (Sketchbook)', neon: 'Neon keys',
   };
   const normalizeKeyboard = value => Object.prototype.hasOwnProperty.call(keyboardStyles, value) ? value : 'theme';
+  const effectiveKeyboard = (value,theme) => normalizeKeyboard(value)==='theme' && theme==='sketch' ? 'sketch' : normalizeKeyboard(value);
+  const keyColor = (color,isBlack) => isBlack ? color.map(v=>Math.round(v*0.8)) : color;
   function keyboard(styleId, theme) {
     if (styleId === 'ivory') return {
       white: ['#ffffff', '#faf9f5', '#e8e6e0'], black: ['#3d424d', '#252b36', '#141a24'],
       border: '#b6b7b5', label: '#666b75', felt: '#252b36', activeLabel: '#202633',
     };
     if (styleId === 'sketch') return {
-      white: ['#fff8e7', '#f2e8ce', '#ddceaa'], black: ['#817365', '#594f45', '#342f2b'],
-      border: '#887762', label: '#65594a', felt: '#9d664a', activeLabel: '#352e27',
+      white: ['#f5f2e9', '#f5f2e9', '#f5f2e9'], black: ['#454542', '#454542', '#454542'],
+      border: '#67665f', label: '#66635c', felt: '#929087', activeLabel: '#35342e',
     };
     if (styleId === 'neon') return {
       white: ['#3c205a', '#25183f', '#12162e'], black: ['#181a3c', '#0e1230', '#050b20'],
@@ -68,17 +70,31 @@
       label: theme.label, felt: theme.accent, activeLabel: theme.paper ? '#342d28' : '#ffffff' };
   }
 
-  function keyboardDetail(ctx, styleId, x, y, width, height, isBlack) {
+  function sketchShape(ctx,x,y,width,height,phase){
+    const wobble=Math.sin(phase)*Math.min(1.1,width*0.12);
+    ctx.beginPath();ctx.moveTo(x+1,y+1);ctx.lineTo(x+width-1,y);
+    ctx.lineTo(x+width+wobble,y+height*0.35);ctx.lineTo(x+width-0.5,y+height-1);
+    ctx.lineTo(x+1,y+height);ctx.lineTo(x-wobble,y+height*0.65);ctx.closePath();
+  }
+  function sketchHatch(ctx,x,y,width,height,phase,moving){
+    ctx.beginPath();
+    const spacing=Math.max(7,(width+height*2)/120);
+    for(let offset=-height;offset<width+height;offset+=spacing){
+      const drift=Math.sin(offset*0.19+phase)*(moving?1.4:0.5);
+      ctx.moveTo(x+offset+drift,y+height);ctx.lineTo(x+offset+height+drift,y);
+    }
+    ctx.stroke();
+  }
+  function keyboardDetail(ctx, styleId, x, y, width, height, isBlack, motion = null, seed = 0) {
     if (styleId === 'sketch') {
       ctx.save();
-      ctx.strokeStyle = isBlack ? 'rgba(245,224,185,0.32)' : 'rgba(91,69,51,0.25)';
-      ctx.lineWidth = 0.7;
-      for (let i = 0; i < 3; i++) {
-        ctx.beginPath();
-        ctx.moveTo(x + 2 + i * 3, y + 4);
-        ctx.lineTo(x + 4 + i * 3, y + Math.min(height - 3, 20));
-        ctx.stroke();
-      }
+      const phase=seed*7.13+(motion?Math.floor(motion.time*8):0)*1.73;
+      const sway=motion?(motion.held?0.7:0.25):0;
+      ctx.translate(Math.sin(phase)*sway,Math.cos(phase*0.7)*sway*0.5);
+      ctx.strokeStyle=isBlack?'rgba(230,228,217,0.75)':'rgba(78,76,67,0.75)';
+      ctx.lineWidth=1.2;sketchShape(ctx,x,y,width,height,phase);ctx.stroke();ctx.clip();
+      ctx.strokeStyle=isBlack?'rgba(230,228,217,0.2)':'rgba(90,87,75,0.18)';
+      ctx.lineWidth=0.8;sketchHatch(ctx,x,y,width,height,phase,!!motion);
       ctx.restore();
     } else if (styleId === 'neon') {
       ctx.save();
@@ -99,7 +115,8 @@
   function keyboardPreview(canvas, styleId, themeId) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const palette = keyboard(normalizeKeyboard(styleId), styles[normalize(themeId)]);
+    styleId=effectiveKeyboard(styleId,normalize(themeId));
+    const palette = keyboard(styleId, styles[normalize(themeId)]);
     canvas.width = 640; canvas.height = 100;
     const whiteWidth = 32;
     ctx.fillStyle = palette.felt; ctx.fillRect(0, 0, 640, 5);
@@ -121,6 +138,7 @@
       keyboardDetail(ctx, styleId, x, 5, blackWidth, 62, true);
     }
   }
+
   const rgba = (color, alpha) => `rgba(${color.join(',')},${alpha})`;
   const textures = new WeakMap();
 
@@ -161,14 +179,7 @@
     const radius = Math.min(styleId === 'watercolor' ? 9 : 3, width / 2, height / 2);
     ctx.beginPath();
     if (styleId === 'crayon' || styleId === 'sketch') {
-      const wobble = Math.sin(phase) * Math.min(1.1, width * 0.12);
-      ctx.moveTo(x + 1, y + 1);
-      ctx.lineTo(x + width - 1, y);
-      ctx.lineTo(x + width + wobble, y + height * 0.35);
-      ctx.lineTo(x + width - 0.5, y + height - 1);
-      ctx.lineTo(x + 1, y + height);
-      ctx.lineTo(x - wobble, y + height * 0.65);
-      ctx.closePath();
+      sketchShape(ctx,x,y,width,height,phase);
     } else {
       ctx.roundRect(x, y, width, height, radius);
     }
@@ -213,14 +224,7 @@
       ctx.clip();
       ctx.strokeStyle = rgba(color, 0.34);
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      const spacing = Math.max(7, (width + height * 2) / 120);
-      for (let offset = -height; offset < width + height; offset += spacing) {
-        const wobble = Math.sin(offset * 0.19 + phase) * (motion ? 1.4 : 0.5);
-        ctx.moveTo(x + offset + wobble, y + height);
-        ctx.lineTo(x + offset + height + wobble, y);
-      }
-      ctx.stroke();
+      sketchHatch(ctx,x,y,width,height,phase,!!motion);
       if (motion) {
         ctx.strokeStyle = rgba(color, 0.65);
         ctx.lineWidth = 1.2;
@@ -315,5 +319,5 @@
     ctx.fillStyle = theme.accent; ctx.fillRect(0, keyY, width, 2);
   }
 
-  window.PianoStyles = { styles, normalize, keyboardStyles, normalizeKeyboard, keyboard, keyboardDetail, keyboardPreview, note, paper, preview };
+  window.PianoStyles = { styles, normalize, keyboardStyles, normalizeKeyboard, effectiveKeyboard, keyColor, keyboard, keyboardDetail, keyboardPreview, note, paper, preview };
 })();

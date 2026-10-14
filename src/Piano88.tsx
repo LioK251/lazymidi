@@ -1,3 +1,4 @@
+import {useNotice} from "./notices";
 import { useEffect, useRef, useState } from "react";
 import type { Profile, Snapshot } from "./backend";
 
@@ -79,7 +80,7 @@ export default function Piano88({
   const [shift, setShift] = useState(false);
   const [ctrl, setCtrl] = useState(false);
   const [capture, setCapture] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useNotice();
   const captureRef = useRef<HTMLButtonElement>(null);
   const binding =
     direction === "analog"

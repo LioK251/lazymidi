@@ -1130,6 +1130,28 @@ pub async fn converter_pick(
     .map_err(|e| e.to_string())?
     .map_err(Error::from)
 }
+fn export_name(name: &str) -> String {
+    let (stem, extension) = name.rsplit_once('.').unwrap_or((name, ""));
+    if let Some((base, tail)) = stem.to_ascii_lowercase().rsplit_once("_transkun") {
+        let number = tail
+            .strip_suffix("_sheets")
+            .or_else(|| tail.strip_suffix("_hands"))
+            .unwrap_or(tail);
+        if number.is_empty()
+            || number
+                .strip_prefix('_')
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return format!(
+                "{}_lazymidi{}.{}",
+                &stem[..base.len()],
+                &stem[base.len() + "_transkun".len()..],
+                extension
+            );
+        }
+    }
+    name.to_owned()
+}
 #[tauri::command]
 pub async fn converter_export(app: tauri::AppHandle, id: String) -> Result<(), Error> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
@@ -1145,7 +1167,12 @@ pub async fn converter_export(app: tauri::AppHandle, id: String) -> Result<(), E
             return Err("Invalid export ID.".into());
         }
         let source = scoped_file(&root(&app)?.join("data/converted"), &id)?;
-        if let Some(path) = app.dialog().file().set_file_name(&id).blocking_save_file() {
+        if let Some(path) = app
+            .dialog()
+            .file()
+            .set_file_name(export_name(&id))
+            .blocking_save_file()
+        {
             let path = path.into_path().map_err(|e| e.to_string())?;
             let parent = path.parent().ok_or("Invalid export directory.")?;
             let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
@@ -1189,6 +1216,23 @@ fn media_range(length: u64, range: Option<&str>) -> Result<(u64, u64, u16), Stri
         return Err("Invalid range.".into());
     }
     Ok((start, end, 206))
+}
+fn media_file(data: &Path, section: &str, name: &str) -> Result<PathBuf, String> {
+    if !safe_name(name) {
+        return Err("Invalid media ID.".into());
+    }
+    match section {
+        "visualizer-backgrounds" => {
+            let current = data.join("visualizer_backgrounds");
+            if current.join(name).exists() {
+                scoped_file(&current, name)
+            } else {
+                scoped_file(&data.join("visualizer-backgrounds"), name)
+            }
+        }
+        "converted" | "soundfonts" => scoped_file(&data.join(section), name),
+        _ => Err("Invalid media section.".into()),
+    }
 }
 pub fn media(
     app: &tauri::AppHandle,
@@ -1235,7 +1279,7 @@ pub fn media(
         {
             return Err("Converter disabled.".into());
         }
-        let file = scoped_file(&root(app)?.join("data").join(parts[0]), parts[1])?;
+        let file = media_file(&root(app)?.join("data"), parts[0], parts[1])?;
         let extension = file
             .extension()
             .and_then(|s| s.to_str())
@@ -1297,6 +1341,26 @@ pub fn media(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn uploaded_and_legacy_backgrounds_share_native_lookup() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path();
+        fs::create_dir(data.join("visualizer_backgrounds")).unwrap();
+        fs::create_dir(data.join("visualizer-backgrounds")).unwrap();
+        fs::write(data.join("visualizer_backgrounds/test.png"), b"new").unwrap();
+        fs::write(data.join("visualizer-backgrounds/test.png"), b"old").unwrap();
+        assert_eq!(
+            fs::read(media_file(data, "visualizer-backgrounds", "test.png").unwrap()).unwrap(),
+            b"new"
+        );
+        fs::remove_file(data.join("visualizer_backgrounds/test.png")).unwrap();
+        assert_eq!(
+            fs::read(media_file(data, "visualizer-backgrounds", "test.png").unwrap()).unwrap(),
+            b"old"
+        );
+        assert!(media_file(data, "visualizer-backgrounds", "../settings.json").is_err());
+        assert!(media_file(data, "../", "test.png").is_err());
+    }
     #[test]
     fn media_delivery_is_bounded_even_for_multi_gigabyte_fonts() {
         let size = 1_817_430_906;
@@ -1408,6 +1472,19 @@ mod tests {
                 &RuntimeSelection::Existing(environment),
             )
             .unwrap();
+        }
+    }
+    #[test]
+    fn export_names_brand_legacy_conversions_without_renaming_storage_ids() {
+        for (source, expected) in [
+            ("Piano_transkun.mid", "Piano_lazymidi.mid"),
+            ("Piano_transkun_2_sheets.txt", "Piano_lazymidi_2_sheets.txt"),
+            ("曲_TRANSKUN.MIDI", "曲_lazymidi.MIDI"),
+            ("transkun_song.mid", "transkun_song.mid"),
+            ("Song_transkun_remix.mid", "Song_transkun_remix.mid"),
+            ("My song.mid", "My song.mid"),
+        ] {
+            assert_eq!(export_name(source), expected);
         }
     }
     #[test]

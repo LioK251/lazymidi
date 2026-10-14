@@ -39,7 +39,7 @@ it("imports SF2 into the player and saves appearance without overwriting sheet p
   await act(async()=>{render(<Visualizer/>);});
   const frame=screen.getByTitle("Piano visualizer") as HTMLIFrameElement;
   const post=vi.spyOn(frame.contentWindow!,"postMessage");
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Import .sf2"}));});
+  await act(async()=>{window.dispatchEvent(new MessageEvent("message",{source:frame.contentWindow,origin:location.origin,data:{type:"converter-import-soundfont"}}));});
   expect(invoke).toHaveBeenCalledWith("converter_pick",{kind:"soundfont",device:null});
   expect(post).toHaveBeenCalledWith({type:"converter-soundfonts",filename:"piano.sf2"},location.origin);
   fireEvent.click(screen.getByRole("button",{name:"Neon style preview"}));
@@ -56,6 +56,46 @@ it("keeps the player when the native window hides and reopens, and stops it on a
   await act(async()=>{visibility({payload:true});receive({payload:{revision:2,midi_filename:"new.mid",settings:{}}});});
   expect(screen.getByTitle("Piano visualizer")).toBe(initial);
   expect(post).toHaveBeenCalledWith({type:"converter-visibility",visible:true},location.origin);
-  expect(post).toHaveBeenLastCalledWith(expect.objectContaining({type:"converter-visualize",filename:"new.mid"}),location.origin);
+  expect(post).toHaveBeenCalledWith(expect.objectContaining({type:"converter-visualize",filename:"new.mid"}),location.origin);
   window.dispatchEvent(new Event("beforeunload"));expect(post).toHaveBeenLastCalledWith({type:"converter-visibility",visible:false},location.origin);view.unmount();
+});
+
+it("keeps appearance controls collapsed and previews keys and backgrounds without reloading",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  const media="/visualizer-backgrounds/"+"a".repeat(32)+".png";
+  vi.mocked(invoke).mockImplementation(async(command,args)=>command==="converter_pick"?{url:media,type:"image"}:original(command,args));
+  await act(async()=>{render(<Visualizer/>);});
+  const frame=screen.getByTitle("Piano visualizer") as HTMLIFrameElement;
+  const post=vi.spyOn(frame.contentWindow!,"postMessage");fireEvent.load(frame);post.mockClear();
+  const appearance=screen.getByText("Style & appearance").closest("details")!;
+  expect(appearance.open).toBe(false);
+  expect(screen.getByLabelText("Keys").closest("details")).toBe(appearance);
+  expect(screen.getByRole("button",{name:"Reload visualization"}).closest("details")).toBe(appearance);
+  expect(screen.queryByRole("button",{name:"Import .sf2"})).toBeNull();
+  expect(screen.queryByLabelText("Show hands")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Keys"),{target:{value:"sketch"}});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Add background"}));});
+  expect(post).toHaveBeenLastCalledWith(expect.objectContaining({type:"converter-appearance",settings:expect.objectContaining({visualizer_scenes:{classic:expect.objectContaining({keyboard:"sketch",media_url:media,mode:"image"})}})}),location.origin);
+  expect(post.mock.calls.some(([value])=>value.type==="converter-visualize")).toBe(false);
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Save appearance"}));});
+  expect(invoke).toHaveBeenCalledWith("converter_request",expect.objectContaining({path:"/api/settings",body:expect.objectContaining({transpose_mode:"manual",visualizer_scenes:{classic:expect.objectContaining({media_url:media})}})}));
+  vi.mocked(invoke).mockClear();
+  await act(async()=>{window.dispatchEvent(new MessageEvent("message",{source:frame.contentWindow,origin:"https://evil.example",data:{type:"converter-import-soundfont"}}));});
+  expect(invoke).not.toHaveBeenCalled();
+});
+it('resets only the current background, previews immediately, and saves explicitly',async()=>{
+  await act(async()=>{render(<Visualizer/>);});
+  const frame=screen.getByTitle('Piano visualizer') as HTMLIFrameElement;
+  const post=vi.spyOn(frame.contentWindow!,'postMessage');fireEvent.load(frame);
+  await act(async()=>{receive({payload:{revision:2,midi_filename:'song.mid',settings:{visualizer_style:'sketch',visualizer_hands:true,
+    visualizer_scenes:{sketch:{keyboard:'sketch',mode:'image',media_type:'image',media_url:'/visualizer-backgrounds/'+'a'.repeat(32)+'.png',dim:50,effect:'stars'},classic:{mode:'solid'}}}}});});
+  expect(screen.queryByLabelText('Show hands')).toBeNull();
+  vi.mocked(invoke).mockClear();post.mockClear();
+  fireEvent.click(screen.getByRole('button',{name:'Reset background'}));
+  expect(post).toHaveBeenLastCalledWith(expect.objectContaining({type:'converter-appearance',settings:expect.objectContaining({
+    visualizer_scenes:{sketch:{keyboard:'sketch',mode:'theme'},classic:{mode:'solid'}}})}),location.origin);
+  expect((screen.getByRole('button',{name:'Reset background'}) as HTMLButtonElement).disabled).toBe(true);
+  expect(invoke).not.toHaveBeenCalled();
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Save appearance'}));});
+  expect(invoke).toHaveBeenCalledWith('converter_request',expect.objectContaining({body:expect.objectContaining({visualizer_scenes:{sketch:{keyboard:'sketch',mode:'theme'},classic:{mode:'solid'}}})}));
 });

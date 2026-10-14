@@ -122,7 +122,15 @@ styles, imported image/video backgrounds, effects and WebM video rendering.
 The Library uses song cards with artwork where available and a piano preview
 fallback. The separate visualizer window offers six clickable style previews;
 selecting a style updates the player. Save appearance to retain it. Other
-appearance changes apply with Reload visualization.
+appearance changes preview immediately without restarting playback or the loaded
+SoundFont; Save appearance retains them. Style previews and Keys are under the collapsed Style & appearance panel. Import .sf2 and the SoundFont dropdown sit together beside playback controls; the duplicate player title
+is removed. Drawn (Sketchbook) retains the saved `sketch` key style and animates
+idle and held-key pencil outlines, respecting pause and reduced motion. Black-key highlights
+retain their hue at a darker shade, as do falling black notes. Muted hand notes and key highlights remain visible at 20% opacity; audio remains muted. Animated hands and their rendering dependency have been removed. Note hand assignments, corrections and MIDI exports remain available. All sliders use shared compact dark styling, including the floating viewer and embedded player. Imported background paths remain canonical and are resolved only
+through scoped native assets; failed media loads retain the theme and show a temporary error. Reset background
+restores the current style without deleting imports; Save appearance persists it.
+The renderer reads both legacy background folders. Song labels hide the legacy `_transkun` suffix; MIDI/sheet export filenames replace it with `_lazymidi`. Stored IDs, history and original files remain intact. Temporary notices across the
+app expire after ten seconds; progress, setup and field validation remain visible.
 Video rendering happens in real time and requires a visible visualizer;
 hiding it pauses audio/animation and cancels rendering. No converter operation
 enables game output or sends the converted song to Roblox.
@@ -151,7 +159,9 @@ connection is automatic. The worker discovers the local service, receives a
 separate scoped token and reconnects after app restarts. Website origins cannot
 use discovery: its custom header requires a CORS preflight, which is denied to
 websites. The service prepares while the module is enabled; inference remains
-lazy. Controls are added to open supported tabs and remain visible offline.
+lazy. Page buttons appear only while the converter service is reachable, hide
+when it stops and return automatically on reconnection. Already-open supported
+tabs receive the content scripts at installation; reload an older unpacked extension.
 If all discovery ports are occupied, close obsolete lazymidi instances.
 Extension access is
 limited to submissions/import and its own jobs, not library/settings/history.

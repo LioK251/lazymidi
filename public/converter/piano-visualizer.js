@@ -75,26 +75,27 @@
   const content       = document.getElementById('piano-visualizer-content');
   const canvas        = document.getElementById('pv-canvas');
   const ctx           = canvas ? canvas.getContext('2d') : null;
-  const titleEl       = document.getElementById('pv-title');
   const loadingEl     = document.getElementById('pv-loading');
   const loadingText   = document.getElementById('pv-loading-text');
   const loadingBar    = document.getElementById('pv-loading-bar');
   const btnPlay       = document.getElementById('pv-play');
   const btnStop       = document.getElementById('pv-stop');
-  const btnClose      = document.getElementById('pv-close');
   const timeDisplay   = document.getElementById('pv-time-display');
   const volumeSlider  = document.getElementById('pv-volume');
   const volumeIcon    = document.getElementById('pv-volume-icon');
   const seekBar       = document.getElementById('pv-seek');
   const sfSelect      = document.getElementById('pv-soundfont-select');
-  const styleSelect   = document.getElementById('pv-style-select');
-  const keyboardSelect = document.getElementById('pv-keyboard-select');
+  const importFontButton = document.getElementById('pv-import-soundfont');
 
   if (!modal || !canvas) return;
 
   const enhancements = window.PianoEnhancements;
   const tool = id => document.getElementById('pv-' + id);
-  const toolStatus = message => { tool('tools-status').textContent = message; };
+  let noticeTimer;
+  const toolStatus = (message,persistent=false) => {
+    clearTimeout(noticeTimer);tool('tools-status').textContent=message;
+    if(message&&!persistent)noticeTimer=setTimeout(()=>{tool('tools-status').textContent='';},10000);
+  };
   function handFor(note) { return handOverrides[note.id] || handEstimates[note.id]; }
   function currentHands() { return Object.assign({}, handEstimates, handOverrides); }
   function persistHands() {
@@ -130,7 +131,7 @@
     ['left', 'right'].forEach(hand => {
       const button = tool('toggle-' + hand);
       button.setAttribute('aria-pressed', String(handEnabled[hand]));
-      button.title = `${handEnabled[hand] ? 'Mute and hide' : 'Enable'} ${hand} hand`;
+      button.title = `${handEnabled[hand] ? 'Mute and ghost' : 'Enable'} ${hand} hand`;
       button.style.setProperty('--hand-color', settings['hand_' + hand + '_color'] || (hand === 'left' ? '#38bdf8' : '#f472b6'));
     });
   }
@@ -193,53 +194,18 @@
   let visualStyle = artwork.normalize(loadSheetsSettingsSync().visualizer_style);
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-  if (styleSelect) {
-    Object.entries(artwork.styles).forEach(([id, theme]) => {
-      const option = document.createElement('option');
-      option.value = id; option.textContent = theme.name;
-      styleSelect.appendChild(option);
-    });
-    styleSelect.value = visualStyle;
-    styleSelect.addEventListener('change', async () => {
-      const value = artwork.normalize(styleSelect.value);
-      setVisualStyle(value);
-      styleSelect.disabled = true;
-      try {
-        const settings = await loadSheetsSettings();
-        await saveSheetsSettings({ ...settings, visualizer_style: value });
-      } finally {
-        styleSelect.disabled = false;
-      }
-    });
-  }
-
-  if (keyboardSelect) {
-    Object.entries(artwork.keyboardStyles).forEach(([id, name]) => keyboardSelect.add(new Option(name, id)));
-    keyboardSelect.addEventListener('change', async () => {
-      const style = visualStyle;
-      const value = artwork.normalizeKeyboard(keyboardSelect.value);
-      keyboardSelect.disabled = true;
-      try {
-        const settings = await loadSheetsSettings();
-        const scenes = { ...(settings.visualizer_scenes || {}) };
-        scenes[style] = { ...(scenes[style] || {}), keyboard: value };
-        await saveSheetsSettings({ ...settings, visualizer_scenes: scenes });
-      } catch (error) {
-        toolStatus('Could not save keyboard style: ' + (error.message || error));
-        keyboardSelect.value = artwork.normalizeKeyboard(loadSheetsSettingsSync().visualizer_scenes?.[style]?.keyboard);
-      } finally {
-        keyboardSelect.disabled = false;
-      }
-    });
-  }
+  importFontButton?.addEventListener('click',()=>{
+    if(recording||!midi)return;
+    importFontButton.disabled=true;
+    parent.postMessage({type:'converter-import-soundfont'},location.origin);
+  });
+  window.addEventListener('piano-import-complete',()=>{if(importFontButton)importFontButton.disabled=!!recording||!midi;});
 
   function setVisualStyle(value) {
     if (visualStyle !== artwork.normalize(value)) {
       crayonTime = 0;
     }
     visualStyle = artwork.normalize(value);
-    if (styleSelect) styleSelect.value = visualStyle;
-    if (keyboardSelect) keyboardSelect.value = artwork.normalizeKeyboard(loadSheetsSettingsSync().visualizer_scenes?.[visualStyle]?.keyboard);
     content.style.setProperty('--pv-accent', artwork.styles[visualStyle].accent);
     particles.length = 0;
     if (!modal.classList.contains('hidden')) renderFrame();
@@ -398,7 +364,10 @@
   function setVolume(v) {
     if (gainNode) gainNode.gain.value = v;
     if (volumeSlider) volumeSlider.style.setProperty('--volume-pct', (v * 100) + '%');
-    if (volumeIcon) volumeIcon.textContent = v === 0 ? '🔇' : v < 0.4 ? '🔉' : '🔊';
+    if (volumeIcon) {
+      volumeIcon.setAttribute('aria-label',v===0?'Unmute':'Mute');
+      volumeIcon.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M11 5 6 9H3v6h3l5 4z"/>'+(v===0?'<path d="m16 9 6 6m0-6-6 6"/>':v<0.4?'<path d="M15 8a6 6 0 0 1 0 8"/>':'<path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>')+'</svg>';
+    }
   }
 
   if (volumeSlider) {
@@ -904,7 +873,7 @@
 
   const renderButton = tool('render-video');
   function setRenderControlsBusy(busy) {
-    [btnPlay, btnStop, seekBar, sfSelect, styleSelect, keyboardSelect,
+    [btnPlay, btnStop, seekBar, sfSelect, importFontButton,
       tool('toggle-left'), tool('toggle-right'), tool('edit-hands')].forEach(control => {
       if (control) control.disabled = busy;
     });
@@ -961,7 +930,7 @@
     recording = job;
     setRenderControlsBusy(true);
     renderButton.textContent = 'Cancel render';
-    toolStatus('Rendering in real time. Keep this tab visible.');
+    toolStatus('Rendering in real time. Keep this tab visible.',true);
     recorder.start(1000);
     const started = await startPlayback(0);
     if (!started && recording === job) { finishVideoRender(true); toolStatus('Playback could not start; video render cancelled.'); }
@@ -976,7 +945,7 @@
         if (seekWasPlaying) stopPlayback(false);
       }
       pauseOffset = clamp(finiteNumber(t, 0), 0, totalDuration || 0);
-      renderFrame();
+      seekBar.style.setProperty('--seek-pct', ((pauseOffset / (totalDuration || 1)) * 100) + '%');
     });
     seekBar.addEventListener('change', () => {
       if (!isScrubbing) return;
@@ -994,7 +963,6 @@
     if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
     modal.classList.add('hidden');
   }
-  if (btnClose) btnClose.addEventListener('click', closeModal);
   modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
   document.addEventListener('keydown', e => {
     if (modal.classList.contains('hidden')) return;
@@ -1074,10 +1042,16 @@
   let sceneMediaKey = '';
   let sceneMedia = null;
   let sceneMediaPlayPending = false;
+  let sceneError = '';
 
   function drawSceneMedia(scene, width, height) {
-    const url = scene.media_url;
-    if (typeof url !== 'string' || !/^\/visualizer-backgrounds\/[0-9a-f]{32}\.(?:jpg|jpeg|png|webp|gif|mp4|webm|mov)$/.test(url)) return false;
+    const url = window.resolveVisualizerBackground(scene.media_url);
+    if (!url) {
+      if(scene.media_url&&sceneError!=='Background unavailable. Import an image or video from Style & appearance.'){
+        sceneError='Background unavailable. Import an image or video from Style & appearance.';toolStatus(sceneError);
+      }
+      return false;
+    }
     const type = scene.media_type;
     if (type !== 'image' && type !== 'video') return false;
     const key = type + ':' + url;
@@ -1085,19 +1059,28 @@
       if (sceneMedia?.tagName === 'VIDEO') { sceneMedia.pause(); sceneMedia.removeAttribute('src'); sceneMedia.load(); }
       sceneMediaKey = key;
       sceneMediaPlayPending = false;
+      if(tool('tools-status').textContent===sceneError)toolStatus('');
+      sceneError='';
       sceneMedia = type === 'image' ? new Image() : document.createElement('video');
-      if (type === 'image') sceneMedia.onload = renderFrame;
+      const media=sceneMedia;
+      media.crossOrigin='anonymous';
+      const loaded=()=>{if(media!==sceneMedia)return;if(tool('tools-status').textContent===sceneError)toolStatus('');sceneError='';if(visualizerActive)renderFrame();};
+      media.onerror=()=>{if(media===sceneMedia){sceneError='Could not load background. Try another image or video.';toolStatus(sceneError);if(visualizerActive)renderFrame();}};
+      if (type === 'image') sceneMedia.onload = loaded;
       else {
         sceneMedia.muted = true; sceneMedia.loop = true; sceneMedia.playsInline = true;
         sceneMedia.preload = 'auto';
+        sceneMedia.onloadeddata=loaded;
       }
       sceneMedia.src = url;
     }
-    if (type === 'video' && !reduceMotion.matches && !modal.classList.contains('hidden') && sceneMedia.paused && !sceneMediaPlayPending) {
+    if (type === 'video' && !sceneError && visualizerActive && !reduceMotion.matches && !modal.classList.contains('hidden') && sceneMedia.paused && !sceneMediaPlayPending) {
       sceneMediaPlayPending = true;
-      sceneMedia.play().catch(() => {}).finally(() => { sceneMediaPlayPending = false; });
+      const media=sceneMedia;
+      media.play().catch(()=>{if(media===sceneMedia){sceneError='Could not play video background. Try another video or an image.';toolStatus(sceneError);}}).finally(()=>{if(media===sceneMedia)sceneMediaPlayPending=false;});
     }
     if (type === 'video' && reduceMotion.matches && !sceneMedia.paused) sceneMedia.pause();
+    if(sceneError)return false;
     const mediaWidth = type === 'image' ? sceneMedia.naturalWidth : sceneMedia.videoWidth;
     const mediaHeight = type === 'image' ? sceneMedia.naturalHeight : sceneMedia.videoHeight;
     if (!mediaWidth || !mediaHeight) return false;
@@ -1182,19 +1165,19 @@
     const viewSettings = loadSheetsSettingsSync();
     const PPS          = clamp(Number(viewSettings.visualizer_speed) || 200, 50, 800);
     const theme        = artwork.styles[visualStyle];
-    const PIANO_HEIGHT = Math.min(120, Math.max(60, H * 0.18));
+    const PIANO_HEIGHT = Math.min(120,Math.max(60,H*0.18));
     const BK_RATIO     = 0.63;
     const playheadY    = H - PIANO_HEIGHT;
     const noteAreaH    = playheadY;
 
     const t = currentPlayTime();
     const animating = isPlaying && !isPaused;
+    const scene = viewSettings.visualizer_scenes?.[visualStyle] || {};
+    const keyboardStyle = artwork.effectiveKeyboard(scene.keyboard,visualStyle);
     const animateCrayon = (visualStyle === 'crayon' || visualStyle === 'sketch') && !reduceMotion.matches;
-    if (animateCrayon && !isPaused && !document.hidden && !modal.classList.contains('hidden')) crayonTime += dt;
+    if ((animateCrayon||keyboardStyle==='sketch'&&!reduceMotion.matches) && !isPaused && !document.hidden && !modal.classList.contains('hidden')) crayonTime += dt;
 
     // ── Background (cached vertical gradient) ──
-    const scene = viewSettings.visualizer_scenes?.[visualStyle] || {};
-    const keyboardStyle = artwork.normalizeKeyboard(scene.keyboard);
     const blackRatio = keyboardStyle === 'ivory' ? 0.46 : 0.58;
     if (layoutBlackRatio !== blackRatio) computeKeyLayout(W, blackRatio);
     const sceneMode = ['solid', 'spotlight', 'image', 'video'].includes(scene.mode || viewSettings.visualizer_background) ? (scene.mode || viewSettings.visualizer_background) : 'theme';
@@ -1222,7 +1205,11 @@
       ctx.fillStyle = `rgba(0,0,0,${clamp(Number(scene.dim ?? 25) || 0, 0, 80) / 100})`;
       ctx.fillRect(0, 0, W, H);
     }
-    if (sceneMode !== 'image' && sceneMode !== 'video' && sceneMedia?.tagName === 'VIDEO') sceneMedia.pause();
+    if (sceneMode !== 'image' && sceneMode !== 'video') {
+      if(sceneMedia?.tagName==='VIDEO'){sceneMedia.pause();sceneMedia.removeAttribute('src');sceneMedia.load();}
+      if(tool('tools-status').textContent===sceneError)toolStatus('');
+      sceneMedia=null;sceneMediaKey='';sceneError='';
+    }
     if (theme.paper && !hasMedia) artwork.paper(ctx, W, H);
 
     const effect = scene.effect || viewSettings.visualizer_effect;
@@ -1303,15 +1290,15 @@
       if (!kl) continue;
 
       const hand = handFor(note);
-      if (hand && !handEnabled[hand]) continue;
+      const ghosted = hand && !handEnabled[hand];
       const col = colorByHands && hand
         ? handColors[hand]
         : theme.colors[note.track % theme.colors.length];
-      const isActive = t >= note.start && t <= note.end;
+      const isActive = t >= note.start && t < note.end;
       if (isActive) {
         const prev = activeKeys[note.midi];
-        if (!prev || note.velocity > prev.velocity) {
-          activeKeys[note.midi] = { col, velocity: note.velocity };
+        if (!prev || prev.ghosted&&!ghosted || !!prev.ghosted===!!ghosted&&note.velocity>prev.velocity) {
+          activeKeys[note.midi] = { col, velocity: note.velocity, ghosted };
         }
       }
 
@@ -1324,14 +1311,16 @@
       if (animateCrayon && botY >= 0 && topY <= playheadY) {
         motion = { time: crayonTime };
       }
-      artwork.note(ctx, visualStyle, nx, topY, nw, nh, col, note.velocity, isActive, i, motion);
+      ctx.save();if(ghosted)ctx.globalAlpha=0.2;
+      artwork.note(ctx, visualStyle, nx, topY, nw, nh, artwork.keyColor(col,kl.isBlack), note.velocity, isActive, i, motion);
+      ctx.restore();
       if (editingHands && note.piano && botY >= 0 && topY <= playheadY) {
         noteHitboxes.push({ id: note.id, x: nx, y: Math.max(0, topY), w: nw, h: Math.min(botY, playheadY) - Math.max(0, topY) });
         if (note.id === selectedNoteId) {
           ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.strokeRect(nx, topY, nw, nh);
         }
       }
-      if (isActive && animating && theme.particles && viewSettings.visualizer_particles !== false && !reduceMotion.matches) {
+      if (isActive && !ghosted && animating && theme.particles && viewSettings.visualizer_particles !== false && !reduceMotion.matches) {
         spawnParticles(kl, col, note.velocity, playheadY, dt);
       }
     }
@@ -1366,13 +1355,13 @@
       ctx.fillStyle = whiteGrad;
       ctx.fillRect(kl.x, playheadY, kl.width, PIANO_HEIGHT);
       ctx.strokeStyle = keyboard.border; ctx.lineWidth = 1;
-      ctx.strokeRect(kl.x, playheadY, kl.width, PIANO_HEIGHT);
+      if(keyboardStyle!=='sketch')ctx.strokeRect(kl.x, playheadY, kl.width, PIANO_HEIGHT);
       if (activeKeys[n]) {
         const ak = activeKeys[n];
-        ctx.fillStyle = `rgba(${ak.col[0]},${ak.col[1]},${ak.col[2]},${0.45 + ak.velocity * 0.45})`;
+        ctx.fillStyle = `rgba(${ak.col[0]},${ak.col[1]},${ak.col[2]},${(0.45 + ak.velocity * 0.45)*(ak.ghosted?0.2:1)})`;
         ctx.fillRect(kl.x + 1, playheadY + 1, kl.width - 2, PIANO_HEIGHT - 2);
       }
-      artwork.keyboardDetail(ctx, keyboardStyle, kl.x, playheadY, kl.width, PIANO_HEIGHT, false);
+      artwork.keyboardDetail(ctx, keyboardStyle, kl.x, playheadY, kl.width, PIANO_HEIGHT, false, keyboardStyle==='sketch'&&!reduceMotion.matches?{time:crayonTime,held:!!activeKeys[n]}:null,n);
       if (n % 12 === 0 && viewSettings.visualizer_labels !== false) {
         const octave = Math.floor(n / 12) - 1;
         ctx.font = '9px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
@@ -1405,17 +1394,18 @@
       ctx.strokeRect(kl.x, playheadY, kl.width, bkh);
       if (activeKeys[n]) {
         const ak = activeKeys[n];
-        ctx.fillStyle = `rgba(${ak.col[0]},${ak.col[1]},${ak.col[2]},${0.55 + ak.velocity * 0.35})`;
+        const color=artwork.keyColor(ak.col,true);
+        ctx.fillStyle = `rgba(${color[0]},${color[1]},${color[2]},${(0.45 + ak.velocity * 0.45)*(ak.ghosted?0.2:1)})`;
         ctx.fillRect(kl.x + 1, playheadY + 1, kl.width - 2, bkh - 2);
       }
-      artwork.keyboardDetail(ctx, keyboardStyle, kl.x, playheadY, kl.width, bkh, true);
+      artwork.keyboardDetail(ctx, keyboardStyle, kl.x, playheadY, kl.width, bkh, true, keyboardStyle==='sketch'&&!reduceMotion.matches?{time:crayonTime,held:!!activeKeys[n]}:null,n);
     }
 
     // ── Update controls ──
     if (timeDisplay) timeDisplay.textContent = formatTime(t) + ' / ' + formatTime(totalDuration);
     if (seekBar) {
       seekBar.max   = totalDuration || 1;
-      seekBar.value = t;
+      if (!isScrubbing) seekBar.value = t;
       seekBar.style.setProperty('--seek-pct', ((t / (totalDuration || 1)) * 100) + '%');
     }
     if (isPlaying && !isPaused && t >= totalDuration) stopPlayback();
@@ -1431,7 +1421,7 @@
     setToolsBusy(true);
     crayonTime = 0;
     setVisualStyle(loadSheetsSettingsSync().visualizer_style);
-    if (titleEl) titleEl.textContent = midiFilename.replace(/\.(mid|midi)$/i, '');
+    if(importFontButton)importFontButton.disabled=true;
 
     stopPlayback();
     if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
@@ -1457,6 +1447,7 @@
 
       startRenderLoop();
       setToolsBusy(false);
+      if(importFontButton)importFontButton.disabled=false;
 
       const sf = sfSelect?.value || BUILTIN_PIANO;
       if (!synthReady || sf !== currentSfUrl) await loadSoundFont(sf);
@@ -1475,13 +1466,15 @@
       } else showLoading('Error: ' + (e.message || e), 0);
     } finally {
       if (revision === openRevision) setToolsBusy(!midi);
+      if (revision === openRevision && importFontButton) importFontButton.disabled=!midi;
     }
   };
 
+  window.addEventListener('beforeunload',()=>clearTimeout(noticeTimer));
   window.setVisualizerActive = visible => {
     visualizerActive = visible;
     if (!visible) {
-      if (recording) finishVideoRender(true);
+        if (recording) finishVideoRender(true);
       if (isPlaying && !isPaused) pausePlayback();
       if (sceneMedia?.tagName === 'VIDEO') sceneMedia.pause();
       if (animFrameId) {cancelAnimationFrame(animFrameId);animFrameId=null;}

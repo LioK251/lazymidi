@@ -1267,7 +1267,8 @@ def download_file(filename):
             filename,
             {'.mid', '.midi', '.mp3', '.wav', '.txt'},
         )
-        return send_from_directory(app.config['CONVERTED_FOLDER'], safe_name, as_attachment=True)
+        download_name = re.sub(r'_transkun(?=(?:_\d+)?(?:_sheets|_hands)?\.(?:mid|midi|txt)$)', '_lazymidi', safe_name, flags=re.IGNORECASE)
+        return send_from_directory(app.config['CONVERTED_FOLDER'], safe_name, as_attachment=True, download_name=download_name)
     except ValueError:
         abort(400)
     except FileNotFoundError:
@@ -1387,7 +1388,10 @@ def api_upload_visualizer_background():
 def serve_visualizer_background(filename):
     if not re.fullmatch(r'[0-9a-f]{32}\.(?:jpg|jpeg|png|webp|gif|mp4|webm|mov)', filename):
         abort(404)
-    return send_from_directory(VISUALIZER_BACKGROUNDS_FOLDER, filename, as_attachment=False, max_age=86400)
+    folder = VISUALIZER_BACKGROUNDS_FOLDER
+    if not os.path.isfile(os.path.join(folder, filename)):
+        folder = os.path.join(_data_dir, 'visualizer-backgrounds')
+    return send_from_directory(folder, filename, as_attachment=False, max_age=86400)
 
 @csrf.exempt
 @app.route("/api/soundfonts", methods=["GET"])
@@ -1889,7 +1893,9 @@ def api_delete_history():
 def api_get_settings():
     try:
         if os.path.exists(SETTINGS_FILE):
-            return jsonify(read_json(SETTINGS_FILE, {}))
+            settings = read_json(SETTINGS_FILE, {})
+            settings.pop("visualizer_hands", None)
+            return jsonify(settings)
         else:
             return jsonify({}), 200
     except Exception as e:
@@ -1904,7 +1910,7 @@ def api_save_settings():
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
         
-        try: validate_settings(data)
+        try: data = validate_settings(data)
         except (ValueError, TypeError) as error: return jsonify(error=str(error)), 400
         atomic_json(SETTINGS_FILE, data)
         

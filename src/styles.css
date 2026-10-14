@@ -402,8 +402,6 @@ main {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  scrollbar-color: #434343 transparent;
-  scrollbar-width: thin;
 }
 .split {
   display: grid;
@@ -653,8 +651,6 @@ main {
   overflow: auto;
   background: #1d1d1d;
   border-top: 1px solid var(--border);
-  scrollbar-color: #444 transparent;
-  scrollbar-width: thin;
 }
 .mapping-table {
   border-collapse: collapse;
