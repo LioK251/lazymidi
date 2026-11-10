@@ -1887,14 +1887,17 @@ mod tests {
         );
         let pack: Pack = config::read_json(&manifest).unwrap();
         let root = tempfile::tempdir().unwrap();
-        let staged = extract_pack(
+        let cancel = AtomicBool::new(false);
+        let status = Mutex::new(Status::default());
+        let archive = download_pack(
             root.path(),
-            &manifest.parent().unwrap().join(&pack.file),
             &pack,
-            &AtomicBool::new(false),
-            &Mutex::new(Status::default()),
+            Some(&manifest.parent().unwrap().join(&pack.file)),
+            &cancel,
+            &status,
         )
         .unwrap();
+        let staged = extract_pack(root.path(), archive.path(), &pack, &cancel, &status).unwrap();
         let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter");
         let environment = validate_environment(
             &pack_python(staged.path()),

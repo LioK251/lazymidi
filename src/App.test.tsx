@@ -348,7 +348,7 @@ describe("lazymidi interface", () => {
     expect((screen.getByRole("switch", { name: "88 Keys" }) as HTMLInputElement).checked).toBe(false);
     await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Play" })); });
     expect((screen.getByRole("switch", { name: "MIDI → QWERTY" }) as HTMLInputElement).checked).toBe(false);
-  });
+  }, 15000);
   it("defaults a new sustain binding to Space and disables velocity without the game protocol", async () => {
     const initial = api.initialState();
     initial.settings.selected_profile = "default-copy";

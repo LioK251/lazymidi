@@ -1,53 +1,132 @@
 {
   "packs": [
     {
-      "version": "1",
+      "version": "2",
       "variant": "cpu",
       "platform": "windows-x86_64",
-      "python": "3.13.13",
-      "bytes": 511745132,
-      "installed_bytes": 1262559818,
-      "sha256": "f0d6e859c514c16aa4716336befdbd83991e3afc9ac77050310a34f3498e82d5",
-      "file": "lazymidi-converter-cpu-1.zip",
-      "url": null,
+      "python": "3.11.18",
+      "bytes": 445977200,
+      "installed_bytes": 1114642831,
+      "sha256": "6a9086cfc5d29331b277f454d46f83c4b30fa94252007e3616ee87d8272d29e0",
+      "file": "lazymidi-converter-windows-x86_64-cpu-2.zip",
+      "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-windows-x86_64-cpu-2.zip",
       "parts": []
     },
     {
-      "version": "1",
+      "version": "2",
       "variant": "cuda",
       "platform": "windows-x86_64",
-      "python": "3.13.13",
-      "bytes": 3343169690,
-      "installed_bytes": 5367919404,
-      "sha256": "d73905f0cb787360c9b0608918b5ba7145f869f8531ebbf83fbbaec1e2b5a272",
-      "file": "lazymidi-converter-cuda-1.zip",
+      "python": "3.11.18",
+      "bytes": 3259912651,
+      "installed_bytes": 5219995249,
+      "sha256": "60de08ab4debcff24210023732c1f203cfb9c44811420d2cac6bc26034fd6cfd",
+      "file": "lazymidi-converter-windows-x86_64-cuda-2.zip",
       "url": null,
       "parts": [
         {
-          "file": "lazymidi-converter-cuda-1.zip.part1",
+          "file": "lazymidi-converter-windows-x86_64-cuda-2.zip.part1",
           "bytes": 1073741824,
-          "sha256": "dd0bfb15af47109984a7fa0118ba19090fe84d32c9516fe9c0cdf6f9a742650c",
-          "url": null
+          "sha256": "0c4feaaa23568e29bacc8170aa1c5e9ce993f9ba63c08a90036d6acd945ff1ce",
+          "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-windows-x86_64-cuda-2.zip.part1"
         },
         {
-          "file": "lazymidi-converter-cuda-1.zip.part2",
+          "file": "lazymidi-converter-windows-x86_64-cuda-2.zip.part2",
           "bytes": 1073741824,
-          "sha256": "b1f87286379992e7b1e1ac7a49faabe3e8d84eb26f665cf3aa61c0fb12fc0cc6",
-          "url": null
+          "sha256": "99a511879339dc48b9a7675a3a05f6c33b0db10e4dc15a4e423150e205131760",
+          "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-windows-x86_64-cuda-2.zip.part2"
         },
         {
-          "file": "lazymidi-converter-cuda-1.zip.part3",
+          "file": "lazymidi-converter-windows-x86_64-cuda-2.zip.part3",
           "bytes": 1073741824,
-          "sha256": "14d7795d8a0f5dabdda53a4d65e0476aa75549d1647b0bc01d846a9a7d3a4ca7",
-          "url": null
+          "sha256": "e04a55f45b047676d7fd3d966de7a2c8f89d1610e370b8083bbc786cd528536d",
+          "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-windows-x86_64-cuda-2.zip.part3"
         },
         {
-          "file": "lazymidi-converter-cuda-1.zip.part4",
-          "bytes": 121944218,
-          "sha256": "14fcd22c018464c1cc7886972c90701307b2738dbdae446011a684c718628348",
-          "url": null
+          "file": "lazymidi-converter-windows-x86_64-cuda-2.zip.part4",
+          "bytes": 38687179,
+          "sha256": "b60b8b11daa67a3bcb976e5807b078315e60b9ec2699beb488adb87ff2ec069b",
+          "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-windows-x86_64-cuda-2.zip.part4"
         }
       ]
+    },
+    {
+      "version": "2",
+      "variant": "cpu",
+      "platform": "linux-x86_64",
+      "python": "3.11.18",
+      "bytes": 585143606,
+      "installed_bytes": 1562308836,
+      "sha256": "8332bbe5c5f639a738f65bd2c92ea49bc344b595bed93c3a62b95ad0b9b1590c",
+      "file": "lazymidi-converter-linux-x86_64-cpu-2.zip",
+      "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-linux-x86_64-cpu-2.zip",
+      "parts": []
+    },
+    {
+      "version": "2",
+      "variant": "cuda",
+      "platform": "linux-x86_64",
+      "python": "3.11.18",
+      "bytes": 4555754085,
+      "installed_bytes": 7804123547,
+      "sha256": "0d59624e1a1566c3be41ce2a3a94957b9dce5a30a73b9dd36ae6d3c0ea3e9111",
+      "file": "lazymidi-converter-linux-x86_64-cuda-2.zip",
+      "url": null,
+      "parts": [
+        {
+          "file": "lazymidi-converter-linux-x86_64-cuda-2.zip.part1",
+          "bytes": 1073741824,
+          "sha256": "e706122486229f19dbb815ba2e9091851c1df1b57428f1a101b1ff1af93401b8",
+          "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-linux-x86_64-cuda-2.zip.part1"
+        },
+        {
+          "file": "lazymidi-converter-linux-x86_64-cuda-2.zip.part2",
+          "bytes": 1073741824,
+          "sha256": "9df09985a6bada5d1e2700ebd85d14dd3adf140912354d07c8eadcc0ece3a969",
+          "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-linux-x86_64-cuda-2.zip.part2"
+        },
+        {
+          "file": "lazymidi-converter-linux-x86_64-cuda-2.zip.part3",
+          "bytes": 1073741824,
+          "sha256": "0dd412a748c058b8acedb85f87824acabb7f89d900a39ec1061ac2a338ab07ef",
+          "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-linux-x86_64-cuda-2.zip.part3"
+        },
+        {
+          "file": "lazymidi-converter-linux-x86_64-cuda-2.zip.part4",
+          "bytes": 1073741824,
+          "sha256": "8f319ae5692a331197ff132f1ce3231ceccb84963be59f3a98a477d4c9206b08",
+          "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-linux-x86_64-cuda-2.zip.part4"
+        },
+        {
+          "file": "lazymidi-converter-linux-x86_64-cuda-2.zip.part5",
+          "bytes": 260786789,
+          "sha256": "933bef4eca626fcad572848c44f5a6177a2dfa01015ab99e85663d7c7d6a2350",
+          "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-linux-x86_64-cuda-2.zip.part5"
+        }
+      ]
+    },
+    {
+      "version": "2",
+      "variant": "cpu",
+      "platform": "macos-aarch64",
+      "python": "3.11.18",
+      "bytes": 412496144,
+      "installed_bytes": 1045956218,
+      "sha256": "e9cce9a4befd35b4bb27db93fae660c1907282b927da89fe219cb144ed26277a",
+      "file": "lazymidi-converter-macos-aarch64-cpu-2.zip",
+      "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-macos-aarch64-cpu-2.zip",
+      "parts": []
+    },
+    {
+      "version": "2",
+      "variant": "cpu",
+      "platform": "macos-x86_64",
+      "python": "3.11.18",
+      "bytes": 515857545,
+      "installed_bytes": 1351251817,
+      "sha256": "e989764318a9851d568ba99a0f375eccd545c1ea105d293d908787afb9378c60",
+      "file": "lazymidi-converter-macos-x86_64-cpu-2.zip",
+      "url": "https://github.com/LioK251/lazymidi/releases/download/v0.1.8/lazymidi-converter-macos-x86_64-cpu-2.zip",
+      "parts": []
     }
   ]
 }

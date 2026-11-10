@@ -1,40 +1,56 @@
 # Verification and release qualification
 
-## Version 0.1.8 local release preparation — 2026-11-10
+## Version 0.1.8 release qualification — 2026-11-10
 
-158 frontend/extension tests, 56 Rust workspace tests, 45 SDK-free core tests,
-21 private-service tests, four notation tests and four environment tests pass.
-Six specialized Rust checks and one inference test remain opt-in. Production
-TypeScript/Vite builds, Rust formatting and Clippy pass.
+164 frontend/extension tests, 57 Rust workspace tests, 45 SDK-free core tests,
+21 private-service tests, five notation tests and six environment tests pass.
+Production TypeScript/Vite builds, Rust formatting and Clippy pass. Specialized
+native installation and model-inference checks run separately from the unit suite.
 
 Notation fixtures cover two staves, overlapping voices, ties, triplets, key and
-meter changes, leading/trailing rests, one-hand pieces, track selection, malformed
-files and unchanged source/playback events. Private service checks include
-authentication, extension-token rejection, path traversal and missing music21.
-UI regressions cover the saved Piano-button preference, search-page restoration, deletion, format switching,
-superseded loading events, tempo-aware cursor seeking and pausing before detach.
+meter changes, rests, one-hand pieces, track selection, malformed files and
+unchanged playback. The overlapping-note regression exercises the complex-rest
+export that failed on “Abyss - Kaiju No. 8 OP | Piano | YUNGBLUD.” The complete
+64-measure song renders in normal and fine rhythm modes with identical playback
+MIDI. Play, seeking to 45 seconds, Follow and manual scrolling were checked.
+The original MIDI hash remains unchanged; the song is not a distributed fixture.
 
-Browser checks cover the app at 1120 × 760 and 900 × 620, and the sheet viewer
-from 700 × 500 down to 320 × 190. Genuine MusicXML renders with playback, seeking,
-zoom, Follow, manual scrolling and QWERTY/Piano switching. Small windows retain
-scroll access to the score and playback controls. Hiding Piano changes the
-1120 px library from three to four columns without resetting its search or page.
+UI regressions cover the saved Piano-button preference in Convert and the
+floating viewer, the Working indicator beside Piano, search-page restoration,
+deletion, format switching, superseded loading events, tempo-aware seeking and
+pausing before detach. Browser checks cover 1120 × 760 and 900 × 620 app windows
+and sheet windows down to 320 × 190. Hiding Piano changes the 1120 px library
+from three to four columns without resetting search or its page.
 
-The optimized Windows executable and NSIS installer build successfully; the
-installer's archive integrity check passes. The
-isolated native check renders the actual SVG score in WebView2, verifies shared
-sheet state, floating-window minimize/restore, converter access, stale revisions,
-SoundFont ranges and visualizer reuse. SDK and generated keyboard output stay
-off. The final native check uses the selected Python 3.10.19 / Torch 2.9.1+cu128
-environment and isolated synthetic data. music21 9.7.1 and six missing dependencies
-were added to that environment. All existing package versions, including Torch
-and NumPy 2.2.6, remain unchanged; CUDA is available and all 88 installed packages
-pass the dependency compatibility check. The user's song library is unchanged.
+The isolated Windows/WebView2 check covers full Abyss notation with both an
+existing environment and a fresh CPU pack, plus shared sheet state, scoped
+assets, floating-window minimize/restore, stale revisions, large SoundFont
+ranges and visualizer reuse. SDK and generated keyboard output stay off.
+The user's library and active runtime selection are unchanged.
 
-Version 2 converter-pack recipes include music21, but new packs have not been
-built or distributed. Existing version 1 manifests retain their real hashes.
-Linux/macOS packages, physical audio/MIDI/analog hardware, interactive installer
-operation and live media-site downloads were not checked for this update.
+Runtime builds relocate and qualify Python 3.11.18, music21 9.7.1, Transkun 2.0.1
+and bundled FFmpeg. Every pack runs dependency checks, real CPU model inference,
+service tests and notation tests. Windows/Linux have CPU and CUDA variants;
+both Mac architectures have CPU packs. GPU processing is offered only after a
+successful local model check. Windows CUDA was also checked on an RTX 5080.
+A Requests dependency warning is prevented by pinning compatible chardet and
+checking the import with warnings treated as errors.
+
+Linux and macOS release workflows install the generated CPU pack before testing
+the packaged application. Debian/AppImage checks run under X11; both Mac DMGs
+are mounted and their architecture, resources and ad-hoc signatures checked.
+Each package must render normal/fine Piano and pass the same floating-window,
+scoped-asset and retained-visualizer checks before its artifact is uploaded.
+Runtime uploads verify archive/part hashes and GitHub's stored asset digests.
+
+The website passes 24 desktop/mobile Chromium and WebKit checks, including
+accessibility. Its source stays private and outside the repository and releases.
+
+Physical audio/MIDI/analog devices, game input timing, Linux CUDA hardware and
+Mac GPU hardware were not checked for this release. Interactive installer
+operation and live media-site downloads were not rechecked. Windows builds are
+unsigned; Mac apps are ad-hoc signed and not notarized. Linux/macOS remain
+experimental until real-device input and permission checks are completed.
 
 ## Version 0.1.7 release qualification — 2026-10-14
 

@@ -62,7 +62,7 @@ Destination routes belong to the active profile; project files store notes, gate
 Install Node 22+ and stable Rust **1.91+**, plus the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). The lockfile includes newer transitive dependencies, so 1.91 is the tested toolchain. Run:
 
 ```sh
-npm ci
+npm ci --ignore-scripts
 npm run desktop
 ```
 
