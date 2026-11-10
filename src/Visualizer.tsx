@@ -1,5 +1,5 @@
 import {useNotice} from "./notices";
-import {useEffect,useRef,useState} from "react";
+import {useEffect,useLayoutEffect,useRef,useState} from "react";
 import {invoke,convertFileSrc} from "@tauri-apps/api/core";
 import {emit,listen} from "@tauri-apps/api/event";
 import * as api from "./backend";
@@ -12,7 +12,7 @@ const dialog=<T,>(command:string,args:Record<string,unknown>)=>api.whilePaused((
 export default function Visualizer(){
   const [content,setContent]=useState<Content>({revision:0});const selected=content.midi_filename??"";
   const [settings,setSettings]=useState<Values>(defaults);const settingsRef=useRef(settings);settingsRef.current=settings;
-  const frame=useRef<HTMLIFrameElement>(null);const player=useRef<Window|null>(null);
+  const frame=useRef<HTMLIFrameElement>(null);const player=useRef<(Window&{setVisualizerActive?:(visible:boolean)=>void})|null>(null);
   const [busy,setBusy]=useState(false);const [error,setError]=useNotice();const [message,setMessage]=useNotice();const [top,setTop]=useState(false);
   async function run<T>(action:()=>Promise<T>){setBusy(true);setError("");try{return await action();}catch(e){setError(api.errorText(e));}finally{setBusy(false);}}
   useEffect(()=>{let disposed=false,stop=()=>{},stopVisibility=()=>{};let revision=-1;
@@ -22,7 +22,7 @@ export default function Visualizer(){
     return()=>{disposed=true;stop();stopVisibility();};
   },[]);
   async function persistAppearance(value:Values){const latest=await converterRequest<Values>("/api/settings");await converterRequest("/api/settings",{...latest,...Object.fromEntries(Object.entries(value).filter(([key])=>visualizerSetting(key)))});}
-  useEffect(()=>{const handler=(event:MessageEvent)=>{
+  useLayoutEffect(()=>{const handler=(event:MessageEvent)=>{
     if(event.source!==frame.current?.contentWindow||event.origin!==location.origin)return;
     if(event.data?.type==="converter-visualizer-ready")void emit("visualizer-ready",{filename:event.data.filename,loaded:event.data.loaded});
     if(event.data?.type==="converter-import-soundfont")void importSoundFont().finally(()=>frame.current?.contentWindow?.postMessage({type:"converter-import-complete"},location.origin));
@@ -30,9 +30,9 @@ export default function Visualizer(){
     if(event.data?.type==="converter-fetch"){const {id,path,body}=event.data;const target=event.source as Window;void converterRequest(path,body).then(value=>target.postMessage({type:"converter-fetch-result",id,value},location.origin)).catch(e=>target.postMessage({type:"converter-fetch-result",id,error:api.errorText(e)},location.origin));}
   };window.addEventListener("message",handler);
     const visibility=()=>frame.current?.contentWindow?.postMessage({type:"converter-visibility",visible:!document.hidden},location.origin);
-    const stop=()=>player.current?.postMessage({type:"converter-visibility",visible:false},location.origin);
+    const stop=()=>{player.current?.setVisualizerActive?.(false);player.current?.postMessage({type:"converter-visibility",visible:false},location.origin);};
     document.addEventListener("visibilitychange",visibility);window.addEventListener("beforeunload",stop);
-    return()=>{window.removeEventListener("message",handler);document.removeEventListener("visibilitychange",visibility);window.removeEventListener("beforeunload",stop);};
+    return()=>{stop();window.removeEventListener("message",handler);document.removeEventListener("visibilitychange",visibility);window.removeEventListener("beforeunload",stop);};
   },[]);
   const sendVisualizer=()=>frame.current?.contentWindow?.postMessage({type:"converter-visualize",filename:selected,settings:settingsRef.current,assetRoot:convertFileSrc("/","converter")},location.origin);
   useEffect(()=>{if(player.current)sendVisualizer();},[content.revision]);

@@ -5,6 +5,51 @@ import {resolve} from "node:path";
 import {JSDOM} from "jsdom";
 import {Midi} from "@tonejs/midi";
 
+it("updates the score each frame, stops the previous player and releases audio on pagehide",async()=>{
+  const channels=new Set(),windows=[];
+  const midi=new Midi();midi.addTrack().addNote({midi:60,time:0,duration:2,velocity:0.7});
+  function viewer(){
+    const dom=new JSDOM(readFileSync(resolve("public/converter/visualizer.html"),"utf8"),{url:"http://localhost",runScripts:"outside-only"});
+    windows.push(dom.window);const w=dom.window;
+    w.document.documentElement.classList.add("score-transport");
+    w.requestAnimationFrame=vi.fn(()=>1);w.cancelAnimationFrame=vi.fn();w.matchMedia=()=>({matches:false});
+    w.onPianoPlayback=vi.fn();
+    w.HTMLCanvasElement.prototype.getContext=()=>({setTransform(){}});
+    Object.defineProperty(w.crypto,"subtle",{value:webcrypto.subtle});w.Midi=Midi;
+    w.loadSheetsSettingsSync=()=>({visualizer_style:"classic"});w.loadSheetsSettings=async()=>({});
+    w.saveSheetsSettings=vi.fn();w.MidiDownloads={ensureLibrary:async()=>{}};
+    w.fetch=async()=>({ok:true,json:async()=>({soundfonts:[]}),arrayBuffer:async()=>midi.toArray().buffer});
+    w.BroadcastChannel=class {
+      constructor(name){this.name=name;channels.add(this);}
+      postMessage(data){for(const peer of channels)if(peer!==this&&peer.name===this.name)peer.onmessage?.({data});}
+      close(){channels.delete(this);}
+    };
+    const stops=[];let audioTime=0;
+    w.AudioContext=class {
+      get currentTime(){return audioTime;}state="running";
+      createGain(){return {connect(){},disconnect(){},gain:{value:1,setValueAtTime(){},linearRampToValueAtTime(){},exponentialRampToValueAtTime(){},setTargetAtTime(){}}};}
+      createOscillator(){const stop=vi.fn();stops.push(stop);return {frequency:{value:0},connect(){},disconnect(){},start(){},stop};}
+    };
+    for(const file of ["piano-styles.js","piano-enhancements.js","piano-visualizer.js"])w.eval(readFileSync(resolve("public/converter",file),"utf8"));
+    return {w,stops,play:()=>w.document.getElementById("pv-play"),tick:time=>{audioTime=time;w.requestAnimationFrame.mock.lastCall[0]();}};
+  }
+  try{
+    const first=viewer();await first.w.openPianoVisualizer("first.mid");first.play().click();await Promise.resolve();
+    expect(first.play().getAttribute("aria-label")).toBe("Pause");
+    first.tick(0);first.w.onPianoPlayback.mockClear();
+    first.tick(1/60);first.tick(2/60);
+    expect(first.w.onPianoPlayback.mock.calls.map(([state])=>state.time)).toEqual([1/60,2/60]);
+    const second=viewer();await second.w.openPianoVisualizer("second.mid");
+    expect(first.play().getAttribute("aria-label")).toBe("Play");
+    expect(first.stops[0]).toHaveBeenLastCalledWith();
+    second.play().click();await Promise.resolve();first.play().click();await Promise.resolve();
+    expect(second.play().getAttribute("aria-label")).toBe("Play");
+    first.w.dispatchEvent(new first.w.Event("pagehide"));
+    expect(first.play().getAttribute("aria-label")).toBe("Play");
+    expect(first.stops.at(-1)).toHaveBeenLastCalledWith();
+  }finally{for(const w of windows)w.close();}
+});
+
 it("sends only player settings that changed so other-window drafts stay intact",async()=>{
   const dom=new JSDOM("",{url:"http://localhost",runScripts:"outside-only"});const w=dom.window;
   w.fetch=vi.fn();const nativeFetch=w.fetch;const post=vi.spyOn(w,"postMessage");

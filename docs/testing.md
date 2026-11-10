@@ -2,32 +2,49 @@
 
 ## Version 0.1.8 release qualification — 2026-11-10
 
-164 frontend/extension tests, 57 Rust workspace tests, 45 SDK-free core tests,
-21 private-service tests, five notation tests, six environment tests and three
-installer-script tests pass.
-Production TypeScript/Vite builds, Rust formatting and Clippy pass. Specialized
-native installation and model-inference checks run separately from the unit suite.
+The current Windows preview is unpublished, pending the user's app testing.
+168 frontend/extension tests, 21 private-service tests and 11 notation tests
+pass, as do the production TypeScript/Vite build and Windows NSIS packaging.
+The earlier runtime qualification passed 57 Rust workspace tests, 45 SDK-free
+core tests, six environment tests, three installer-script tests, formatting and
+Clippy. Runtime/model installation code did not change in this preview.
 
 Notation fixtures cover two staves, overlapping voices, ties, triplets, key and
 meter changes, rests, one-hand pieces, track selection, malformed files and
-unchanged playback. The overlapping-note regression exercises the complex-rest
-export that failed on “Abyss - Kaiju No. 8 OP | Piano | YUNGBLUD.” The complete
-64-measure song renders in normal and fine rhythm modes with identical playback
-MIDI. Play, seeking to 45 seconds, Follow and manual scrolling were checked.
-The original MIDI hash remains unchanged; the song is not a distributed fixture.
+unchanged playback. They also cover mixed straight/triplet rhythms, placeholder
+tempo detection, staccato releases, accidental cancellation and bar-crossing ties.
+“Abyss - Kaiju No. 8 OP | Piano | YUNGBLUD” now engraves as 59 measures at an
+estimated 115 BPM with four flats. Standard/detail views contain 88/106 rests
+(previously 1,252 in Standard), 12 accidentals and no unintended tuplets.
+Rendered opening, verse, chorus and ending passages were inspected. A sweep of
+5,040 playback positions found no backward cursor jumps, down from 120.
+The cursor now interpolates engraved positions on each audio-clock frame. In
+a five-second Abyss sample it moved at every sampled position, instead of
+remaining still in 182 of 199 intervals and then jumping between notes.
+Its width at normal zoom is 30 pixels, previously 5. Regression checks cover
+tempo changes, estimated rhythm, line breaks, zoom and replacement-song timing.
+Play, seeking, Follow, manual scrolling, zoom and repeated score replacement
+passed. Both modes retain identical playback MIDI; the original file's hash is
+unchanged. The user's song is not a distributed fixture.
 
 UI regressions cover the saved Piano-button preference in Convert and the
 floating viewer, the Working indicator beside Piano, search-page restoration,
 deletion, format switching, superseded loading events, tempo-aware seeking and
-pausing before detach. Browser checks cover 1120 × 760 and 900 × 620 app windows
-and sheet windows down to 320 × 190. Hiding Piano changes the 1120 px library
-from three to four columns without resetting search or its page.
+pausing before detach. Library checks cover 900–1360 px windows: Sheet, Export
+and × share one aligned row, with four columns at 1120 px whether Piano is on
+or off. Search and page position survive Settings changes. Sheet resizing and
+zoom were checked at 420, 700 and 1000 px widths.
+Opening another player stops the previous one in browser tests and the shared
+player regression. Live WebView2 playback instrumentation was unavailable;
+physical audio output and that native handoff remain for manual testing.
 
-The isolated Windows/WebView2 check covers full Abyss notation with both an
-existing environment and fresh CPU/NVIDIA installations, plus shared sheet state, scoped
+The current packaged Windows/WebView2 check passes with full Abyss notation and
+the isolated CPU environment, plus shared sheet state, scoped
 assets, floating-window minimize/restore, stale revisions, large SoundFont
 ranges and visualizer reuse. SDK and generated keyboard output stay off.
 The user's library and active runtime selection are unchanged.
+Existing-environment and fresh CPU/NVIDIA installation checks passed during
+the earlier runtime qualification.
 
 Runtime setup downloads pinned Python 3.11.18 and installs music21 9.7.1,
 Transkun 2.0.1 and the remaining dependencies directly from PyPI/PyTorch. The app
@@ -39,7 +56,8 @@ offered only after a successful local model check. Windows CUDA is checked on
 an RTX 5080. A Requests dependency warning is prevented by pinning compatible
 chardet and checking its import with warnings treated as errors.
 
-Linux and macOS release workflows install dependencies through the in-app
+Linux and macOS packages must be rebuilt and rechecked after approval of this
+UI/notation revision; their preceding runtime qualification passed. Release workflows install dependencies through the in-app
 setup code before checking the packaged application. Debian/AppImage checks run
 under X11; both Mac DMGs are mounted and their architecture, resources and
 ad-hoc signatures checked. Each package must render normal/fine Piano and pass

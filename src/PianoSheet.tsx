@@ -1,7 +1,6 @@
 import {useEffect,useLayoutEffect,useMemo,useRef,useState} from "react";
 import type {ReactNode} from "react";
-import {OpenSheetMusicDisplay} from "opensheetmusicdisplay";
-import type {MusicPartManagerIterator} from "opensheetmusicdisplay";
+import {Fraction,OpenSheetMusicDisplay,OutlineAndFillStyleEnum} from "opensheetmusicdisplay";
 import {Midi} from "@tonejs/midi";
 import {convertFileSrc,invoke} from "@tauri-apps/api/core";
 import {emit,listen} from "@tauri-apps/api/event";
@@ -21,7 +20,7 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
 }) {
   const container=useRef<HTMLDivElement>(null),paper=useRef<HTMLDivElement>(null),frame=useRef<HTMLIFrameElement>(null);
   const renderer=useRef<OpenSheetMusicDisplay|null>(null);
-  const steps=useRef<MusicPartManagerIterator[]>([]),times=useRef<number[]>([]),position=useRef(-1),clock=useRef(0);
+  const clock=useRef(0);
   const [follow,setFollow]=useState(true),[renderError,setRenderError]=useState(""),[loading,setLoading]=useState(true);
   const [playerHeight,setPlayerHeight]=useState(96);
   const followRef=useRef(follow);followRef.current=follow;
@@ -32,43 +31,49 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
   const [split,setSplit]=useState(String(content.split));
   const [rhythm,setRhythm]=useState(content.rhythm);
   const midi=useMemo(()=>new Midi(Uint8Array.from(atob(content.midi_base64),c=>c.charCodeAt(0))),[content.midi_base64]);
+  const timeline=useMemo(()=>({midi,timing:content.timing??[],times:content.timing?.map(point=>point.time)??[]}),[midi,content.timing]);
+  const timelineRef=useRef(timeline);timelineRef.current=timeline;
 
-  function updateCursor(time:number,force=false){
+  function updateCursor(time:number){
     clock.current=time;
     const osmd=renderer.current,scroller=container.current;
-    if(!osmd||!scroller||!times.current.length)return;
-    const next=scorePosition(times.current,time);
-    if(next!==position.current||force){
-      position.current=next;osmd.cursor.iterator=steps.current[next].clone();osmd.cursor.show();osmd.cursor.update();
+    if(!osmd?.IsReadyToRender()||!scroller)return;
+    const {midi,timing,times}=timelineRef.current;
+    let beat=midi.header.secondsToTicks(Math.max(0,time))/midi.header.ppq;
+    if(timing.length>1){
+      const index=Math.min(scorePosition(times,time),timing.length-2),a=timing[index],b=timing[index+1];
+      beat=a.beat+(time-a.time)/(b.time-a.time)*(b.beat-a.beat);
     }
+    // Interpolate engraved positions at the audio clock, including rests and line breaks.
+    const line=osmd.GraphicSheet.calculateCursorLineAtTimestamp(new Fraction(Math.max(0,beat),4),OutlineAndFillStyleEnum.PlaybackCursor);
+    if(!line)return;
+    const marker=osmd.cursor.cursorElement,scale=10*osmd.Zoom;
+    marker.style.left="0px";marker.style.top="0px";
+    marker.style.transform=`translate3d(${line.Start.x*scale-marker.width/2}px, ${line.Start.y*scale}px, 0)`;
+    marker.height=Math.round((line.End.y-line.Start.y)*scale);
     if(followRef.current){
-      const marker=osmd.cursor.cursorElement.getBoundingClientRect(),viewport=scroller.getBoundingClientRect();
+      const bounds=marker.getBoundingClientRect(),viewport=scroller.getBoundingClientRect();
       if(time<=0)scroller.scrollTop=0;
-      else if(marker.top>viewport.bottom-80||marker.bottom<viewport.top+20)scroller.scrollTop+=marker.top-viewport.top-48;
+      else if(bounds.top>viewport.bottom-80||bounds.bottom<viewport.top+20)scroller.scrollTop+=bounds.top-viewport.top-48;
     }
   }
 
   useEffect(()=>{
     let disposed=false,resizeFrame=0;
-    setLoading(true);setRenderError("");position.current=-1;clock.current=0;times.current=[];steps.current=[];
-    const osmd=new OpenSheetMusicDisplay(paper.current!,{backend:"svg",autoResize:false,drawingParameters:"compacttight",drawCredits:false,
+    setLoading(true);setRenderError("");clock.current=0;
+    const osmd=new OpenSheetMusicDisplay(paper.current!,{backend:"svg",autoResize:false,drawingParameters:"compact",drawCredits:false,
       drawPartNames:false,drawMeasureNumbers:true,drawMetronomeMarks:true,followCursor:false,
-      cursorsOptions:[{type:0,color:"#397c63",alpha:0.3,follow:false}]});
+      cursorsOptions:[{type:0,color:"#397c63",alpha:0.45,follow:false}]});
     renderer.current=osmd;
     const redraw=()=>{
       if(disposed||!osmd.IsReadyToRender())return;
-      try{osmd.Zoom=zoomRef.current;osmd.render();updateCursor(clock.current,true);}
+      try{osmd.Zoom=zoomRef.current;osmd.render();osmd.cursor.show();updateCursor(clock.current);}
       catch(e){setRenderError(api.errorText(e));}
     };
     void osmd.load(content.musicxml).then(()=>{
       if(disposed)return;
       redraw();
-      const iterator=osmd.cursor.Iterator.clone();
-      while(!iterator.EndReached){
-        times.current.push(midi.header.ticksToSeconds(iterator.CurrentSourceTimestamp.RealValue*4*midi.header.ppq));
-        steps.current.push(iterator.clone());iterator.moveToNext();
-      }
-      updateCursor(0,true);setLoading(false);
+      setLoading(false);
       void emit("piano-sheet-ready",{revision,loaded:!!paper.current?.querySelector("svg")});
     }).catch(e=>{if(!disposed){setLoading(false);setRenderError(api.errorText(e));}});
     let width=0;
@@ -81,9 +86,9 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
   },[content.musicxml,midi,revision]);
   useEffect(()=>{
     const osmd=renderer.current;if(!osmd?.IsReadyToRender())return;
-    try{osmd.Zoom=zoom;osmd.render();updateCursor(clock.current,true);}catch(e){setRenderError(api.errorText(e));}
+    try{osmd.Zoom=zoom;osmd.render();osmd.cursor.show();updateCursor(clock.current);}catch(e){setRenderError(api.errorText(e));}
   },[zoom]);
-  useEffect(()=>{if(follow)updateCursor(clock.current,true);},[follow]);
+  useEffect(()=>{if(follow)updateCursor(clock.current);},[follow]);
   useEffect(()=>{setTracks(content.track_ids);setSplit(String(content.split));setRhythm(content.rhythm);},[content]);
 
   const send=(value:object)=>frame.current?.contentWindow?.postMessage(value,location.origin);
@@ -118,8 +123,8 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
       }
     };
     const visibility=()=>send({type:"converter-visibility",visible:!document.hidden});
-    const playerWindow=frame.current?.contentWindow;
-    const stop=()=>playerWindow?.postMessage({type:"converter-visibility",visible:false},location.origin);
+    const playerWindow=frame.current?.contentWindow as (Window&{setVisualizerActive?:(visible:boolean)=>void})|null;
+    const stop=()=>{playerWindow?.setVisualizerActive?.(false);playerWindow?.postMessage({type:"converter-visibility",visible:false},location.origin);};
     window.addEventListener("message",handle);document.addEventListener("visibilitychange",visibility);window.addEventListener("beforeunload",stop);
     void listen<boolean>("sheet-visibility",e=>send({type:"converter-visibility",visible:e.payload})).then(f=>{if(disposed)f();else stopVisibility=f;});
     return()=>{disposed=true;stop();stopVisibility();window.removeEventListener("message",handle);document.removeEventListener("visibilitychange",visibility);window.removeEventListener("beforeunload",stop);};
@@ -133,7 +138,8 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
           <input type="checkbox" checked={tracks.includes(track.id)} onChange={e=>setTracks(v=>e.target.checked?[...v,track.id]:v.filter(t=>t!==track.id))}/>{track.name}
         </label>)}</fieldset>
         <label>Staff split (C4 = 60)<input aria-label="Staff split" type="number" min="21" max="108" value={split} onChange={e=>setSplit(e.target.value)}/></label>
-        <label>Rhythm<select value={rhythm} onChange={e=>setRhythm(e.target.value as "normal"|"fine")}><option value="normal">Sixteenths & triplets</option><option value="fine">Thirty-seconds & triplets</option></select></label>
+        <label>Rhythm<select value={rhythm} onChange={e=>setRhythm(e.target.value as "normal"|"fine")}><option value="normal">Standard (sixteenths)</option><option value="fine">Detailed (thirty-seconds)</option></select></label>
+        {content.estimated_tempo&&<p className="help">Score rhythm estimated at {content.estimated_tempo} BPM. Playback keeps the original performance.</p>}
         <button disabled={busy||!tracks.length||!split.trim()||!Number.isInteger(+split)||+split<21||+split>108} onClick={e=>{onGenerate({track_ids:tracks,split:+split,rhythm});e.currentTarget.closest("details")!.open=false;}}>Apply to score</button>
       </div></details>
       <label><input type="checkbox" checked={follow} onChange={e=>setFollow(e.target.checked)}/>Follow</label>

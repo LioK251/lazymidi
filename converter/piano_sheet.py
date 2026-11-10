@@ -1,10 +1,85 @@
 """Piano engraving from MIDI; playback keeps the original events and timing."""
 import base64
 import io
+import math
 import re
 from collections import defaultdict, deque
+from fractions import Fraction
+from statistics import median
 
 import mido
+
+
+def _performance_grid(notes, signatures, ppq, subdivision):
+    # Transcribed MIDI often has a placeholder 120 BPM clock, not musical beats.
+    if any(kind == "key_signature" or kind == "set_tempo" and message.tempo != 500000 or
+           kind == "time_signature" and tick != 0 for (tick, kind), message in signatures.items()):
+        return notes, signatures, {}
+    onsets, indices = [], {}
+    for start in sorted({n[2] for n in notes}):
+        if not onsets or start - onsets[-1] > ppq * .08:
+            onsets.append(start)
+        indices[start] = len(onsets) - 1
+    if len(onsets) < 16:
+        return notes, signatures, {}
+    gaps = [b - a for a, b in zip(onsets, onsets[1:])]
+    candidates = []
+    for gap in gaps:
+        if not ppq * .16 <= gap <= ppq * 3:
+            continue
+        while gap < ppq * .75:
+            gap *= 2
+        while gap >= ppq * 1.5:
+            gap /= 2
+        candidates.append(gap)
+    if not candidates:
+        return notes, signatures, {}
+    quarter = median(candidates)
+    error = lambda value: abs(value - round(value))
+    aligned = [gap for gap in gaps if error(gap / quarter * 4) < .2]
+    if aligned:
+        quarter = sum(aligned) / sum(round(gap / quarter * 4) / 4 for gap in aligned)
+    original = min(median(error((start - onsets[0]) / ppq * divisor) for start in onsets)
+                   for divisor in (8, 6))
+    fitted = [error(gap / quarter * 4) for gap in gaps]
+    if (original < .15 or median(fitted) > .08 or
+        median(fitted) >= median(error(gap / ppq * 4) for gap in gaps) * .65 or
+        sum(value < .2 for value in fitted) < len(fitted) * .85):
+        return notes, signatures, {}
+    beats = [Fraction(0)]
+    for gap in gaps:
+        beats.append(beats[-1] + Fraction(max(1, round(gap / quarter * subdivision)), subdivision))
+    adjusted = [(identity, pitch, beats[indices[start]] * ppq,
+                 (beats[indices[start]] + (end - start) / quarter) * ppq, velocity)
+                for identity, pitch, start, end, velocity in notes]
+    bpm = 120 * ppq / quarter
+    timing = [{"beat": float(beat), "time": tick / ppq * .5} for beat, tick in zip(beats, onsets)]
+    adjusted_signatures = {position: message for position, message in signatures.items()
+                           if position[1] != "set_tempo"}
+    adjusted_signatures[0, "set_tempo"] = mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(bpm))
+    return adjusted, adjusted_signatures, {"estimated_tempo": round(bpm, 1), "timing": timing}
+
+
+def _split_mixed_durations(voice, origin):
+    # A span between straight and triplet beats needs ties, not a 12/24/48-tuplet.
+    for value in list(voice.notesAndRests):
+        if not any(t.numberNotesActual > 3 for t in value.duration.tuplets):
+            continue
+        offset = value.offset
+        voice.remove(value)
+        pending = deque([value])
+        while pending:
+            piece = pending.popleft()
+            if any(t.numberNotesActual > 3 for t in piece.duration.tuplets):
+                start = origin + offset
+                length = math.floor(start) + 1 - start
+                if length >= piece.quarterLength:
+                    length = Fraction(2) ** (math.ceil(math.log2(piece.quarterLength)) - 1)
+                first, second = piece.splitAtQuarterLength(length)
+                pending.extendleft((second, first))
+            else:
+                voice.insert(offset, piece)
+                offset += piece.quarterLength
 
 
 def generate(path, track_ids=None, split=60, rhythm="normal"):
@@ -17,7 +92,7 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
         raise ValueError("Choose valid MIDI tracks.")
     if path.stat().st_size > 8 * 1024**2:
         raise ValueError("Piano notation supports MIDI files up to 8 MiB.")
-    from music21 import chord, instrument, key, layout, metadata, meter, musicxml, note, stream, tempo, clef
+    from music21 import articulations, chord, instrument, key, layout, metadata, meter, musicxml, note, stream, tempo, clef
 
     try:
         midi = mido.MidiFile(path)
@@ -65,7 +140,8 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
     # shortcut: bound full-score engraving; render systems incrementally before raising these limits.
     if len(notes) > 20000 or max(n[3] for n in notes) / midi.ticks_per_beat > 8000:
         raise ValueError("This score is too large. Select fewer tracks or a shorter MIDI (up to 20,000 notes / 8,000 beats).")
-    score_end = max(n[3] for n in notes) / midi.ticks_per_beat
+    original_end = max(n[3] for n in notes) / midi.ticks_per_beat
+    score_end = original_end
     bars, previous, bar_length = 0, 0, 4
     for (tick, kind), message in sorted(signatures.items()):
         if kind != "time_signature" or tick / midi.ticks_per_beat > score_end:
@@ -78,6 +154,9 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
     if bars + (score_end - previous) / bar_length > 2000:
         raise ValueError("This score has too many measures. Choose a shorter MIDI.")
 
+    subdivision = 8 if rhythm == "fine" else 4
+    notes, signatures, performance = _performance_grid(notes, signatures, midi.ticks_per_beat, subdivision)
+    score_end = max(n[3] for n in notes) / midi.ticks_per_beat
     score = stream.Score()
     score.metadata = metadata.Metadata(title="Piano")
     staves = [stream.PartStaff(id="right"), stream.PartStaff(id="left")]
@@ -103,7 +182,7 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
                     continue
                 if message.tempo <= 0:
                     raise ValueError("Invalid MIDI tempo.")
-                element = tempo.MetronomeMark(number=mido.tempo2bpm(message.tempo))
+                element = tempo.MetronomeMark(number=round(mido.tempo2bpm(message.tempo), 1))
             if offset == 0:
                 for previous in list(staff.getElementsByClass(type(element))):
                     staff.remove(previous)
@@ -115,26 +194,81 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
         value.volume.velocity = velocity
         staves[hand].insert(start / midi.ticks_per_beat, value)
 
-    divisors = (8, 6) if rhythm == "fine" else (4, 3)
+    beat_offsets = defaultdict(set)
     for staff in staves:
-        staff.quantize(divisors, processOffsets=True, processDurations=True, inPlace=True)
-        groups = defaultdict(list)
+        for value in staff.notes:
+            beat_offsets[math.floor(value.offset)].add(float(value.offset % 1))
+    divisors = {}
+    triplets = 6 if rhythm == "fine" else 3
+    for beat, offsets in beat_offsets.items():
+        straight_error = sum(abs(x - round(x * subdivision) / subdivision) for x in offsets)
+        triplet_error = sum(abs(x - round(x * triplets) / triplets) for x in offsets)
+        offbeats = {round(x * triplets) for x in offsets if 0 < round(x * triplets) < triplets
+                    and abs(x - round(x * triplets) / triplets) < .06
+                    and abs(x - round(x * subdivision) / subdivision) > .025}
+        divisors[beat] = triplets if len(offbeats) >= 2 and triplet_error < straight_error * .55 else subdivision
+    for staff in staves:
+        attacks = defaultdict(list)
         for value in list(staff.notes):
-            if value.quarterLength == 0:
-                value.quarterLength = 1 / max(divisors)
-            groups[value.offset, value.quarterLength].append(value)
+            divisor = divisors[math.floor(value.offset)]
+            offset = Fraction(round(value.offset * divisor), divisor)
+            attacks[offset].append((value, divisor))
             staff.remove(value)
+        groups = defaultdict(list)
+        offsets = sorted(attacks)
+        for index, offset in enumerate(offsets):
+            gap = offsets[index + 1] - offset if index + 1 < len(offsets) else None
+            for value, divisor in attacks[offset]:
+                played = value.quarterLength
+                length = Fraction(max(1, round(played * divisor)), divisor)
+                short = False
+                if gap is not None and gap <= 1 and played <= gap + .12:
+                    length = gap
+                    short = played < gap * .5
+                groups[offset, length].append((value, short))
         for (offset, length), values in groups.items():
-            pitches = sorted({n.pitch.midi for n in values})
+            pitches = sorted({n.pitch.midi for n, _ in values})
             value = chord.Chord(pitches) if len(pitches) > 1 else note.Note(pitches[0])
             value.quarterLength = length
+            for pitch in value.pitches:
+                if pitch.accidental and pitch.accidental.alter == 0:
+                    pitch.accidental = None
+            if all(short for _, short in values):
+                value.articulations.append(articulations.Staccato())
             staff.insert(offset, value)
+        score.insert(0, staff)
+    if len(notes) >= 12 and len({pitch % 12 for _, pitch, *_ in notes}) >= 3 and not any(kind == "key_signature" for _, kind in signatures):
+        estimated_key = score.analyze("key")
+        for staff in staves:
+            staff.insert(0, key.KeySignature(estimated_key.sharps))
+            for pitch in staff.pitches:
+                if pitch.accidental and pitch.accidental.alter * estimated_key.sharps < 0:
+                    pitch.getEnharmonic(inPlace=True)
     # Both hands need the same span, including conductor changes after one hand stops.
     score_end = max(staff.highestTime for staff in staves)
+    if performance and score_end > performance["timing"][-1]["beat"]:
+        performance["timing"].append({"beat": float(score_end), "time": original_end * .5})
+    voice_offset = 0
     for staff in staves:
-        staff.makeVoices(inPlace=True, fillGaps=True)
-        staff.makeRests(refStreamOrTimeRange=(0, score_end), fillGaps=True, inPlace=True)
-        score.insert(0, staff)
+        staff.makeMeasures(refStreamOrTimeRange=(0, score_end), inPlace=True)
+        staff.makeTies(inPlace=True)
+        voice_count = 1
+        for measure in staff.getElementsByClass(stream.Measure):
+            measure.makeVoices(inPlace=True, fillGaps=True)
+            if not measure.voices:
+                voice = stream.Voice()
+                for value in list(measure.notesAndRests):
+                    offset = value.offset
+                    measure.remove(value)
+                    voice.insert(offset, value)
+                measure.insert(0, voice)
+            measure.makeRests(timeRangeFromBarDuration=True, fillGaps=True, inPlace=True)
+            voice_count = max(voice_count, len(measure.voices))
+            for index, voice in enumerate(measure.voices):
+                voice.id = voice_offset + index + 1
+                _split_mixed_durations(voice, measure.offset)
+        voice_offset += voice_count
+        staff.makeAccidentals(inPlace=True)
     score.insert(0, layout.StaffGroup(staves, name="Piano", symbol="brace", barTogether=True))
     score.makeNotation(inPlace=True)
     if any(len(part.getElementsByClass(stream.Measure)) > 2000 for part in score.parts):
@@ -154,4 +288,4 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
     output = io.BytesIO()
     playback.save(file=output)
     return {"musicxml": xml, "midi_base64": base64.b64encode(output.getvalue()).decode("ascii"),
-            "tracks": list(tracks.values()), "track_ids": selected, "split": split, "rhythm": rhythm}
+            "tracks": list(tracks.values()), "track_ids": selected, "split": split, "rhythm": rhythm, **performance}

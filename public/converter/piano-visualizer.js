@@ -48,6 +48,8 @@
   let lastClock = '';
   let liteTimer = null;
   const liteVoices = new Set();
+  const playbackChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('lazymidi-playback') : null;
+  if (playbackChannel) playbackChannel.onmessage = () => pausePlayback();
 
   // AudioContext-based master clock
   let audioStartCtxTime = 0;  // audioCtx.currentTime when play started
@@ -770,6 +772,7 @@
 
   async function startPlayback(fromTime) {
     if (!synthReady || !midiArrayBuffer || (currentSfUrl !== BUILTIN_PIANO && !synth)) return false;
+    playbackChannel?.postMessage('claim');
 
     isScrubbing = false;
     seekWasPlaying = false;
@@ -803,6 +806,7 @@
         ? enhancements.segmentAt(midi, pauseOffset, currentHands())
         : { data: cloneMidiBuffer(), notes: allNotes };
       await synth.addSMFDataToPlayer(segment.data);
+      if (token !== playbackToken) return;
       synth.hookPlayerMIDIEvents(enhancements.createHandRouter(segment.notes,
         note => note.hand || handFor(note), hand => handEnabled[hand]));
       playerHooked = true;
@@ -1420,7 +1424,7 @@
       seekBar.style.setProperty('--seek-pct', ((t / (totalDuration || 1)) * 100) + '%');
     }
     if (scoreMode) {
-      const clock = Math.floor(t * 30) + ':' + isPlaying + ':' + isPaused;
+      const clock = t + ':' + isPlaying + ':' + isPaused;
       if (clock !== lastClock) {
         lastClock = clock;
         window.onPianoPlayback?.({time:t,duration:totalDuration,playing:isPlaying&&!isPaused});
@@ -1432,6 +1436,7 @@
   // ─── Public API ──────────────────────────────────────────────────────
   window.openPianoVisualizer = async function (midiFilename, midiBase64) {
     if (!modal || !canvas) { console.error('Piano visualizer DOM not found'); return; }
+    playbackChannel?.postMessage('claim');
     const revision = ++openRevision;
 
     currentFilename = midiFilename;
@@ -1489,7 +1494,8 @@
     }
   };
 
-  window.addEventListener('beforeunload',()=>clearTimeout(noticeTimer));
+  window.addEventListener('beforeunload',()=>{clearTimeout(noticeTimer);window.setVisualizerActive(false);});
+  window.addEventListener('pagehide',event=>{window.setVisualizerActive(false);if(!event.persisted)playbackChannel?.close();});
   window.setVisualizerActive = visible => {
     visualizerActive = visible;
     if (!visible) {

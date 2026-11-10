@@ -121,18 +121,22 @@ legacy `_transkun` suffix, while exports use `_lazymidi`.
 
 ### Piano notation
 
-Choose **Piano** beside **QWERTY** on a song. Both use the same floating sheet
+Choose **Sheet** on a Library card, then **Float** if it opens inside Convert.
+The floating viewer's **QWERTY** and **Piano** buttons switch formats in the same
 window. Piano shows treble and bass staves, playback, seeking, zoom and a following
-cursor. Manual scrolling turns Follow off. Closing, minimizing or replacing the
-score pauses playback.
+cursor. Manual scrolling turns Follow off. Closing, minimizing, replacing the
+score or opening another player pauses the previous playback.
 
 **Settings → Modules → Show Piano button** defaults on. Turn it off and apply
-settings to hide Piano in Convert and the floating viewer, with more library
-cards per row. An already loaded score stays open.
+settings to hide Piano in Convert and the floating viewer. Library cards keep
+the same compact Sheet, Export and × row either way. An already loaded score stays open.
 
 Use **Tracks & rhythm** to select tracks, change the staff split or choose finer
 rhythm detail. Named left/right tracks determine the staff; other tracks split
-at C4 by default. Playback retains the selected tracks' original timing,
+at C4 by default. Notation groups chords, simplifies short releases into staccato
+notes and estimates a key when none was stored. For regular transcriptions with
+a placeholder MIDI clock, it estimates the written rhythm and tempo as well.
+Playback retains the selected tracks' original timing,
 velocities and pedals. QWERTY retains Auto, Multi, Manual and Original transpose
 modes, editable transpose headings and Send to Transposer.
 
