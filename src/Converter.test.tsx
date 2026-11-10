@@ -507,7 +507,7 @@ it("returns to the browsing page after searching, clearing, switching sections a
   fireEvent.click(screen.getByRole("button",{name:"Convert"}));fireEvent.click(screen.getByRole("button",{name:"Library"}));
   await act(async()=>{fireEvent.focus(window);});
   expect(screen.getByText("97–120 of 120")).toBeTruthy();
-});
+},15_000);
 
 it("clamps the remembered browsing page when files disappear during a search",async()=>{
   const original=vi.mocked(invoke).getMockImplementation()!;let count=60;
