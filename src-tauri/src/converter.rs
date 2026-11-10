@@ -871,12 +871,17 @@ fn extract_pack(
         }
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
         let relative = entry.enclosed_name().ok_or("Unsafe archive path.")?;
+        let name = if cfg!(target_os = "linux") {
+            relative.to_string_lossy().into_owned()
+        } else {
+            relative.to_string_lossy().to_lowercase()
+        };
         if entry.name().contains(['\\', ':'])
             || relative
                 .components()
                 .any(|c| !safe_name(&c.as_os_str().to_string_lossy()))
             || entry.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000)
-            || !names.insert(relative.to_string_lossy().to_lowercase())
+            || !names.insert(name)
         {
             return Err("Unsafe archive entry.".into());
         }
@@ -894,7 +899,11 @@ fn extract_pack(
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let mut out = fs::File::create(&path).map_err(|e| e.to_string())?;
+        let mut out = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|e| e.to_string())?;
         let expected = entry.size();
         let mut written = 0u64;
         loop {
@@ -1877,6 +1886,32 @@ mod tests {
         assert!(extract_pack(root, &archive, &pack, &cancel, &status)
             .unwrap_err()
             .contains("Unsupported"));
+
+        let (archive, pack) = fixture(
+            root,
+            &[
+                ("pack.json", &metadata),
+                (python, b"test"),
+                (ffmpeg, b"test"),
+                (ffprobe, b"test"),
+                ("python/share/terminfo/2/2621A", b"upper"),
+                ("python/share/terminfo/2/2621a", b"lower"),
+            ],
+        );
+        let result = extract_pack(root, &archive, &pack, &cancel, &status);
+        if cfg!(target_os = "linux") {
+            let staged = result.unwrap();
+            assert_eq!(
+                fs::read(staged.path().join("python/share/terminfo/2/2621A")).unwrap(),
+                b"upper"
+            );
+            assert_eq!(
+                fs::read(staged.path().join("python/share/terminfo/2/2621a")).unwrap(),
+                b"lower"
+            );
+        } else {
+            assert!(result.unwrap_err().contains("Unsafe"));
+        }
     }
     #[test]
     #[ignore = "Installs a built runtime and checks real conversion and Piano in isolation"]

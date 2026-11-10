@@ -42,6 +42,9 @@ are mounted and their architecture, resources and ad-hoc signatures checked.
 Each package must render normal/fine Piano and pass the same floating-window,
 scoped-asset and retained-visualizer checks before its artifact is uploaded.
 Runtime uploads verify archive/part hashes and GitHub's stored asset digests.
+Extraction preserves Linux's case-sensitive terminal filenames and creates
+files without overwriting an existing destination. Windows/macOS case-collision
+rejection and invalid-path cleanup remain covered by the archive regression.
 
 The website passes 24 desktop/mobile Chromium and WebKit checks, including
 accessibility. Its source stays private and outside the repository and releases.
