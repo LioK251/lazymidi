@@ -2,7 +2,8 @@ import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {act,cleanup,fireEvent,render,screen} from "@testing-library/react";
 import {Midi} from "@tonejs/midi";
 import {emit} from "@tauri-apps/api/event";
-import PianoSheet,{scorePosition} from "./PianoSheet";
+import PianoSheet from "./PianoSheet";
+import {scorePosition} from "./piano-score";
 import type {PianoContent} from "./converter-api";
 
 const {instances}=vi.hoisted(()=>({instances:[] as any[]}));
@@ -13,22 +14,40 @@ vi.mock("opensheetmusicdisplay",()=>{
     constructor(public numerator:number,public denominator:number){}
     get RealValue(){return this.numerator/this.denominator;}
   }
-  return {Fraction,PointF2D:class{constructor(public x:number,public y:number){}},GraphicalMeasure:class{},OutlineAndFillStyleEnum:{PlaybackCursor:3},OpenSheetMusicDisplay:class {
+  const systems=Array.from({length:3},(_,row)=>{
+    const y=5+row*20;
+    const measure={parentSourceMeasure:{AbsoluteTimestamp:new Fraction(row,1),Duration:new Fraction(1,1)},
+      PositionAndShape:{AbsolutePosition:{x:5,y}},beginInstructionsWidth:5,
+      staffEntries:Array.from({length:4},(_,beat)=>{
+        const group=document.createElementNS("http://www.w3.org/2000/svg","g");
+        group.append(document.createElementNS("http://www.w3.org/2000/svg","path"));
+        return {getAbsoluteTimestamp:()=>new Fraction(row*4+beat,4),
+          graphicalVoiceEntries:[{parentVoiceEntry:{IsGrace:false},notes:[{getSVGGElement:()=>group}],
+            vfStaveNote:{getAbsoluteX:()=>94+beat*100,
+              isCenterAligned:()=>false,getTickContext:()=>({getX:()=>beat*100})}}]};
+      })};
+    return {PositionAndShape:{AbsolutePosition:{x:5,y},BorderTop:-9,BorderBottom:15},
+      StaffLines:[{PositionAndShape:{AbsolutePosition:{y}}},{PositionAndShape:{AbsolutePosition:{y:y+8}}}],
+      GraphicalMeasures:[[measure]],GetRightBorderAbsoluteXPosition:()=>50};
+  });
+  return {Fraction,PointF2D:class{constructor(public x:number,public y:number){}},GraphicalMeasure:class{},
+    VexFlowMeasure:class{finalizeTuplets(){}},OpenSheetMusicDisplay:class {
     ready=false;Zoom=1;
     cursor={show:vi.fn(),cursorElement:document.createElement("img")};
     EngravingRules={PageLeftMargin:5,PageRightMargin:5,SystemLeftMargin:0,SystemRightMargin:0};
     GraphicSheet={MeasureList:[[{minimumStaffEntriesWidth:30,beginInstructionsWidth:10,endInstructionsWidth:1}]],
+      MusicPages:[{MusicSystems:systems}],
       domToSvg:vi.fn(point=>point),svgToOsmd:vi.fn(point=>point),
-      GetNearestNote:vi.fn(),tryGetTimeStampFromPosition:vi.fn(()=>new Fraction(3,8)),GetNearestObject:vi.fn(),
-      calculateCursorLineAtTimestamp:vi.fn((timestamp:Fraction)=>{
-      const beat=timestamp.RealValue*4,system=Math.floor(beat/4),x=10+(beat%4)*10,y=5+system*20;
-      return {Start:{x,y},End:{x,y:y+12}};
-    })};
+      GetNearestNote:vi.fn(),tryGetTimeStampFromPosition:vi.fn(()=>new Fraction(3,8)),GetNearestObject:vi.fn()};
     render=vi.fn();clear=vi.fn();
     constructor(element:HTMLElement){instances.push(this);this.render.mockImplementation(()=>{
       this.cursor.cursorElement=document.createElement("img");
       this.cursor.cursorElement.width=30*this.Zoom;
-      element.replaceChildren(document.createElementNS("http://www.w3.org/2000/svg","svg"),this.cursor.cursorElement);
+      const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+      for(const system of systems)for(const entry of system.GraphicalMeasures[0][0].staffEntries){
+        svg.append(entry.graphicalVoiceEntries[0].notes[0].getSVGGElement());
+      }
+      element.replaceChildren(svg,this.cursor.cursorElement);
     });}
     async load(){this.ready=true;}
     IsReadyToRender(){return this.ready;}
@@ -48,6 +67,8 @@ function content():PianoContent {
     tracks:[{id:"1:0",name:"Piano",piano:true},{id:"2:1",name:"Strings",piano:false}],track_ids:["1:0"],split:60,rhythm:"normal",qwerty_settings:{}};
 }
 const callbacks=()=>({onOpen:vi.fn(),onZoom:vi.fn(),onGenerate:vi.fn(),onError:vi.fn()});
+const cursorBeat=(osmd:any)=>(parseFloat(osmd.cursor.cursorElement.style.transform.slice(12))+6)/(100*osmd.Zoom)-1;
+const scorePaper=()=>screen.getByLabelText('Piano notation').querySelector('.piano-score-paper')!;
 
 it("uses MIDI tempo changes for the cursor and handles backward seeks without redrawing the score",async()=>{
   await act(async()=>{render(<PianoSheet content={content()} revision={7} zoom={1} busy={false} viewOptions={null} {...callbacks()}/>);});
@@ -57,7 +78,7 @@ it("uses MIDI tempo changes for the cursor and handles backward seeks without re
   function seek(time:number,revision=7,origin=location.origin,source:Window=frame.contentWindow!){
     fireEvent(window,new MessageEvent("message",{origin,source,data:{type:"converter-playback",revision,time}}));
   }
-  const scoreBeat=()=>osmd.GraphicSheet.calculateCursorLineAtTimestamp.mock.lastCall[0].RealValue*4;
+  const scoreBeat=()=>cursorBeat(osmd);
   seek(1.4);expect(scoreBeat()).toBeCloseTo(1.9);
   seek(1.5);expect(scoreBeat()).toBeCloseTo(2);
   seek(0.2);expect(scoreBeat()).toBeCloseTo(.4);
@@ -85,6 +106,7 @@ it("keeps the whole playing grand staff visible and leaves manual scrolling alon
   vi.spyOn(marker,'getBoundingClientRect').mockImplementation(()=>new DOMRect(200,top-scroller.scrollTop,12,240));
   const seek=(time:number)=>fireEvent(window,new MessageEvent('message',{origin:location.origin,source:frame.contentWindow,data:{type:'converter-playback',revision:1,time}}));
   seek(1);
+  expect(marker.getBoundingClientRect().top-9*8).toBeCloseTo(124);
   expect(marker.getBoundingClientRect().bottom).toBeLessThanOrEqual(552);
   expect(marker.getBoundingClientRect().top).toBeGreaterThanOrEqual(124);
   const position=scroller.scrollTop;
@@ -99,14 +121,18 @@ it("seeks clicked notation through the performance clock and ignores clicks duri
   const view=render(<PianoSheet {...props}/>);await act(async()=>{});
   const frame=screen.getByTitle('Piano playback') as HTMLIFrameElement;
   const post=vi.spyOn(frame.contentWindow!,'postMessage');
-  fireEvent.click(screen.getByTitle('Click a note or bar to move playback'),{clientX:321,clientY:210});
+  expect(scorePaper().hasAttribute('title')).toBe(false);
+  fireEvent.click(scorePaper(),{clientX:321,clientY:210});
   expect(instances[0].GraphicSheet.tryGetTimeStampFromPosition).toHaveBeenCalledWith({x:321,y:210});
   expect(post).toHaveBeenLastCalledWith({type:'converter-seek',revision:7,time:expect.closeTo(4.95)},location.origin);
   instances[0].GraphicSheet.GetNearestNote.mockReturnValue({sourceNote:{getAbsoluteTimestamp:()=>({RealValue:.25})}});
-  fireEvent.click(screen.getByTitle('Click a note or bar to move playback'),{clientX:321,clientY:250});
+  fireEvent.click(scorePaper(),{clientX:321,clientY:250});
   expect(post).toHaveBeenLastCalledWith({type:'converter-seek',revision:7,time:4.6},location.origin);
+  // Compact scores can put the preceding rest inside the engraver's nearest-note bounds.
+  fireEvent.click(scorePaper().querySelector('path')!,{clientX:321,clientY:250});
+  expect(post).toHaveBeenLastCalledWith({type:'converter-seek',revision:7,time:4},location.origin);
   view.rerender(<PianoSheet {...props} busy/>);post.mockClear();
-  fireEvent.click(screen.getByTitle('Click a note or bar to move playback'));
+  fireEvent.click(scorePaper());
   expect(post).not.toHaveBeenCalled();
 });
 
@@ -118,19 +144,19 @@ it("moves the marker between note onsets, changes lines immediately, and retains
   const seek=(time:number)=>fireEvent(window,new MessageEvent("message",{origin:location.origin,source:frame.contentWindow,data:{type:"converter-playback",revision:1,time}}));
   seek(.1);const first=marker.style.transform;
   seek(.15);expect(marker.style.transform).not.toBe(first);
-  seek(3.5);expect(marker.style.transform).toBe("translate3d(94px, 250px, 0)");
+  seek(3.5);expect(marker.style.transform).toBe("translate3d(74px, 200px, 0)");
   view.rerender(<PianoSheet {...props} zoom={2}/>);
   marker=osmd.cursor.cursorElement;
-  expect(marker.style.transform).toBe("translate3d(194px, 500px, 0)");
+  expect(marker.style.transform).toBe("translate3d(154px, 400px, 0)");
   expect(marker.classList.contains('piano-score-cursor')).toBe(true);
   expect(marker.width).toBe(12);
-  expect(marker.height).toBe(240);
-  seek(.1);expect(marker.style.transform).toBe("translate3d(234px, 100px, 0)");
+  expect(marker.height).toBe(192);
+  seek(.1);expect(marker.style.transform).toBe("translate3d(186px, 80px, 0)");
 });
 
 it("preserves the engraver's minimum measure width when the score is zoomed in",async()=>{
   await act(async()=>{render(<PianoSheet content={content()} revision={1} zoom={2} busy={false} viewOptions={null} {...callbacks()}/>);});
-  expect((document.querySelector('.piano-score-paper') as HTMLElement).style.minWidth).toBe('1020px');
+  expect((document.querySelector('.piano-score-paper') as HTMLElement).style.minWidth).toBe('816px');
 });
 
 it("follows original performance times when the written beat grid is estimated",async()=>{
@@ -138,7 +164,7 @@ it("follows original performance times when the written beat grid is estimated",
   await act(async()=>{render(<PianoSheet content={score} revision={1} zoom={1} busy={false} viewOptions={null} {...callbacks()}/>);});
   const frame=screen.getByTitle("Piano playback") as HTMLIFrameElement;
   const seek=(time:number)=>fireEvent(window,new MessageEvent("message",{origin:location.origin,source:frame.contentWindow,data:{type:"converter-playback",revision:1,time}}));
-  const scoreBeat=()=>instances[0].GraphicSheet.calculateCursorLineAtTimestamp.mock.lastCall[0].RealValue*4;
+  const scoreBeat=()=>cursorBeat(instances[0]);
   seek(4.3);expect(scoreBeat()).toBeCloseTo(.5);
   seek(4.6);expect(scoreBeat()).toBeCloseTo(1);
   seek(4.95);expect(scoreBeat()).toBeCloseTo(1.5);
@@ -153,7 +179,7 @@ it("uses the replacement score's clock without retaining the previous song's tim
   view.rerender(<PianoSheet {...props} content={replacement} revision={2}/>);await act(async()=>{});
   const frame=screen.getByTitle("Piano playback") as HTMLIFrameElement;
   fireEvent(window,new MessageEvent("message",{origin:location.origin,source:frame.contentWindow,data:{type:"converter-playback",revision:2,time:4.5}}));
-  expect(instances.at(-1).GraphicSheet.calculateCursorLineAtTimestamp.mock.lastCall[0].RealValue*4).toBeCloseTo(.5);
+  expect(cursorBeat(instances.at(-1))).toBeCloseTo(.5);
 });
 
 it("pauses playback during regeneration and before the viewer unmounts",async()=>{

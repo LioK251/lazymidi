@@ -122,7 +122,7 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
         raise ValueError("Choose valid MIDI tracks.")
     if path.stat().st_size > 8 * 1024**2:
         raise ValueError("Piano notation supports MIDI files up to 8 MiB.")
-    from music21 import articulations, chord, instrument, key, layout, metadata, meter, musicxml, note, stream, tempo, clef
+    from music21 import articulations, chord, duration, instrument, key, layout, metadata, meter, musicxml, note, stream, tempo, clef
 
     try:
         midi = mido.MidiFile(path)
@@ -282,7 +282,7 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
                 played = value.quarterLength
                 length = max(Fraction(1, divisor), Fraction(round(end * divisor), divisor) - offset)
                 short = False
-                if gap is not None and gap <= 1 and end - offset <= gap + .12:
+                if performance and gap is not None and gap <= 1 and end - offset <= gap + .12:
                     length = gap
                     short = played < gap * .5
                 groups[offset, length].append((value, short))
@@ -307,6 +307,27 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
             for pitch in value.pitches:
                 if signature and pitch.accidental and pitch.accidental.alter * signature.sharps < 0:
                     pitch.getEnharmonic(inPlace=True)
+        values = list(staff.notes)
+        for previous, value, following in zip(values, values[1:], values[2:]):
+            if (not all(n.isNote and n.quarterLength <= .5 for n in (previous, value, following)) or
+                    not math.isclose(previous.offset + previous.quarterLength, value.offset) or
+                    not math.isclose(value.offset + value.quarterLength, following.offset)):
+                continue
+            target = following.pitch
+            direction = value.pitch.midi - target.midi
+            if previous.pitch != target or direction != -1 or value.pitch.step != target.step:
+                continue
+            signature = staff.getElementAtOrBefore(previous.offset, [key.KeySignature])
+            if signature is None or signature is not staff.getElementAtOrBefore(following.offset, [key.KeySignature]):
+                continue
+            accidental = signature.accidentalByStep(target.step)
+            if (target.accidental.alter if target.accidental else 0) != (accidental.alter if accidental else 0):
+                continue
+            # A short lower neighbour returns by a written step, such as F-double-sharp to G-sharp.
+            for spelling in value.pitch.getAllCommonEnharmonics(alterLimit=2):
+                if spelling.diatonicNoteNum == target.diatonicNoteNum + direction:
+                    value.pitch = spelling
+                    break
     # Both hands need the same span, including conductor changes after one hand stops.
     score_end = max(staff.highestTime for staff in staves)
     if performance and score_end > performance["timing"][-1]["beat"]:
@@ -344,6 +365,21 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
         for measure in staff.getElementsByClass(stream.Measure):
             for voice in measure.voices or [measure]:
                 _split_mixed_durations(voice, measure.offset)
+            signature = measure.timeSignature or measure.getContextByClass(meter.TimeSignature)
+            if signature and signature.denominator == 4 and signature.numerator in (2, 3, 4):
+                signature.beamSequence.partition([1] * signature.numerator)
+            measure.makeBeams(inPlace=True)
+            for voice in measure.voices or [measure]:
+                stream.makeNotation.makeTupletBrackets(voice, inPlace=True)
+                for group in duration.TupletFixer(voice).findTupletGroups(incorporateGroupings=True):
+                    if (len(group) < 2 or any(n.isRest or not n.beams for n in group) or
+                            [n.beams.getTypeByNumber(1) for n in group] !=
+                            ['start', *(['continue'] * (len(group) - 2)), 'stop']):
+                        continue
+                    for value in group:
+                        for tuplet in value.duration.tuplets:
+                            tuplet.bracket = False
+                            tuplet.placement = 'below' if group[0].stemDirection == 'down' else 'above'
     if any(len(part.getElementsByClass(stream.Measure)) > 2000 for part in score.parts):
         raise ValueError("This score has too many measures. Choose a shorter MIDI.")
     exporter = musicxml.m21ToXml.GeneralObjectExporter(score)

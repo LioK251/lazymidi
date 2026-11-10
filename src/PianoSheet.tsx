@@ -1,18 +1,14 @@
 import {useEffect,useLayoutEffect,useMemo,useRef,useState} from "react";
 import type {ReactNode} from "react";
-import {Fraction,GraphicalMeasure,OpenSheetMusicDisplay,OutlineAndFillStyleEnum,PointF2D} from "opensheetmusicdisplay";
+import {GraphicalMeasure,OpenSheetMusicDisplay,PointF2D} from "opensheetmusicdisplay";
 import {Midi} from "@tonejs/midi";
 import {convertFileSrc,invoke} from "@tauri-apps/api/core";
 import {emit,listen} from "@tauri-apps/api/event";
 import * as api from "./backend";
 import {converterRequest,defaults,displayName,visualizerSetting} from "./converter-api";
 import type {PianoContent,PianoOptions,Values} from "./converter-api";
-
-export function scorePosition(times:number[],time:number):number {
-  let low=0,high=times.length;
-  while(low<high){const mid=(low+high)>>>1;if(times[mid]<=time)low=mid+1;else high=mid;}
-  return Math.max(0,low-1);
-}
+import {scoreCursor,scoreLayout,scorePosition} from "./piano-score";
+import type {ScoreLayout} from "./piano-score";
 
 export default function PianoSheet({content,revision,zoom,busy,active=true,onZoom,onGenerate,onOpen,onError,viewOptions}:{
   content:PianoContent;revision:number;zoom:number;busy:boolean;active?:boolean;onZoom:(zoom:number)=>void;
@@ -20,6 +16,7 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
 }) {
   const container=useRef<HTMLDivElement>(null),paper=useRef<HTMLDivElement>(null),frame=useRef<HTMLIFrameElement>(null);
   const renderer=useRef<OpenSheetMusicDisplay|null>(null);
+  const layout=useRef<ScoreLayout>({starts:[],lines:[],notes:new WeakMap()});
   const clock=useRef(0);
   const [follow,setFollow]=useState(true),[renderError,setRenderError]=useState(""),[loading,setLoading]=useState(true);
   const [playerHeight,setPlayerHeight]=useState(96);
@@ -45,20 +42,21 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
       const index=Math.min(scorePosition(times,time),timing.length-2),a=timing[index],b=timing[index+1];
       beat=a.beat+(time-a.time)/(b.time-a.time)*(b.beat-a.beat);
     }
-    // Interpolate engraved positions at the audio clock, including rests and line breaks.
-    const timestamp=new Fraction(Math.max(0,beat),4),score=osmd.GraphicSheet;
-    const line=score.calculateCursorLineAtTimestamp(timestamp,OutlineAndFillStyleEnum.PlaybackCursor);
-    if(!line)return;
+    const position=scoreCursor(layout.current,Math.max(0,beat));
+    if(!position)return;
+    const {system,x}=position,box=system.PositionAndShape;
+    const bottom=system.StaffLines.at(-1)!.PositionAndShape.AbsolutePosition.y+4;
     const marker=osmd.cursor.cursorElement,scale=10*osmd.Zoom;
     marker.width=12;
     marker.style.left="0px";marker.style.top="0px";
-    marker.style.transform=`translate3d(${line.Start.x*scale-marker.width/2}px, ${line.Start.y*scale}px, 0)`;
-    marker.height=Math.round((line.End.y-line.Start.y)*scale);
+    marker.style.transform=`translate3d(${x*scale-marker.width/2}px, ${box.AbsolutePosition.y*scale}px, 0)`;
+    marker.height=Math.round((bottom-box.AbsolutePosition.y)*scale);
     if(followRef.current){
       const bounds=marker.getBoundingClientRect(),viewport=scroller.getBoundingClientRect();
-      const margin=Math.min(48,viewport.height*.1),height=Math.min(bounds.height,viewport.height-margin*2);
+      const margin=24,top=bounds.top+box.BorderTop*scale;
+      const height=Math.min((box.BorderBottom-box.BorderTop)*scale,viewport.height-margin*2);
       if(time<=0){scroller.scrollTop=0;scroller.scrollLeft=0;}
-      else if(bounds.top+height>viewport.bottom-margin||bounds.top<viewport.top+margin)scroller.scrollTop+=bounds.top-viewport.top-margin;
+      else if(top+height>viewport.bottom-margin+1||top<viewport.top+margin-1)scroller.scrollTop+=top-viewport.top-margin;
       if(bounds.right>viewport.right-24)scroller.scrollLeft+=bounds.right-viewport.right+24;
       else if(bounds.left<viewport.left+24)scroller.scrollLeft+=bounds.left-viewport.left-24;
     }
@@ -68,26 +66,32 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
     const osmd=renderer.current,node=paper.current;
     if(!osmd?.IsReadyToRender()||!node||!requestRef.current.active)return;
     try{
-      node.style.minWidth="280px";osmd.Zoom=zoomRef.current;osmd.render();
+      node.style.minWidth="280px";osmd.Zoom=zoomRef.current*.8;osmd.render();
       const measures=osmd.GraphicSheet.MeasureList.flat(),rules=osmd.EngravingRules;
       const minimum=Math.max(0,...measures.map(m=>m.minimumStaffEntriesWidth+m.endInstructionsWidth))+Math.max(0,...measures.map(m=>m.beginInstructionsWidth));
       const width=Math.ceil((minimum+rules.PageLeftMargin+rules.PageRightMargin+rules.SystemLeftMargin+rules.SystemRightMargin)*10*osmd.Zoom);
       // Overcompressing a measure can reverse the engraver's note positions.
       if(width>node.clientWidth){node.style.minWidth=`${Math.max(280,width)}px`;osmd.render();}
+      layout.current=scoreLayout(osmd.GraphicSheet);
       osmd.cursor.show();
       osmd.cursor.cursorElement.classList.add("piano-score-cursor");osmd.cursor.cursorElement.alt="";
       updateCursor(clock.current);
     }catch(e){setRenderError(api.errorText(e));}
   }
 
-  function seekScore(x:number,y:number){
+  function seekScore(x:number,y:number,target:EventTarget){
     const osmd=renderer.current;
     if(!osmd?.IsReadyToRender()||busy||!active)return;
-    const score=osmd.GraphicSheet,point=score.svgToOsmd(score.domToSvg(new PointF2D(x,y)));
-    const timestamp=score.GetNearestNote(point,new PointF2D(2,2))?.sourceNote.getAbsoluteTimestamp()
-      ??score.tryGetTimeStampFromPosition(point)??score.GetNearestObject<GraphicalMeasure>(point,GraphicalMeasure.name)?.parentSourceMeasure.AbsoluteTimestamp;
-    if(!timestamp)return;
-    const beat=timestamp.RealValue*4,{midi,timing}=timelineRef.current;
+    let node=target instanceof Element?target:null,beat:number|undefined;
+    while(node&&beat===undefined){beat=layout.current.notes.get(node);node=node.parentElement;}
+    if(beat===undefined){
+      const score=osmd.GraphicSheet,point=score.svgToOsmd(score.domToSvg(new PointF2D(x,y)));
+      const timestamp=score.GetNearestNote(point,new PointF2D(2,2))?.sourceNote.getAbsoluteTimestamp()
+        ??score.tryGetTimeStampFromPosition(point)??score.GetNearestObject<GraphicalMeasure>(point,GraphicalMeasure.name)?.parentSourceMeasure.AbsoluteTimestamp;
+      if(!timestamp)return;
+      beat=timestamp.RealValue*4;
+    }
+    const {midi,timing}=timelineRef.current;
     let time=midi.header.ticksToSeconds(beat*midi.header.ppq);
     if(timing.length>1){
       const index=Math.min(scorePosition(timing.map(point=>point.beat),beat),timing.length-2),a=timing[index],b=timing[index+1];
@@ -102,9 +106,11 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
   useEffect(()=>{
     let disposed=false,resizeFrame=0;
     setLoading(true);setRenderError("");clock.current=0;
+    layout.current={starts:[],lines:[],notes:new WeakMap()};
     const osmd=new OpenSheetMusicDisplay(paper.current!,{backend:"svg",autoResize:false,drawingParameters:"compact",drawCredits:false,
       drawPartNames:false,drawMeasureNumbers:true,drawMetronomeMarks:true,followCursor:false,
       cursorsOptions:[{type:1,color:"#397c63",alpha:0.18,follow:false}]});
+    osmd.EngravingRules.TupletNumberLimitConsecutiveRepetitions=false;
     renderer.current=osmd;
     void osmd.load(content.musicxml).then(()=>{
       if(disposed)return;
@@ -115,7 +121,10 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
     let width=0;
     const observer=new ResizeObserver(entries=>{
       const next=entries[0]?.contentRect.width??0;
-      if(next<=0||next===width)return;width=next;cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(redraw);
+      if(next<=0)return;
+      cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{
+        if(next!==width){width=next;redraw();}else updateCursor(clock.current);
+      });
     });
     observer.observe(container.current!);
     return()=>{disposed=true;observer.disconnect();cancelAnimationFrame(resizeFrame);osmd.clear();if(renderer.current===osmd)renderer.current=null;};
@@ -188,7 +197,7 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
     <div className="piano-score-scroll" ref={container} tabIndex={0} aria-label="Piano notation" onWheel={()=>setFollow(false)} onTouchMove={()=>setFollow(false)}
       onPointerDown={e=>{const bounds=e.currentTarget.getBoundingClientRect();if(e.clientX>=bounds.right-18||e.clientY>=bounds.bottom-18)setFollow(false);}}
       onKeyDown={e=>{if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","PageUp","PageDown","Home","End"].includes(e.key))setFollow(false);}}>
-      <div className="piano-score-paper" ref={paper} title="Click a note or bar to move playback" onClick={e=>seekScore(e.clientX,e.clientY)}/>
+      <div className="piano-score-paper" ref={paper} onClick={e=>seekScore(e.clientX,e.clientY,e.target)}/>
     </div>
     <iframe title="Piano playback" className="piano-score-player" ref={frame} src="/converter/visualizer.html?score=1" style={{height:playerHeight}} onLoad={loadPlayer}/>
   </section>;

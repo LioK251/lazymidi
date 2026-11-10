@@ -1,9 +1,9 @@
 # Verification and release qualification
 
-## Version 0.1.8 release qualification — 2026-11-10
+## Version 0.1.8 release qualification — 2026-11-11
 
 The current Windows preview is unpublished, pending the user's app testing.
-174 frontend/extension tests, 17 notation tests and 21 private-service tests
+176 frontend/extension tests, 18 notation tests and 21 private-service tests
 pass, as do the production TypeScript/Vite build, Windows NSIS packaging and
 portable ZIP integrity checks. The opt-in transcription
 test was not rerun. The preceding preview passed 57 Rust workspace tests,
@@ -23,7 +23,7 @@ now preserves each measure's minimum engraving width: compressed measures at
 high zoom had reversed some note positions, causing 177/367 backward samples
 in Standard/Detailed views at 700 px and 2× zoom. A 277,222-position sweep across
 22 combinations of rhythm, width (420–1200 px) and zoom (0.5–3×) found none.
-The cursor interpolates engraved positions on each audio-clock frame and stays
+The cursor interpolates shared rhythmic columns on each audio-clock frame and stays
 12 pixels wide at every zoom. Compact playback controls and marker styling were
 inspected at 420, 700 and 1000 px. Regression checks cover tempo changes,
 estimated rhythm, line breaks, resizing, zoom and replacement-song timing.
@@ -41,13 +41,28 @@ key signature. Bar-crossing rhythm splitting uses exact fractions to avoid a
 rounding loop. Export preserves those ties without rebuilding oversized tuplets.
 Original MIDI files and playback events remain unchanged.
 
+Chicago_1 exposed another source of backward movement: OSMD lost the duration
+of some isolated/hidden tuplets and interpolated between displaced voice glyphs.
+The viewer now normalizes those durations without changing written flags or
+beams, and follows cached tick columns. Standard and Detailed scores for Chicago,
+Fantaisie, Kawaki wo Ameku, Queen, Abyss and Verity passed full-score duration and
+column checks at 420–1120 px and 1–3× saved zoom. Chicago's opening bars 2–5 are
+included. Fantaisie preserves its sixteenth rests, full-beat beams and genuine
+triplets, with numbered eighth-note triplets in the left hand. Tests cover short
+chromatic neighbours without changing playback pitches.
+
 Click-to-seek passed on notes, rests and empty staff space in the four songs,
 at 420–1120 px and 1–3× zoom, including scrolling and original-performance timing.
 Both paused and playing states are preserved. A ledger-note regression catches
 the nearest staff lookup selecting an adjacent beat instead of the clicked note.
+Direct SVG note hits now use their own timestamp; Fantaisie bar 5 previously
+selected the preceding rest in the compact layout. The old click tooltip is gone.
 Follow was checked across all 52 Verity bars at 1120×760, 700×620 and 420×700,
 including bar 33, oversized staves, manual scrolling, restoring Follow and
-backward seeks. The complete playing staff stays visible whenever it fits.
+backward seeks. Current Follow checks cover every system in all twelve scores,
+including Kawaki's high notes around bars 88–90 and a paused height-only resize.
+System bounds include ledger notes and beams with 24 px of top padding; oversized
+systems stay aligned at the top. Piano uses 80% of the saved zoom scale.
 
 UI regressions cover the saved Piano-button preference in Convert and the
 floating viewer, the Working indicator beside Piano, search-page restoration,
@@ -61,20 +76,23 @@ Abyss playback had no backward clock or marker movement. Initial loading used
 46 bounded reads; three playing seeks, mode changes and three MIDI replacements
 added none. Browser
 checks also passed shared SoundFont selection between Piano and Visualizer.
+The current Chicago and Fantaisie openings each passed a 16-second real-SoundFont
+run with roughly 1,600 cursor samples, no backward movement and non-silent PCM.
+Three playing seeks and three score replacements added no SoundFont reads.
 Each native viewer retains its own audio engine and loaded font; this is shared
 selection, not a single synthesizer instance spanning windows.
 Opening another player stops the previous one in browser tests and the shared
 player regression. Live WebView2 playback instrumentation was unavailable;
 physical audio output and that native handoff remain for manual testing.
 
-The current Windows/WebView2 build passes with full Queen and Fantaisie notation,
+The current Windows/WebView2 build passes with full Chicago, Fantaisie and Kawaki notation,
 including Standard/Detailed generation, using the existing environment and
 isolated app storage. These checks cover shared sheet state, scoped
-assets, floating-window minimize/restore, stale revisions, large SoundFont
-ranges and Sheet/Visualizer reuse. SDK and generated keyboard output stay off.
+assets, floating-window minimize/restore, stale revisions and Sheet/Visualizer
+reuse. SDK and generated keyboard output stay off.
 The user's library and active runtime selection are unchanged.
 Existing-environment and fresh CPU/NVIDIA installation checks passed during
-the earlier runtime qualification.
+the earlier runtime qualification, along with native large-SoundFont range checks.
 
 Runtime setup downloads pinned Python 3.11.18 and installs music21 9.7.1,
 Transkun 2.0.1 and the remaining dependencies directly from PyPI/PyTorch. The app

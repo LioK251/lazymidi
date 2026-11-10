@@ -47,6 +47,39 @@ def fixture(path):
 
 
 class PianoSheetTests(unittest.TestCase):
+    def test_authored_sixteenths_keep_rests_beams_and_chromatic_neighbors(self):
+        midi = mido.MidiFile(ticks_per_beat=480)
+        track = mido.MidiTrack([mido.MetaMessage('track_name', name='Right hand'),
+                               mido.MetaMessage('key_signature', key='E')])
+        pitches = (68, 69, 68, 67, 68, 71, 75, 73, 68, 71, 73, 72, 73, 76, 80)
+        last = 0
+        for bar in range(3):
+            for index, pitch in enumerate(pitches):
+                start = bar * 1920 + (index + 1) * 120
+                track.append(mido.Message('note_on', note=pitch, velocity=80, time=start-last))
+                track.append(mido.Message('note_off', note=pitch, time=119))
+                last = start + 119
+        midi.tracks.append(track); midi.save(self.path)
+        original = self.path.read_bytes()
+        for rhythm in ('normal', 'fine'):
+            result = generate(self.path, rhythm=rhythm)
+            xml = ET.fromstring(result['musicxml'])
+            for measure in xml.findall('.//part/measure'):
+                right = [n for n in measure.findall('note') if n.findtext('staff') == '1']
+                self.assertIsNotNone(right[0].find('rest'))
+                self.assertEqual(right[0].findtext('type'), '16th')
+                pitched = [n for n in right if n.find('pitch') is not None]
+                self.assertTrue(all(n.findtext('type') == '16th' for n in pitched))
+                self.assertEqual([n.findtext('beam[@number="2"]') for n in pitched[3:7]],
+                                 ['begin', 'continue', 'continue', 'end'])
+                self.assertEqual((pitched[3].findtext('pitch/step'), pitched[3].findtext('pitch/alter')), ('F', '2'))
+                self.assertEqual((pitched[11].findtext('pitch/step'), pitched[11].findtext('pitch/alter')), ('B', '1'))
+            self.assertFalse(xml.findall('.//tie'))
+            self.assertFalse(xml.findall('.//staccato'))
+            self.assertFalse(xml.findall('.//time-modification'))
+            self.assertEqual(base64.b64decode(result['midi_base64']), original)
+        self.assertEqual(self.path.read_bytes(), original)
+
     def test_legato_releases_use_the_quantized_attack_when_filling_the_next_beat(self):
         midi = mido.MidiFile(ticks_per_beat=1000)
         midi.tracks.append(mido.MidiTrack([
@@ -86,6 +119,12 @@ class PianoSheetTests(unittest.TestCase):
                                  '3' if value.findtext('staff') == '2' else None)
             self.assertEqual(len(second.findall('note[pitch]')), 28)
             self.assertFalse([n for n in xml.findall('.//note[pitch]') if n.findtext('pitch/alter') == '-1'])
+            tuplets = [n for n in second.findall('note') if n.find('notations/tuplet[@type="start"]') is not None]
+            self.assertEqual(len(tuplets), 4)
+            for value in tuplets:
+                group = value.find('notations/tuplet[@type="start"]')
+                self.assertEqual(group.get('bracket'), 'no')
+                self.assertEqual(group.get('placement'), 'below' if value.findtext('stem') == 'down' else 'above')
 
     def test_nearly_simultaneous_chord_releases_do_not_create_extra_voices(self):
         midi = mido.MidiFile(ticks_per_beat=1000)
@@ -144,6 +183,16 @@ class PianoSheetTests(unittest.TestCase):
             xml = ET.fromstring(generate(self.path, rhythm=rhythm)["musicxml"])
             self.assertEqual({n.text for n in xml.findall(".//time-modification/actual-notes")}, {"3"})
             self.assertEqual(len(xml.findall(".//note[pitch]")), 4)
+            active = {}
+            for value in xml.findall('.//note'):
+                voice = value.findtext('voice')
+                marks = value.findall('notations/tuplet')
+                if any(t.get('type') == 'start' for t in marks):
+                    active[voice] = True
+                if value.find('time-modification') is not None:
+                    self.assertTrue(active.get(voice), 'Every irregular duration needs a tuplet group, including hidden rests')
+                if any(t.get('type') == 'stop' for t in marks):
+                    active[voice] = False
 
     def test_a_regular_default_tempo_triplet_piece_keeps_its_authored_beats(self):
         midi = mido.MidiFile(ticks_per_beat=480)
