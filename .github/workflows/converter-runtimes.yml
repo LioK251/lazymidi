@@ -1,8 +1,14 @@
 name: Converter runtimes
 on:
   workflow_dispatch:
+    inputs:
+      ffmpeg_run:
+        description: Reuse FFmpeg artifacts from a successful runtime run (leave blank to rebuild)
+        required: false
+        type: string
 permissions:
   contents: read
+  actions: read
 jobs:
   ffmpeg:
     strategy:
@@ -20,14 +26,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        if: inputs.ffmpeg_run != ''
+        with:
+          name: ffmpeg-${{ matrix.platform }}
+          run-id: ${{ inputs.ffmpeg_run }}
+          github-token: ${{ github.token }}
+          path: target/runtime-ffmpeg/install
       - name: Linux build tools
-        if: runner.os == 'Linux'
+        if: inputs.ffmpeg_run == '' && runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y build-essential nasm pkg-config perl curl xz-utils
       - name: macOS build tools
-        if: runner.os == 'macOS'
+        if: inputs.ffmpeg_run == '' && runner.os == 'macOS'
         run: brew install nasm pkg-config
       - uses: msys2/setup-msys2@v2
-        if: runner.os == 'Windows'
+        if: inputs.ffmpeg_run == '' && runner.os == 'Windows'
         with:
           msystem: UCRT64
           update: true
@@ -37,11 +50,11 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-nasm
             mingw-w64-ucrt-x86_64-pkgconf
       - name: Build FFmpeg on Windows
-        if: runner.os == 'Windows'
+        if: inputs.ffmpeg_run == '' && runner.os == 'Windows'
         shell: msys2 {0}
         run: bash scripts/build-runtime-ffmpeg.sh
       - name: Build FFmpeg on Unix
-        if: runner.os != 'Windows'
+        if: inputs.ffmpeg_run == '' && runner.os != 'Windows'
         run: bash scripts/build-runtime-ffmpeg.sh
       - uses: actions/upload-artifact@v4
         with:

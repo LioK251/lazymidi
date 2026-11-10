@@ -101,9 +101,10 @@ def main():
     run("-m", "pip", "install", "--no-build-isolation", "--progress-bar", "off", "ncls==0.0.71")
     run("-m", "pip", "install", "--progress-bar", "off", "numpy==1.26.4", "transkun==2.0.1",
         "Flask==3.1.3", "Flask-WTF==1.2.2", "flask-talisman==1.1.0", "yt-dlp[default]==2026.8.19",
-        "curl_cffi==0.14.0", "requests==2.32.5", "setuptools==80.9.0", "scipy==1.17.1", "music21==9.7.1")
+        "curl_cffi==0.14.0", "requests==2.32.5", "chardet==5.2.0", "setuptools==80.9.0", "scipy==1.17.1", "music21==9.7.1")
     run("-m", "pip", "uninstall", "-y", "Cython", "wheel")
     run("-m", "pip", "check")
+    run("-W", "error", "-c", "import requests")
     (stage / "requirements-lock.txt").write_text(run("-m", "pip", "freeze", capture_output=True, text=True).stdout, encoding="utf-8")
     ffmpeg = stage / "ffmpeg"
     ffmpeg.mkdir(exist_ok=True)
@@ -147,6 +148,8 @@ def main():
         installed = sum(entry.file_size for entry in zipped.infolist())
     package.update(bytes=archive.stat().st_size, installed_bytes=installed, sha256=digest(archive),
                    file=archive.name, url=None, parts=split_pack(archive))
+    if package["parts"]:
+        archive.unlink()  # Upload the numbered parts only, without duplicating gigabytes in CI.
     (output / f"{target}-{args.variant}.json").write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(package, indent=2), flush=True)
 

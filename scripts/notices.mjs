@@ -1,6 +1,7 @@
 import {execFileSync} from 'node:child_process';
 import {readFileSync,writeFileSync,readdirSync,existsSync} from 'node:fs';
 import {dirname,join} from 'node:path';
+import assert from 'node:assert/strict';
 
 // Include the checked-in registry license texts, rather than just SPDX labels.
 const metadata=JSON.parse(execFileSync('cargo',['metadata','--locked','--offline','--format-version','1'],{encoding:'utf8',maxBuffer:16*1024*1024}));
@@ -22,9 +23,13 @@ for(const p of metadata.packages.filter(p=>p.source).sort((a,b)=>a.name.localeCo
 if(missing.length) {console.error('Missing published license texts:\n'+missing.join('\n')); process.exitCode=1;}
 writeFileSync('THIRD_PARTY_DEPENDENCIES.html',html);
 const lock=JSON.parse(readFileSync('package-lock.json','utf8'));
+// OSMD's optional headless GL tools are not shipped in the WebView frontend.
+const optionalRoots=Object.entries(lock.packages).filter(([,p])=>!p.dev&&!p.optional)
+  .flatMap(([path,p])=>Object.keys(p.optionalDependencies??{}).map(name=>`${path}:${name}`));
+assert.deepEqual(optionalRoots,['node_modules/opensheetmusicdisplay:gl'],
+  'Review optional production dependencies before changing the distributed notices.');
 let frontend='lazymidi production frontend dependency notices\n';
-for(const [path,p] of Object.entries(lock.packages).filter(([path,p])=>path&&!p.dev)) {
-  if(p.optional&&!existsSync(join(path,'package.json'))) continue;
+for(const [path,p] of Object.entries(lock.packages).filter(([path,p])=>path&&!p.dev&&!p.optional)) {
   frontend+=`\n${path.replace(/^node_modules\//,'')} ${p.version} · ${p.license??''}\n`;
   const licenses=readdirSync(path).filter(name=>/^(licen[sc]e|copying|notice)/i.test(name));
   // isarray publishes its complete MIT license in the README.

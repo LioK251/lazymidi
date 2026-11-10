@@ -1,4 +1,4 @@
-lazymidi 0.1.4 — upstream provenance
+lazymidi — upstream provenance
 
 Adapted components (no upstream application is bundled):
 
@@ -57,6 +57,8 @@ SOFTWARE.
 Dependency notices are shipped separately in THIRD_PARTY_DEPENDENCIES.html,
 generated from Cargo.lock using scripts/notices.mjs before packaging. Frontend
 dependency licenses are included in THIRD_PARTY_FRONTEND_NOTICES.txt.
+OpenSheetMusicDisplay's optional headless Node.js GL tools are not shipped in
+the WebView frontend and are excluded from those distributed notices.
 
 Visual Pianos protocol adaptation: qwerty.rs and the visual-pianos-qwerty.json
 preset use MIT pv.rs mappings at 73e4d6b. Raw shared modifier state, debug
@@ -93,10 +95,10 @@ Additional optional modules:
 
 Optional runtime packs contain Python, PyTorch, Transkun (including its
 pretrained model), FFmpeg and their own dependencies. Package license texts
-and exact versions are retained in each pack. The local Gyan FFmpeg build is
-GPLv3; its license, build configuration and FFmpeg source archive are under
-licenses/. Public pack redistribution remains gated on corresponding source
-verification for its external libraries; see docs/optional-modules.md.
+and exact versions are retained in each pack. Version 2 packs build FFmpeg
+8.1.3, OpenSSL 3.5.9 and LAME 3.100 with GPL and nonfree components disabled.
+Matching source archives, licenses and the complete build recipe are included
+under licenses/ffmpeg/. See docs/optional-modules.md.
 
 Browser extension MuseScore downloads:
 

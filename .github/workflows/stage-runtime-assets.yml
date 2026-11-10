@@ -53,13 +53,18 @@ jobs:
           def digest(path):
               with path.open('rb') as file:
                   return hashlib.file_digest(file, 'sha256').hexdigest()
+          combined = hashlib.sha256()
           def verify(item):
               assert re.fullmatch(r'[A-Za-z0-9_.-]+', item['file'])
               path = root / item['file']
               assert path.stat().st_size == item['bytes'], path
-              assert digest(path) == item['sha256'], path
+              checksum = hashlib.sha256()
+              with path.open('rb') as source:
+                  for chunk in iter(lambda: source.read(1024**2), b''):
+                      checksum.update(chunk)
+                      combined.update(chunk)
+              assert checksum.hexdigest() == item['sha256'], path
               return path
-          verify(pack)
           files = []
           if pack['parts']:
               assert sum(p['bytes'] for p in pack['parts']) == pack['bytes']
@@ -67,8 +72,9 @@ jobs:
                   files.append(verify(part))
                   part['url'] = base + part['file']
           else:
-              files.append(root / pack['file'])
+              files.append(verify(pack))
               pack['url'] = base + pack['file']
+          assert combined.hexdigest() == pack['sha256'], 'Complete archive checksum mismatch'
           assert all(p.stat().st_size < 2 * 1024**3 for p in files)
           manifest.write_text(json.dumps(pack, indent=2) + '\n')
           files.append(manifest)

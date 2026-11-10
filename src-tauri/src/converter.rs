@@ -1655,7 +1655,9 @@ mod tests {
         );
         if let Some(output) = std::env::var_os("LAZYMIDI_TEST_ENVIRONMENT_OUTPUT") {
             config::atomic_save(
-                &PathBuf::from(output),
+                &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join(output),
                 &RuntimeSelection::Existing(environment),
             )
             .unwrap();
@@ -1879,7 +1881,7 @@ mod tests {
     #[test]
     #[ignore = "Installs a built runtime and checks real conversion and Piano in isolation"]
     fn built_runtime_installs_and_runs() {
-        let manifest = PathBuf::from(
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join(
             std::env::var_os("LAZYMIDI_TEST_PACK_MANIFEST")
                 .expect("Set LAZYMIDI_TEST_PACK_MANIFEST"),
         );
@@ -1930,7 +1932,13 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         if let Some(output) = std::env::var_os("LAZYMIDI_TEST_ENVIRONMENT_OUTPUT") {
-            config::atomic_save(&PathBuf::from(output), &environment).unwrap();
+            config::atomic_save(
+                &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join(output),
+                &environment,
+            )
+            .unwrap();
             let _ = staged.keep();
             let _ = root.keep();
         }
