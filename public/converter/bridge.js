@@ -4,6 +4,13 @@ let nextRequest = 0;
 const pending = new Map();
 let assetRoot = '';
 let visualizeRevision = 0;
+let playbackRevision = 0;
+const scoreMode = new URLSearchParams(location.search).get('score') === '1';
+if (scoreMode) {
+  document.documentElement.classList.add('score-transport');
+  window.onPianoPlayback = state => parent.postMessage({type:'converter-playback',revision:playbackRevision,...state},location.origin);
+  new ResizeObserver(() => parent.postMessage({type:'converter-player-size',height:document.body.scrollHeight},location.origin)).observe(document.body);
+}
 const nativeFetch = window.fetch.bind(window);
 function backgroundPath(value) {
   return typeof value === 'string' ? value.match(/^(?:(?:https?:\/\/converter\.localhost|converter:\/\/localhost))?(\/visualizer-backgrounds\/[0-9a-f]{32}\.(?:jpg|jpeg|png|webp|gif|mp4|webm|mov))$/)?.[1] ?? null : null;
@@ -62,8 +69,9 @@ window.addEventListener('message',event=>{
   if(message?.type==='converter-soundfonts')void window.refreshPianoSoundFonts?.(assetRoot+'soundfonts/'+encodeURIComponent(message.filename));
   if(message?.type==='converter-visualize') {
     const revision=++visualizeRevision;
+    playbackRevision=message.revision;
     settings=canonicalSettings(message.settings);
     assetRoot=message.assetRoot;
-    if(message.filename)void window.openPianoVisualizer(message.filename).then(()=>{if(revision===visualizeRevision)parent.postMessage({type:'converter-visualizer-ready',filename:message.filename,loaded:document.getElementById('pv-export-hands')?.disabled===false},location.origin);});
+    if(message.filename)void window.openPianoVisualizer(message.filename,message.midiBase64).then(()=>{if(revision===visualizeRevision)parent.postMessage({type:'converter-visualizer-ready',filename:message.filename,loaded:document.getElementById('pv-export-hands')?.disabled===false},location.origin);});
   }
 });

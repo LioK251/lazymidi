@@ -23,7 +23,7 @@ if ($Converter) {
         if (-not [IO.Path]::IsPathFullyQualified($taskPython) -or -not (Test-Path -LiteralPath $taskPython -PathType Leaf)) { throw 'Invalid environment interpreter.' }
         [IO.File]::WriteAllText((Join-Path $taskData 'active.json'), $taskSelection)
     } else {
-        $taskPack = Join-Path $taskRoot 'target/converter-cpu-1'
+        $taskPack = Join-Path $taskRoot 'target/converter-cpu-2'
         $taskPython = Join-Path $taskPack 'python/python.exe'
         if (-not (Test-Path -LiteralPath $taskPython)) { throw 'Build the CPU converter runtime first.' }
         $taskLink = Join-Path $taskData 'runtimes/cpu'

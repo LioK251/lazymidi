@@ -88,23 +88,25 @@
 .converter-recent > span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
 .converter-library-toolbar {flex-wrap:wrap;align-items:center;}
 .converter-library-toolbar input {flex:1;min-width:160px;}
-.converter-library-toolbar > button {flex:none;}
+.button-row.converter-library-toolbar > button {flex:none;}
 .library-pages {align-items:center;justify-content:flex-end;flex-wrap:wrap;}
 .library-pages > span {margin-right:auto;color:var(--muted);}
-.library-pages > button {flex:none;}
+.button-row.library-pages > button {flex:none;}
 .converter-empty {padding:28px 16px;text-align:center;color:var(--muted);border:1px dashed var(--border);margin:16px 0;}
 .converter-empty h2 {color:var(--muted);}
 .converter-history-row {align-items:center;}
 .converter-history-row > span {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .converter-history-row > small {margin-left:auto;flex-shrink:0;white-space:nowrap;}
 .converter-history-row > button {flex-shrink:0;}
-.converter-library {display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;margin:16px 0;}
+.converter-library {display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin:16px 0;}
+.converter-library-compact {grid-template-columns:repeat(auto-fill,minmax(230px,1fr));}
 .song-card {border:1px solid var(--border);background:#191919;min-width:0;overflow:hidden;}
 .song-card-info {padding:12px 12px 8px;}
 .song-card-info h2 {font-size:13px;line-height:1.5;margin:0 0 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
 .song-card-info small {color:var(--muted);}
-.song-card-actions {display:flex;gap:6px;padding:4px 12px 12px;}
-.song-card-actions button:last-child {margin-left:auto;}
+.song-card-actions {display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:4px 12px 12px;}
+.song-sheet-actions {display:flex;gap:6px;flex:none;}
+.song-card-actions > button:last-child {margin-left:auto;}
 .song-preview {display:block;width:100%;padding:0;position:relative;border:0;border-bottom:1px solid var(--border);overflow:hidden;aspect-ratio:16/7;}
 .song-preview canvas,.song-preview img {display:block;width:100%;height:100%;object-fit:cover;}
 .song-preview span {position:absolute;bottom:8px;left:8px;padding:4px 8px;background:#131313e8;border:1px solid #555;font-size:12px;}
@@ -422,6 +424,7 @@ main {
 }
 .section-heading {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
@@ -620,11 +623,12 @@ main {
 }
 .button-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 12px 0;
 }
 .button-row > button {
-  flex: 1;
+  flex: 1 1 auto;
 }
 .toolbar {
   display: flex;
@@ -889,6 +893,32 @@ main {
 .settings .control-block:first-of-type {
   padding-top: 0;
 }
+.settings-actions {margin:0;}
+.settings .primary-panel > .section-heading + .control-block {padding-top:12px;}
+.settings-module-group {display:flex;flex-direction:column;align-items:flex-start;gap:6px;}
+.settings-module-group + .settings-module-group {margin-top:16px;padding-top:12px;border-top:1px solid var(--border);}
+.settings-module-group .toggle {display:flex;max-width:100%;}
+.settings-dependent {padding-left:26px;}
+.settings-module-status {margin:0 0 0 26px;}
+.settings .control-block > .toggle {display:flex;margin:8px 0;}
+.sheet-mode-switch {display:flex;align-items:center;gap:6px;flex:none;margin-bottom:8px;}
+.sheet-mode-switch [role=status] {margin-left:6px;color:var(--muted);white-space:nowrap;}
+.sheet-mode-switch button {min-width:76px;}
+.piano-sheet {display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;}
+.piano-score-title {padding:8px 0;font-size:13px;overflow-wrap:anywhere;}
+.piano-score-scroll {flex:1;min-height:160px;overflow:auto;background:#fffefa;color:#171717;scrollbar-gutter:stable;}
+.piano-score-paper {padding:12px 8px;min-width:280px;position:relative;}
+.piano-score-player {width:100%;flex:none;border:0;border-top:1px solid var(--border);margin-top:8px;}
+.piano-sheet > .sheet-toolbar {position:relative;}
+.piano-score-options {position:static;}
+.piano-score-options > summary {cursor:pointer;min-height:34px;padding:7px 10px;border:1px solid var(--border);background:var(--panel);}
+.piano-score-panel {position:absolute;left:0;top:calc(100% + 6px);z-index:3;width:268px;max-width:calc(100vw - 40px);display:flex;flex-direction:column;gap:12px;padding:12px;background:var(--panel);border:1px solid var(--border);max-height:60vh;overflow:auto;}
+.piano-score-panel fieldset {margin:0;padding:0;border:0;min-width:0;}
+.piano-score-panel legend {margin-bottom:8px;font-weight:600;}
+.piano-score-panel .toggle {white-space:normal;align-items:flex-start;line-height:1.5;padding:4px 0;}
+.piano-score-panel .toggle input {margin-top:2px;}
+.piano-score-panel > label {display:flex;flex-direction:column;align-items:stretch;gap:6px;white-space:normal;}
+.piano-score-panel input[type=number] {width:100%;}
 .settings a {
   display: block;
   margin-bottom: 20px;

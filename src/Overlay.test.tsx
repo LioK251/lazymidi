@@ -6,10 +6,49 @@ import Overlay from "./Overlay";
 import * as api from "./backend";
 
 let sheetEvent:(event:{payload:SheetContent})=>void=()=>{};
+let loadingEvent:(event:{payload:{revision:number;working:boolean;error?:string}})=>void=()=>{};
 vi.mock("@tauri-apps/api/core",()=>({invoke:vi.fn(),isTauri:()=>false}));
-vi.mock("@tauri-apps/api/event",()=>({listen:vi.fn(async(_name,listener)=>{sheetEvent=listener;return()=>{};})}));
+vi.mock("./PianoSheet",()=>({default:({content}:{content:{midi_filename:string}})=><div>Piano score {content.midi_filename}</div>}));
+vi.mock("@tauri-apps/api/event",()=>({listen:vi.fn(async(name,listener)=>{if(name==="sheet-content")sheetEvent=listener;if(name==="sheet-loading")loadingEvent=listener;return()=>{};})}));
 beforeEach(()=>localStorage.clear());
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.clearAllMocks();});
+
+it("honors the Piano preference on open and during live settings updates without discarding the score",async()=>{
+  const state=api.initialState();state.settings.show_converter=true;state.settings.show_piano_button=false;
+  vi.spyOn(api,"getState").mockResolvedValue(state);
+  let update:(state:api.Snapshot)=>void=()=>{};
+  vi.spyOn(api,"subscribe").mockImplementation(async listener=>{update=listener;return()=>{};});
+  vi.mocked(invoke).mockImplementation(async command=>command==="get_sheet"?{mode:"piano",revision:1,piano:{midi_filename:"Song.mid"}}:{});
+  await act(async()=>{render(<Overlay kind="sheet"/>);});
+  expect(await screen.findByText("Piano score Song.mid")).toBeTruthy();
+  expect(screen.queryByRole("button",{name:"Piano"})).toBeNull();
+  await act(async()=>{state.settings.show_piano_button=true;state.state_sequence++;update(api.clone(state));});
+  expect(screen.getByRole("button",{name:"Piano"})).toBeTruthy();
+  await act(async()=>{state.settings.show_piano_button=false;state.state_sequence++;update(api.clone(state));});
+  expect(screen.queryByRole("button",{name:"Piano"})).toBeNull();
+  expect(screen.getByText("Piano score Song.mid")).toBeTruthy();
+});
+
+it("switches formats in the same viewer and rejects an older QWERTY reply",async()=>{
+  const state=api.initialState();state.settings.show_converter=true;
+  vi.spyOn(api,"getState").mockResolvedValue(state);
+  const source={midi_filename:"Song.mid",settings:{transpose_mode:"manual"},line_chord_map:[0]};
+  const qwerty={text:"[etu]",source,revision:10};
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    if(command==="get_sheet")return qwerty;
+    if(command==="generate_sheet")return (args as {pianoOptions?:object}).pianoOptions?
+      {mode:"piano",revision:11,piano:{midi_filename:"Song.mid",qwerty_settings:source.settings}}:{...qwerty,revision:12};
+  });
+  await act(async()=>{render(<Overlay kind="sheet"/>);});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Piano"}));});
+  expect(await screen.findByText("Piano score Song.mid")).toBeTruthy();
+  await act(async()=>{sheetEvent({payload:qwerty});});
+  expect(screen.getByText("Piano score Song.mid")).toBeTruthy();
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"QWERTY"}));});
+  expect(invoke).toHaveBeenLastCalledWith("generate_sheet",{midiFilename:"Song.mid",settings:source.settings,expectedRevision:11});
+  expect(screen.getByLabelText("Piano sheet").textContent).toContain("[etu]");
+  expect(invoke).not.toHaveBeenCalledWith("open_overlay",expect.anything());
+});
 
 it("restores sheet appearance and native Stay on top after closing and reopening",async()=>{
   vi.mocked(invoke).mockImplementation(async command=>command==="get_sheet"?{text:"[etu]"}:{});
@@ -29,6 +68,28 @@ it("restores sheet appearance and native Stay on top after closing and reopening
   expect((screen.getByLabelText("Center") as HTMLInputElement).checked).toBe(true);
   expect((screen.getByLabelText("Stay on top") as HTMLInputElement).checked).toBe(false);
   expect(invoke).toHaveBeenCalledWith("overlay_options",{kind:"sheet",top:false});
+});
+
+it("unlocks a replacement sheet and ignores superseded loading events",async()=>{
+  vi.mocked(invoke).mockImplementation(async command=>command==="get_sheet"?{text:"First",revision:1}:{});
+  await act(async()=>{render(<Overlay kind="sheet"/>);});
+  const format=screen.getByRole("button",{name:"QWERTY"}) as HTMLButtonElement;
+  await act(async()=>{loadingEvent({payload:{revision:2,working:true}});});
+  expect(format.disabled).toBe(true);
+  expect(screen.getByRole("status").parentElement).toBe(screen.getByRole("group",{name:"Sheet format"}));
+  await act(async()=>{sheetEvent({payload:{text:"Replacement",revision:3}});});
+  expect(format.disabled).toBe(false);
+  await act(async()=>{
+    loadingEvent({payload:{revision:2,working:false,error:"Superseded"}});
+    loadingEvent({payload:{revision:3,working:true}});
+  });
+  expect(format.disabled).toBe(false);
+  expect(screen.queryByRole("alert")).toBeNull();
+  await act(async()=>{loadingEvent({payload:{revision:4,working:true}});});
+  expect(format.disabled).toBe(true);
+  await act(async()=>{loadingEvent({payload:{revision:4,working:false,error:"Cannot generate"}});});
+  expect(format.disabled).toBe(false);
+  expect(screen.getByRole("alert").textContent).toBe("Cannot generate");
 });
 
 it("validates saved view settings without discarding valid fields",async()=>{

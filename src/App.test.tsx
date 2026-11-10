@@ -60,10 +60,14 @@ describe("lazymidi interface", () => {
     expect(screen.queryByRole("tab",{name:"Sequencer"})).toBeNull();
     fireEvent.click(screen.getByRole("tab",{name:"Settings"}));
     expect((screen.getByRole("switch",{name:"Discord Rich Presence"}) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("switch",{name:"Show Piano button"}) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("switch",{name:"Show Piano button"}) as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("switch",{name:"Discord Rich Presence"}));
     expect((screen.getByRole("switch",{name:"Show Get button"}) as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("switch",{name:"Converter tab"}));
+    fireEvent.click(screen.getByRole("switch",{name:"Show Piano button"}));
     await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Apply settings"}));});
+    expect(initial.settings.show_piano_button).toBe(false);
     expect(screen.getByRole("tab",{name:"Convert"})).toBeTruthy();
     fireEvent.click(screen.getByRole("tab",{name:"Play"}));
     expect((screen.getByRole("switch",{name:"Enable analog input"}) as HTMLInputElement).checked).toBe(true);

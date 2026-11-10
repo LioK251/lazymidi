@@ -6,7 +6,7 @@ function bridge(){
   let receive:(event:unknown)=>void=()=>{};
   const parent={postMessage:vi.fn()};
   const window={fetch:vi.fn(),addEventListener:vi.fn((_type,fn)=>{receive=fn;}),dispatchEvent:vi.fn(),openPianoVisualizer:vi.fn(async()=>{} )};
-  const context={window,parent,location:{origin:"http://localhost"},CustomEvent,document:{getElementById:()=>({disabled:false})},Response,setTimeout,clearTimeout,alert:vi.fn()};
+  const context={window,parent,location:{origin:"http://localhost",search:""},URLSearchParams,CustomEvent,document:{getElementById:()=>({disabled:false})},Response,setTimeout,clearTimeout,alert:vi.fn()};
   runInNewContext(readFileSync("public/converter/bridge.js","utf8"),context);
   return {parent,window,context,send:(data:unknown,origin="http://localhost",source:unknown=parent)=>receive({data,origin,source})};
 }

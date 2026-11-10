@@ -140,6 +140,20 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if window.label() != "main" {
+                if window.label() == "sheet" {
+                    use tauri::Emitter;
+                    if matches!(
+                        event,
+                        tauri::WindowEvent::Resized(_)
+                            | tauri::WindowEvent::Focused(_)
+                            | tauri::WindowEvent::CloseRequested { .. }
+                    ) {
+                        let visible = !matches!(event, tauri::WindowEvent::CloseRequested { .. })
+                            && window.is_visible().unwrap_or(false)
+                            && !window.is_minimized().unwrap_or(true);
+                        let _ = window.emit("sheet-visibility", visible);
+                    }
+                }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     overlays::save_geometry(window);
                     if window.label() == "visualizer" {

@@ -4,9 +4,10 @@ import {runInNewContext} from "node:vm";
 import {JSDOM} from "jsdom";
 import {expect,it,vi} from "vitest";
 
-function player(){
+function player(score=false){
   const dom=new JSDOM(readFileSync("public/converter/visualizer.html","utf8"),{url:"http://localhost/converter/visualizer.html",pretendToBeVisual:true});
   const document=dom.window.document;
+  if(score)document.documentElement.classList.add("score-transport");
   document.getElementById("piano-visualizer-modal")!.classList.remove("hidden");
   const stack:number[]=[];
   const ctx:any=new Proxy({globalAlpha:1,save(){stack.push(this.globalAlpha);},restore(){this.globalAlpha=stack.pop()??1;},createLinearGradient:()=>({addColorStop(){}}),createRadialGradient:()=>({addColorStop(){}})}, {get(target:any,key){return key in target?target[key]:(target[key]=vi.fn());}});
@@ -28,6 +29,15 @@ function player(){
   return {dom,document,ctx,settings,artwork,note,window,status:window.testPlayer.status,key,reduced,images,render:window.testPlayer.render,setup:window.testPlayer.setup,stop:window.testPlayer.stop,layout:window.testPlayer.layout,advance:()=>{clock+=150;},close:()=>{window.testPlayer.status('');dom.window.close();}};
 }
 const notes=[{id:"l",midi:48,start:0,end:2,releaseEnd:5,velocity:0.8,track:0,piano:true,hand:"left"},{id:"r",midi:61,start:0,end:2,releaseEnd:5,velocity:0.8,track:1,piano:true,hand:"right"}];
+
+it("runs the score transport clock without drawing the falling-note canvas",()=>{
+  const p=player(true);try{
+    p.window.onPianoPlayback=vi.fn();p.setup(notes,1.25);p.render();
+    expect(p.window.onPianoPlayback).toHaveBeenLastCalledWith({time:1.25,duration:30,playing:true});
+    expect(p.note).not.toHaveBeenCalled();expect(p.ctx.fillRect).not.toHaveBeenCalled();
+    p.stop();expect(p.window.onPianoPlayback).toHaveBeenLastCalledWith({time:0,duration:30,playing:false});
+  }finally{p.close();}
+});
 
 it("keeps the playback slider precise between tenths of a second",()=>{
   const p=player();try{

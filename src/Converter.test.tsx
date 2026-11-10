@@ -25,6 +25,32 @@ beforeEach(()=>{
   });
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
+it("hides Piano actions in completed conversions, Recent and Library without hiding QWERTY",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>{
+    if(command==="converter_pick")return {task_id:"test-job"};
+    if((args as {path?:string})?.path==="/api/status/test-job")return {status:"completed",midi_name:file.filename};
+    return original(command,args);
+  });
+  const onError=vi.fn();const view=render(<Converter active onError={onError}/>);
+  await screen.findByText("Ready");
+  expect(screen.getAllByRole("button",{name:"Piano"})).toHaveLength(1);
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Choose audio or video"}));});
+  await screen.findByRole("heading",{name:"MIDI ready"});
+  expect(screen.getAllByRole("button",{name:"Piano"})).toHaveLength(2);
+  view.rerender(<Converter active showPiano={false} onError={onError}/>);
+  expect(screen.queryByRole("button",{name:"Piano"})).toBeNull();
+  expect(screen.getAllByRole("button",{name:"QWERTY"})).toHaveLength(2);
+  expect(screen.getByRole("button",{name:"Preview piano"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Library"}));
+  expect(screen.queryByRole("button",{name:"Piano"})).toBeNull();
+  expect(screen.getByRole("button",{name:"QWERTY"})).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox",{name:"Search library"}),{target:{value:"Test"}});
+  view.rerender(<Converter active onError={onError}/>);
+  expect(screen.getByRole("button",{name:"Piano"})).toBeTruthy();
+  expect((screen.getByRole("textbox",{name:"Search library"}) as HTMLInputElement).value).toBe("Test");
+  expect(onError).not.toHaveBeenCalled();
+});
 it("hides legacy conversion suffixes in song labels but keeps original IDs for actions",async()=>{
   const original=vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
@@ -148,7 +174,7 @@ it("opens the reusable visualizer from the preview without a duplicate Visualize
 it.each(["recent","library"])("automatically generates from the %s Sheet action",async(location)=>{
   const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
   if(location==="library")fireEvent.click(screen.getByRole("button",{name:"Library"}));
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"QWERTY"}));});
   expect(await screen.findByText("[etu]")).toBeTruthy();
   expect(invoke).toHaveBeenCalledWith("generate_sheet",expect.objectContaining({midiFilename:"test.mid",expectedRevision:null}));
   expect(invoke).not.toHaveBeenCalledWith("app_command",expect.anything());expect(error).not.toHaveBeenCalled();
@@ -158,7 +184,7 @@ it.each(["recent","library"])("keeps the %s section selected when the floating s
   const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
   const section=location==="library"?"Library":"Convert";
   fireEvent.click(screen.getByRole("button",{name:section}));
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"QWERTY"}));});
   expect(screen.getByRole("button",{name:section}).getAttribute("aria-pressed")).toBe("true");
   expect(screen.getByRole("button",{name:"Sheets"}).getAttribute("aria-pressed")).toBe("false");
   expect(invoke).toHaveBeenCalledWith("generate_sheet",expect.objectContaining({midiFilename:"test.mid"}));
@@ -167,14 +193,14 @@ it.each(["recent","library"])("keeps the %s section selected when the floating s
 it("opens Sheets when the floating viewer exists but is hidden",async()=>{
   vi.mocked(WebviewWindow.getByLabel).mockResolvedValue({isVisible:async()=>false,isMinimized:async()=>false} as WebviewWindow);
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"QWERTY"}));});
   expect(screen.getByRole("button",{name:"Sheets"}).getAttribute("aria-pressed")).toBe("true");
   expect(await screen.findByText("[etu]")).toBeTruthy();
 });
 it.each([true,false])("restores a minimized sheet before generating without redirecting (visible: %s)",async(visible)=>{
   vi.mocked(WebviewWindow.getByLabel).mockResolvedValue({isVisible:async()=>visible,isMinimized:async()=>true} as WebviewWindow);
   const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"QWERTY"}));});
   expect(vi.mocked(invoke).mock.calls.filter(([command])=>["open_overlay","generate_sheet"].includes(command)).map(([command])=>command)).toEqual(["open_overlay","generate_sheet"]);
   expect(screen.getByRole("button",{name:"Convert"}).getAttribute("aria-pressed")).toBe("true");
   expect(error).not.toHaveBeenCalled();
@@ -213,7 +239,7 @@ it.each(["recent","library"])("opens Float before generating from %s without red
   const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
   const section=location==="library"?"Library":"Convert";
   fireEvent.click(screen.getByRole("button",{name:section}));
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"QWERTY"}));});
   expect(invoke).toHaveBeenCalledWith("open_overlay",{kind:"sheet"});
   expect(vi.mocked(invoke).mock.calls.filter(([command])=>["open_overlay","generate_sheet"].includes(command)).map(([command])=>command)).toEqual(["open_overlay","generate_sheet"]);
   expect(screen.getByRole("button",{name:section}).getAttribute("aria-pressed")).toBe("true");
@@ -243,7 +269,7 @@ it("does not redirect or generate if opening Float fails",async()=>{
     return original(command,args);
   });
   const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Sheet"}));});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"QWERTY"}));});
   expect(error).toHaveBeenCalledWith("Window unavailable");
   expect(invoke).not.toHaveBeenCalledWith("generate_sheet",expect.anything());
   expect(screen.getByRole("button",{name:"Convert"}).getAttribute("aria-pressed")).toBe("true");
@@ -258,8 +284,8 @@ it.each([false,true])("generates the completed conversion's MIDI from Make sheet
   });
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Choose audio or video"}));});
-  await screen.findByRole("button",{name:"Make sheet"});
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Make sheet"}));});
+  const result=await screen.findByRole("status");
+  await act(async()=>{fireEvent.click(within(result).getByRole("button",{name:"QWERTY"}));});
   if(alwaysFloat){
     expect(invoke).toHaveBeenCalledWith("open_overlay",{kind:"sheet"});
     expect(screen.getByRole("button",{name:"Convert"}).getAttribute("aria-pressed")).toBe("true");
@@ -399,6 +425,41 @@ it("limits large libraries to 24 previews and searches across all pages",async()
   expect(screen.queryByRole("button",{name:"Next page"})).toBeNull();
 });
 
+it("returns to the browsing page after searching, clearing, switching sections and opening Piano",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>(args as {path?:string})?.path==="/api/midi-files"?{midi_files:Array.from({length:120},(_,i)=>({...file,filename:`song-${i}.mid`,video_title:`Song ${i}`}))}:original(command,args));
+  await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
+  fireEvent.click(screen.getByRole("button",{name:"Library"}));
+  for(let i=0;i<4;i++)fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  expect(screen.getByText("97–120 of 120")).toBeTruthy();
+  const search=screen.getByRole("textbox",{name:"Search library"});
+  fireEvent.change(search,{target:{value:"Song 1"}});
+  expect(screen.getByText("1–24 of 31")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  fireEvent.change(search,{target:{value:"Song"}});
+  expect(screen.getByText("1–24 of 120")).toBeTruthy();
+  fireEvent.change(search,{target:{value:""}});
+  expect(screen.getByText("97–120 of 120")).toBeTruthy();
+  await act(async()=>{fireEvent.click(within(screen.getByRole("article",{name:"Song 96"})).getByRole("button",{name:"Piano"}));});
+  expect(invoke).toHaveBeenCalledWith("open_overlay",{kind:"sheet"});
+  expect(invoke).toHaveBeenCalledWith("generate_sheet",expect.objectContaining({midiFilename:"song-96.mid",pianoOptions:{}}));
+  fireEvent.click(screen.getByRole("button",{name:"Convert"}));fireEvent.click(screen.getByRole("button",{name:"Library"}));
+  await act(async()=>{fireEvent.focus(window);});
+  expect(screen.getByText("97–120 of 120")).toBeTruthy();
+});
+
+it("clamps the remembered browsing page when files disappear during a search",async()=>{
+  const original=vi.mocked(invoke).getMockImplementation()!;let count=60;
+  vi.mocked(invoke).mockImplementation(async(command,args)=>(args as {path?:string})?.path==="/api/midi-files"?{midi_files:Array.from({length:count},(_,i)=>({...file,filename:`song-${i}.mid`,video_title:`Song ${i}`}))}:original(command,args));
+  await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
+  fireEvent.click(screen.getByRole("button",{name:"Library"}));
+  fireEvent.click(screen.getByRole("button",{name:"Next page"}));fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  fireEvent.change(screen.getByRole("textbox",{name:"Search library"}),{target:{value:"missing"}});
+  count=25;await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Refresh"}));});
+  fireEvent.change(screen.getByRole("textbox",{name:"Search library"}),{target:{value:" "}});
+  expect(screen.getByText("25–25 of 25")).toBeTruthy();
+});
+
 it.each([false,true])("keeps the library page after Sheet and returning focus (always Float: %s)",async(alwaysFloat)=>{
   const original=vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
@@ -411,7 +472,7 @@ it.each([false,true])("keeps the library page after Sheet and returning focus (a
   fireEvent.click(screen.getByRole("button",{name:"Library"}));
   fireEvent.click(screen.getByRole("button",{name:"Next page"}));
   expect(screen.getByText("25–26 of 26")).toBeTruthy();
-  await act(async()=>{fireEvent.click(within(screen.getByRole("article",{name:"Song 24"})).getByRole("button",{name:"Sheet"}));});
+  await act(async()=>{fireEvent.click(within(screen.getByRole("article",{name:"Song 24"})).getByRole("button",{name:"QWERTY"}));});
   expect(invoke).toHaveBeenCalledWith("generate_sheet",expect.objectContaining({midiFilename:"song-24.mid"}));
   fireEvent.click(screen.getByRole("button",{name:"Library"}));
   await act(async()=>{fireEvent(window,new Event("focus"));});

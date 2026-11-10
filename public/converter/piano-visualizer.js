@@ -44,6 +44,8 @@
   let playerHooked = false;
   let recording = null;
   const BUILTIN_PIANO = 'builtin';
+  const scoreMode = document.documentElement.classList.contains('score-transport');
+  let lastClock = '';
   let liteTimer = null;
   const liteVoices = new Set();
 
@@ -548,14 +550,19 @@
   }
 
   // ─── MIDI parsing ────────────────────────────────────────────────────
-  async function loadMidi(filename, revision) {
+  async function loadMidi(filename, revision, midiBase64) {
     showLoading('Fetching MIDI...', 5);
     if (typeof Midi === 'undefined') throw new Error('@tonejs/midi not loaded');
 
-    const url = '/api/midi/' + encodeURIComponent(filename);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('MIDI fetch failed: ' + res.status);
-    const buffer = await res.arrayBuffer();
+    let buffer;
+    if (typeof midiBase64 === 'string') {
+      if (midiBase64.length > 12 * 1024 * 1024) throw new Error('Playback MIDI is too large.');
+      buffer = Uint8Array.from(atob(midiBase64), c => c.charCodeAt(0)).buffer;
+    } else {
+      const res = await fetch('/api/midi/' + encodeURIComponent(filename));
+      if (!res.ok) throw new Error('MIDI fetch failed: ' + res.status);
+      buffer = await res.arrayBuffer();
+    }
     const storageKey = await enhancements.storageKey(buffer);
     if (revision !== openRevision) return;
     midiArrayBuffer = buffer;
@@ -1152,6 +1159,7 @@
   }
 
   function renderFrame() {
+    if (scoreMode) { updatePlaybackControls(currentPlayTime()); return; }
     if (!ctx || !canvas) return;
     resizeCanvas();
     const W = canvasCssWidth;
@@ -1401,22 +1409,33 @@
       artwork.keyboardDetail(ctx, keyboardStyle, kl.x, playheadY, kl.width, bkh, true, keyboardStyle==='sketch'&&!reduceMotion.matches?{time:crayonTime,held:!!activeKeys[n]}:null,n);
     }
 
-    // ── Update controls ──
+    updatePlaybackControls(t);
+  }
+
+  function updatePlaybackControls(t) {
     if (timeDisplay) timeDisplay.textContent = formatTime(t) + ' / ' + formatTime(totalDuration);
     if (seekBar) {
       seekBar.max   = totalDuration || 1;
       if (!isScrubbing) seekBar.value = t;
       seekBar.style.setProperty('--seek-pct', ((t / (totalDuration || 1)) * 100) + '%');
     }
+    if (scoreMode) {
+      const clock = Math.floor(t * 30) + ':' + isPlaying + ':' + isPaused;
+      if (clock !== lastClock) {
+        lastClock = clock;
+        window.onPianoPlayback?.({time:t,duration:totalDuration,playing:isPlaying&&!isPaused});
+      }
+    }
     if (isPlaying && !isPaused && t >= totalDuration) stopPlayback();
   }
 
   // ─── Public API ──────────────────────────────────────────────────────
-  window.openPianoVisualizer = async function (midiFilename) {
+  window.openPianoVisualizer = async function (midiFilename, midiBase64) {
     if (!modal || !canvas) { console.error('Piano visualizer DOM not found'); return; }
     const revision = ++openRevision;
 
     currentFilename = midiFilename;
+    lastClock = '';
     handEnabled.left = true; handEnabled.right = true; updateHandToggles();
     setToolsBusy(true);
     crayonTime = 0;
@@ -1441,7 +1460,7 @@
       if (sfSelect && !sfSelect.value) await loadSoundFontList();
       if (revision !== openRevision) return;
 
-      await loadMidi(midiFilename, revision);
+      await loadMidi(midiFilename, revision, midiBase64);
       if (revision !== openRevision) return;
       resizeCanvas();
 

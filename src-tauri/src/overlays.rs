@@ -266,7 +266,11 @@ pub async fn generate_sheet(
     midi_filename: String,
     settings: serde_json::Value,
     expected_revision: Option<u64>,
+    piano_options: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, Error> {
+    if piano_options.as_ref().is_some_and(|v| !v.is_object()) {
+        return Err("Invalid piano options.".to_string().into());
+    }
     let generation = {
         let state = app.state::<App>();
         let stored = state
@@ -280,20 +284,46 @@ pub async fn generate_sheet(
         }
         state.sheet_generation.fetch_add(1, Ordering::SeqCst) + 1
     };
-    tauri::async_runtime::spawn_blocking(move||->Result<serde_json::Value,String>{
+    app.emit(
+        "sheet-loading",
+        serde_json::json!({"revision":generation,"working":true}),
+    )
+    .map_err(|e| e.to_string())?;
+    let completed_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move||->Result<serde_json::Value,String>{
         let state=app.state::<App>();
         let mut converter=state.converter.lock().map_err(|_|"Converter unavailable.".to_string())?;
         // Superseded requests must not overwrite the shared exported sheet file either.
         if state.sheet_generation.load(Ordering::SeqCst)!=generation{return Err("Sheet request superseded.".into());}
-        let result=converter.request(&app,"POST","/api/convert-to-sheets",serde_json::json!({"midi_filename":midi_filename,"settings":settings,"preview":true}))?;
-        let content=serde_json::json!({"text":result["sheet_text"],"sheets_filename":result["sheets_filename"],"source":{"midi_filename":midi_filename,"settings":settings,"line_chord_map":result["line_chord_map"]},"revision":generation});
+        let content = if let Some(mut options) = piano_options {
+            crate::converter::check_midi(&app, &midi_filename)?;
+            options["midi_filename"] = midi_filename.clone().into();
+            let mut result = converter.request(&app, "POST", "/api/piano-sheet", options)?;
+            result["midi_filename"] = midi_filename.into();
+            result["qwerty_settings"] = settings;
+            serde_json::json!({"mode":"piano","piano":result,"revision":generation})
+        } else {
+            let result=converter.request(&app,"POST","/api/convert-to-sheets",serde_json::json!({"midi_filename":midi_filename,"settings":settings,"preview":true}))?;
+            serde_json::json!({"mode":"qwerty","text":result["sheet_text"],"sheets_filename":result["sheets_filename"],"source":{"midi_filename":midi_filename,"settings":settings,"line_chord_map":result["line_chord_map"]},"revision":generation})
+        };
         let mut stored=state.sheet.lock().map_err(|_|"Sheet unavailable.".to_string())?;
         if state.sheet_generation.load(Ordering::SeqCst)!=generation{return Err("Sheet request superseded.".into());}
-        crate::converter::save_sheet(&app,result["sheets_filename"].as_str().ok_or("Missing sheet ID")?,result["sheet_text"].as_str().ok_or("Missing sheet text")?)?;
+        if content["mode"] == "qwerty" {
+            crate::converter::save_sheet(&app,content["sheets_filename"].as_str().ok_or("Missing sheet ID")?,content["text"].as_str().ok_or("Missing sheet text")?)?;
+        }
         *stored=content.clone();
         app.emit("sheet-content",&content).map_err(|e|e.to_string())?;
         Ok(content)
-    }).await.map_err(|e|e.to_string())?.map_err(Error::from)
+    }).await.map_err(|e|e.to_string()).and_then(|result|result);
+    if completed_app
+        .state::<App>()
+        .sheet_generation
+        .load(Ordering::SeqCst)
+        == generation
+    {
+        let _ = completed_app.emit("sheet-loading", serde_json::json!({"revision":generation,"working":false,"error":result.as_ref().err()}));
+    }
+    result.map_err(Error::from)
 }
 
 #[tauri::command]

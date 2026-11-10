@@ -46,7 +46,12 @@ def check():
             cuda_available = True
         except Exception as error:
             cuda_error = str(error)
-    return dict(python=str(pathlib.Path(sys.executable).absolute()),
+    try:
+        importlib.import_module("music21")
+        piano_notation = True
+    except Exception:
+        piano_notation = False
+    return dict(python=str(pathlib.Path(sys.executable).absolute()), piano_notation=piano_notation,
                 python_version=".".join(map(str, sys.version_info[:3])),
                 torch_version=torch.__version__, cuda_available=cuda_available,
                 cuda_error=cuda_error, **tools)

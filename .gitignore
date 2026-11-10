@@ -3,6 +3,7 @@
 /src-tauri/icons/ios/
 /node_modules/
 /dist/
+/website/
 /src-tauri/gen/
 *.log
 /test-results/

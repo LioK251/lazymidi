@@ -1,0 +1,85 @@
+name: Converter runtimes
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ffmpeg:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-latest, platform: windows-x86_64}
+          - {os: ubuntu-22.04, platform: linux-x86_64}
+          - {os: macos-15, platform: macos-aarch64}
+          - {os: macos-15-intel, platform: macos-x86_64}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Linux build tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential nasm pkg-config perl curl xz-utils
+      - name: macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install nasm pkg-config
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: >-
+            make perl diffutils patch tar curl
+            mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-pkgconf
+      - name: Build FFmpeg on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: bash scripts/build-runtime-ffmpeg.sh
+      - name: Build FFmpeg on Unix
+        if: runner.os != 'Windows'
+        run: bash scripts/build-runtime-ffmpeg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.platform }}
+          path: |
+            target/runtime-ffmpeg/install/bin/*
+            target/runtime-ffmpeg/install/licenses/**
+          if-no-files-found: error
+          retention-days: 14
+  runtime:
+    needs: ffmpeg
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-latest, platform: windows-x86_64, variant: cpu}
+          - {os: windows-latest, platform: windows-x86_64, variant: cuda}
+          - {os: ubuntu-22.04, platform: linux-x86_64, variant: cpu}
+          - {os: ubuntu-22.04, platform: linux-x86_64, variant: cuda}
+          - {os: macos-15, platform: macos-aarch64, variant: cpu}
+          - {os: macos-15-intel, platform: macos-x86_64, variant: cpu}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.platform }}
+          path: target/runtime-ffmpeg/install
+      - name: Build and qualify relocated runtime
+        run: python -B scripts/build-converter-pack.py ${{ matrix.variant }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: converter-${{ matrix.platform }}-${{ matrix.variant }}
+          path: target/converter-packs/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

@@ -47,6 +47,15 @@ class EnvironmentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "model file is missing"):
             probe.check()
 
+    def test_notation_dependency_is_optional_for_existing_environments(self):
+        def import_module(name):
+            if name == "music21":
+                raise ImportError("music21")
+        probe.importlib.import_module.side_effect = import_module
+        self.assertFalse(probe.check()["piano_notation"])
+        probe.importlib.import_module.side_effect = None
+        self.assertTrue(probe.check()["piano_notation"])
+
     def test_missing_or_broken_ffmpeg(self):
         probe.shutil.which.side_effect = None
         probe.shutil.which.return_value = None

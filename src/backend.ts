@@ -63,6 +63,7 @@ export interface Settings {
   discord_get_button: boolean;
   show_transposer: boolean;
   show_converter: boolean;
+  show_piano_button: boolean;
 }
 export interface Step {
   notes: { note: number; velocity: number }[];
@@ -184,6 +185,7 @@ export function initialState(): Snapshot {
       discord_get_button: true,
       show_transposer: true,
       show_converter: false,
+      show_piano_button: true,
     },
     inputs: [],
     outputs: [],
@@ -262,6 +264,18 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
       if(image.naturalWidth!==8||image.naturalHeight!==8)throw new Error("Native imported background could not decode.");
       const sheet=await invoke<{revision:number;text:string}>("generate_sheet",{midiFilename:"smoke.mid",settings:{transpose_mode:"manual",manual_transpose_points:[{chord:0,value:-3}]},expectedRevision:null});
       if(!sheet.text.includes("Transpose by: 3"))throw new Error("Native sheet generation failed.");
+      let pianoReady:(loaded:boolean)=>void=()=>{};
+      const rendered=new Promise<boolean>(resolve=>{pianoReady=resolve;});
+      const stopPiano=await listen<{revision:number;loaded:boolean}>("piano-sheet-ready",e=>{if(e.payload.revision>sheet.revision)pianoReady(e.payload.loaded);});
+      const pianoTimer=setTimeout(()=>pianoReady(false),15000);
+      try{
+        const piano=await invoke<{mode:string;revision:number;piano:{musicxml:string;midi_base64:string}}>("generate_sheet",{midiFilename:"smoke.mid",settings:{},pianoOptions:{},expectedRevision:sheet.revision});
+        if(piano.mode!=="piano"||!piano.piano.musicxml.includes("<score-partwise")||atob(piano.piano.midi_base64).slice(0,4)!=="MThd")
+          throw new Error("Native piano notation generation failed.");
+        const current=await invoke<{mode:string;revision:number}>("get_sheet");
+        if(current.mode!=="piano"||current.revision!==piano.revision)throw new Error("Piano did not replace the shared sheet.");
+        if(!await rendered)throw new Error("Native piano notation did not render.");
+      }finally{stopPiano();clearTimeout(pianoTimer);}
       let rejected=false;try{await invoke("generate_sheet",{midiFilename:"smoke.mid",settings:{},expectedRevision:sheet.revision-1});}catch{rejected=true;}
       if(!rejected)throw new Error("Stale sheet generation was accepted.");
       const fonts=await invoke<{soundfonts:{filename:string;size:number}[]}>("converter_request",{method:"GET",path:"/api/soundfonts",body:null});
@@ -305,7 +319,7 @@ export async function command(command: Command): Promise<Snapshot> {
     case "settings": {
       const before=clone(preview.settings);
       const after=clone(command.settings as Settings);
-      const normalized=(s:Settings)=>({...s,discord_presence:false,discord_get_button:false,show_transposer:false,show_converter:false,profiles:s.profiles.map(p=>({...p,transpose:defaultTranspose()}))});
+      const normalized=(s:Settings)=>({...s,discord_presence:false,discord_get_button:false,show_transposer:false,show_converter:false,show_piano_button:false,profiles:s.profiles.map(p=>({...p,transpose:defaultTranspose()}))});
       if (JSON.stringify(normalized(before))!==JSON.stringify(normalized(after))) preview.qwerty_enabled=false;
       preview.settings = clone(command.settings as Settings);
       preview.revision++;

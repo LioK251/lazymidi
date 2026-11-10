@@ -19,6 +19,23 @@ class ServiceTests(unittest.TestCase):
     def setUp(self):
         self.client = service.app.test_client()
         self.headers = {"X-Lazymidi-Token": "test-private-token"}
+    def test_piano_sheet_scope_and_missing_optional_dependency(self):
+        from test_piano_sheet import fixture
+        path = service.DATA / "converted" / "notation.mid"
+        fixture(path)
+        body = {"midi_filename": path.name}
+        self.assertEqual(self.client.post("/api/piano-sheet", json=body).status_code, 401)
+        self.assertEqual(self.client.post("/api/piano-sheet", headers={"X-Lazymidi-Token": service.EXTENSION_TOKEN}, json=body).status_code, 403)
+        response = self.client.post("/api/piano-sheet", headers=self.headers, json=body)
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertIn("<score-partwise", response.json["musicxml"])
+        for name in ("../settings.json", "C:/secret.mid", "a\\b.mid", "settings.json"):
+            self.assertEqual(self.client.post("/api/piano-sheet", headers=self.headers, json={"midi_filename":name}).status_code, 400)
+        with patch("piano_sheet.generate", side_effect=ModuleNotFoundError("music21")):
+            response = self.client.post("/api/piano-sheet", headers=self.headers, json=body)
+            self.assertEqual(response.status_code, 503)
+            self.assertIn("Runtime setup", response.json["error"])
+            self.assertEqual(self.client.get("/api/health", headers=self.headers).status_code, 200)
     def test_background_upload_and_legacy_read(self):
         from base64 import b64decode
         payload = b64decode("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAFUlEQVR4nGP8//8/AzbAhFV00EoAAFbUAw037MyjAAAAAElFTkSuQmCC")

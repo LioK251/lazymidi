@@ -99,6 +99,8 @@ pub struct Settings {
     pub show_transposer: bool,
     #[serde(default)]
     pub show_converter: bool,
+    #[serde(default = "enabled_by_default")]
+    pub show_piano_button: bool,
 }
 impl Default for Profile {
     fn default() -> Self {
@@ -162,6 +164,7 @@ impl Default for Settings {
             discord_get_button: true,
             show_transposer: true,
             show_converter: false,
+            show_piano_button: true,
         }
     }
 }
@@ -252,6 +255,7 @@ impl Settings {
             settings.discord_get_button = false;
             settings.show_transposer = false;
             settings.show_converter = false;
+            settings.show_piano_button = false;
             for profile in &mut settings.profiles {
                 profile.transpose = crate::transpose::Config::default();
             }
@@ -402,6 +406,7 @@ mod tests {
             "discord_get_button",
             "show_transposer",
             "show_converter",
+            "show_piano_button",
         ] {
             legacy.as_object_mut().unwrap().remove(key);
         }
@@ -413,9 +418,13 @@ mod tests {
         let mut edited = original.clone();
         edited.discord_presence = false;
         edited.show_converter = true;
+        edited.show_piano_button = false;
         edited.show_transposer = false;
         edited.profiles[1].transpose.sequence = vec![-2, 3, 0];
         assert!(original.musical_eq(&edited));
+        let saved: Settings =
+            serde_json::from_value(serde_json::to_value(&edited).unwrap()).unwrap();
+        assert_eq!(saved, edited);
         let profile = import_profile(
             &serde_json::json!({"version":1,"profile":edited.profile()}).to_string(),
         )

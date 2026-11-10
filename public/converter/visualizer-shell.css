@@ -35,3 +35,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .pv-loading-progress-bar{background:#c4ddd0;border-radius:0}
 #pv-hand-editor{background:#191919;border-color:#333}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}.pv-loading-spinner{animation:none}}
+.score-transport #piano-visualizer-modal,.score-transport #piano-visualizer-content{height:auto!important;min-height:0}
+.score-transport .pv-stage{flex:none;min-height:0}
+.score-transport #pv-canvas,.score-transport .pv-hand-controls,.score-transport #pv-hand-editor{display:none!important}
+.score-transport .pv-loading-overlay{position:static;padding:4px 8px;min-height:0;gap:4px;background:transparent}
+.score-transport .pv-loading-spinner,.score-transport .pv-loading-progress{display:none}
+.score-transport .pv-loading-text{font-size:12px}
+.score-transport .pv-controls{justify-content:flex-start}
+.score-transport .pv-soundfont-controls{margin-left:auto}

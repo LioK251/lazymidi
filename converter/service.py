@@ -44,7 +44,7 @@ def tracked_job(function):
 upstream.run_conversion_task = tracked_job(upstream.run_conversion_task)
 upstream.run_file_conversion_task = tracked_job(upstream.run_file_conversion_task)
 FINAL = {"completed", "error", "cancelled"}
-JSON_ENDPOINTS = {"/api/health", "/api/convert", "/api/history", "/api/history/delete", "/api/settings", "/api/convert-to-sheets", "/api/upload-midi", "/api/import-midi", "/api/upload-media", "/api/midi-files", "/api/sheet-content", "/api/soundfonts", "/api/upload-soundfont", "/api/visualizer-background", "/api/import-data", "/api/extension-health", "/api/runtime-switch"}
+JSON_ENDPOINTS = {"/api/health", "/api/convert", "/api/history", "/api/history/delete", "/api/settings", "/api/convert-to-sheets", "/api/piano-sheet", "/api/upload-midi", "/api/import-midi", "/api/upload-media", "/api/midi-files", "/api/sheet-content", "/api/soundfonts", "/api/upload-soundfont", "/api/visualizer-background", "/api/import-data", "/api/extension-health", "/api/runtime-switch"}
 
 @app.before_request
 def authenticate():
@@ -98,6 +98,31 @@ def private_headers(response):
 
 @app.route("/api/extension-health")
 def extension_health(): return jsonify(status="ok")
+
+@app.route("/api/piano-sheet", methods=["POST"])
+def piano_sheet():
+    try:
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or not isinstance(body.get("midi_filename"), str):
+            raise ValueError("Choose a MIDI file.")
+        filename = body["midi_filename"]
+        if not filename or pathlib.Path(filename).name != filename or "/" in filename or "\\" in filename or ":" in filename:
+            raise ValueError("Invalid MIDI filename.")
+        directory = (DATA / "converted").resolve()
+        path = (directory / filename).resolve()
+        if path.parent != directory or path.suffix.lower() not in (".mid", ".midi"):
+            raise ValueError("Invalid MIDI filename.")
+        if not path.is_file():
+            return jsonify(error="MIDI file not found."), 404
+        from piano_sheet import generate
+        return jsonify(generate(path, body.get("track_ids"), body.get("split", 60), body.get("rhythm", "normal")))
+    except ImportError:
+        return jsonify(error="Piano notation needs music21. In Convert, open Runtime setup and install an updated pack or choose an environment with music21 9.7.1."), 503
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return jsonify(error=str(error)), 400
+    except Exception:
+        app.logger.exception("Piano notation failed")
+        return jsonify(error="Could not notate this MIDI. Try fewer tracks or re-export the file."), 422
 
 @app.route("/api/runtime-switch", methods=["POST"])
 def runtime_switch():

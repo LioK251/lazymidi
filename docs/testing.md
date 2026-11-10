@@ -1,5 +1,41 @@
 # Verification and release qualification
 
+## Version 0.1.8 local release preparation — 2026-11-10
+
+158 frontend/extension tests, 56 Rust workspace tests, 45 SDK-free core tests,
+21 private-service tests, four notation tests and four environment tests pass.
+Six specialized Rust checks and one inference test remain opt-in. Production
+TypeScript/Vite builds, Rust formatting and Clippy pass.
+
+Notation fixtures cover two staves, overlapping voices, ties, triplets, key and
+meter changes, leading/trailing rests, one-hand pieces, track selection, malformed
+files and unchanged source/playback events. Private service checks include
+authentication, extension-token rejection, path traversal and missing music21.
+UI regressions cover the saved Piano-button preference, search-page restoration, deletion, format switching,
+superseded loading events, tempo-aware cursor seeking and pausing before detach.
+
+Browser checks cover the app at 1120 × 760 and 900 × 620, and the sheet viewer
+from 700 × 500 down to 320 × 190. Genuine MusicXML renders with playback, seeking,
+zoom, Follow, manual scrolling and QWERTY/Piano switching. Small windows retain
+scroll access to the score and playback controls. Hiding Piano changes the
+1120 px library from three to four columns without resetting its search or page.
+
+The optimized Windows executable and NSIS installer build successfully; the
+installer's archive integrity check passes. The
+isolated native check renders the actual SVG score in WebView2, verifies shared
+sheet state, floating-window minimize/restore, converter access, stale revisions,
+SoundFont ranges and visualizer reuse. SDK and generated keyboard output stay
+off. The final native check uses the selected Python 3.10.19 / Torch 2.9.1+cu128
+environment and isolated synthetic data. music21 9.7.1 and six missing dependencies
+were added to that environment. All existing package versions, including Torch
+and NumPy 2.2.6, remain unchanged; CUDA is available and all 88 installed packages
+pass the dependency compatibility check. The user's song library is unchanged.
+
+Version 2 converter-pack recipes include music21, but new packs have not been
+built or distributed. Existing version 1 manifests retain their real hashes.
+Linux/macOS packages, physical audio/MIDI/analog hardware, interactive installer
+operation and live media-site downloads were not checked for this update.
+
 ## Version 0.1.7 release qualification — 2026-10-14
 
 148 frontend/extension checks, 56 Rust checks, 20 private-service checks and three

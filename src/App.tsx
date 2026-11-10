@@ -1,4 +1,5 @@
 import {useNotice,useNoticeText} from "./notices";
+import {version} from "../package.json";
 import { useEffect, useRef, useState } from "react";
 import TitleBar from "./TitleBar";
 import { listen } from "@tauri-apps/api/event";
@@ -1330,7 +1331,7 @@ export default function App() {
             </p>
           </div>
         )}
-        {state.settings.show_converter && <div style={{display:tab==="Convert"?"block":"none",height:"100%"}}><Converter active={tab==="Convert"} onError={setError}/></div>}
+        {state.settings.show_converter && <div style={{display:tab==="Convert"?"block":"none",height:"100%"}}><Converter active={tab==="Convert"} showPiano={state.settings.show_piano_button} onError={setError}/></div>}
         {tab === "Transposer" && <Transposer state={state} profile={workingProfile} edit={editProfile} send={send} apply={() => run(() => applySettings(draft!,draftRevision))} discard={() => setDraft(null)} dirty={!!draft} busy={busy} />}
         {tab === "Settings" && (
           <div className="split settings">
@@ -1344,12 +1345,17 @@ export default function App() {
               </div>
               <div className="control-block">
                 <h2>Modules</h2>
+                <div className="settings-module-group" role="group" aria-label="Discord settings">
                 <Toggle label="Discord Rich Presence" checked={working.discord_presence} onChange={v=>editSettings(s=>{s.discord_presence=v;})} />
-                <Toggle label="Show Get button" checked={working.discord_get_button} disabled={!working.discord_presence} onChange={v=>editSettings(s=>{s.discord_get_button=v;})} />
-                <div className="details-row"><span className="muted">Discord</span><span>{state.presence}</span></div>
+                <div className="settings-dependent"><Toggle label="Show Get button" checked={working.discord_get_button} disabled={!working.discord_presence} onChange={v=>editSettings(s=>{s.discord_get_button=v;})} /></div>
+                {state.presence&&<p className="help settings-module-status">{state.presence}</p>}
+                </div>
+                <div className="settings-module-group" role="group" aria-label="Optional tabs">
                 <Toggle label="Transposer tab" checked={working.show_transposer} onChange={v=>editSettings(s=>{s.show_transposer=v;})} />
                 <Toggle label="Converter tab" checked={working.show_converter} onChange={v=>editSettings(s=>{s.show_converter=v;})} />
-                <p className="help">Apply settings to show or hide tabs.</p>
+                <div className="settings-dependent"><Toggle label="Show Piano button" checked={working.show_piano_button} disabled={!working.show_converter} onChange={v=>editSettings(s=>{s.show_piano_button=v;})} /></div>
+                </div>
+                <p className="help">Apply settings to save module preferences.</p>
                 {state.settings.show_transposer&&<button onClick={()=>switchTab("Transposer")}>Open Transposer</button>}
               </div>
               <div className="control-block">
@@ -1444,7 +1450,7 @@ export default function App() {
               <h2>Diagnostics</h2>
               <div className="details-row">
                 <span className="muted">Version</span>
-                <span>0.1.4</span>
+                <span>{version}</span>
               </div>
               <div className="details-row">
                 <span className="muted">Events received</span>
@@ -1517,7 +1523,7 @@ export default function App() {
                 : "Ready"}
         </span>
         <span className="spacer" />
-        <span>lazymidi 0.1.4 {api.desktop ? "" : "· browser preview"}</span>
+        <span>lazymidi {version} {api.desktop ? "" : "· browser preview"}</span>
       </footer>
     </div>
   );

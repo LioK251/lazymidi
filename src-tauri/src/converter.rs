@@ -405,6 +405,7 @@ fn approved(path: &str, method: &str) -> bool {
             "/api/history/delete",
             "/api/settings",
             "/api/convert-to-sheets",
+            "/api/piano-sheet",
             "/api/runtime-switch",
         ]
         .contains(&base),

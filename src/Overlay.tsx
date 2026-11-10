@@ -1,13 +1,15 @@
 import {useNotice,useNoticeText} from "./notices";
-import {useEffect,useLayoutEffect,useRef,useState} from "react";
+import {lazy,Suspense,useEffect,useLayoutEffect,useRef,useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
 import {open} from "@tauri-apps/plugin-dialog";
 import * as api from "./backend";
 import {SheetText,SheetTools} from "./SheetText";
 import TitleBar from "./TitleBar";
-import {gamePoints,transposeModes} from "./converter-api";
-import type {Point,SheetContent,Values} from "./converter-api";
+import {defaults,gamePoints,transposeModes} from "./converter-api";
+import type {PianoOptions,Point,SheetContent,Values} from "./converter-api";
+
+const PianoSheet=lazy(()=>import("./PianoSheet"));
 
 const viewKey="lazymidi.sheet-view.v1";
 const defaultView={zoom:1,opacity:1,top:true,colored:true,centered:false};
@@ -34,7 +36,8 @@ function TransposeValue({value,chord,disabled,onCommit,onError}:{value:number;ch
 export default function Overlay({kind}:{kind:string}) {
   const [state,setState]=useState(api.initialState());
   const [sheet,setSheet]=useState<SheetContent>({text:""});const sheetRef=useRef(sheet);sheetRef.current=sheet;
-  const scroll=useRef<HTMLDivElement>(null);const restoreScroll=useRef<number|null>(null);const [busy,setBusy]=useState(false);
+  const scroll=useRef<HTMLDivElement>(null);const restoreScroll=useRef<number|null>(null);const [working,setBusy]=useState(false);
+  const [externalBusy,setExternalBusy]=useState(false);const busy=working||externalBusy;const loadingRevision=useRef(0);
   const [view,setView]=useState(()=>kind==="sheet"?savedView():defaultView);
   const viewRef=useRef(view);viewRef.current=view;
   const {zoom,opacity,top,colored,centered}=view;
@@ -70,6 +73,40 @@ export default function Overlay({kind}:{kind:string}) {
   }
   async function sendTransposes(values:number[]){setBusy(true);setError("");try{accept(await api.sendTransposeSequence(values));}catch(e){setError(api.errorText(e));}finally{setBusy(false);}}
   const options=(newTop:boolean)=>{changeView({top:newTop});applyTop(newTop);};
+  useEffect(()=>{
+    const revision=sheet.revision??0;
+    if(revision>=loadingRevision.current){loadingRevision.current=revision;setExternalBusy(false);}
+  },[sheet.revision]);
+  useEffect(()=>{
+    if(kind!=="sheet")return;
+    let disposed=false,stop=()=>{};
+    void listen<{revision:number;working:boolean;error?:string}>("sheet-loading",e=>{
+      if(disposed||e.payload.revision<loadingRevision.current)return;
+      if(e.payload.working&&e.payload.revision<=(sheetRef.current.revision??0))return;
+      loadingRevision.current=e.payload.revision;setExternalBusy(e.payload.working);
+      if(e.payload.error)setError(e.payload.error);else if(e.payload.working)setError("");
+    }).then(f=>{if(disposed)f();else stop=f;}).catch(e=>setError(api.errorText(e)));
+    return()=>{disposed=true;stop();};
+  },[kind]);
+  const piano=sheet.mode==="piano"?sheet.piano:undefined;
+  const midiFilename=sheet.source?.midi_filename??piano?.midi_filename;
+  async function changeMode(mode:"piano"|"qwerty",pianoOptions:PianoOptions={},filename=midiFilename){
+    if(busy)return;
+    if(!filename){if(mode==="piano")await openMidi();return;}
+    const current=sheetRef.current;setBusy(true);setError("");
+    try{
+      const value=await invoke<SheetContent>("generate_sheet",{midiFilename:filename,
+        settings:current.source?.settings??current.piano?.qwerty_settings??defaults,
+        expectedRevision:filename===midiFilename?current.revision??null:null,
+        ...(mode==="piano"?{pianoOptions}:{})});
+      setSheet(p=>(value.revision??0)>=(p.revision??0)?value:p);
+    }catch(e){setError(api.errorText(e));}finally{setBusy(false);}
+  }
+  async function openMidi(){
+    try{const result=await api.whilePaused(()=>invoke<{midi_filename?:string}|null>("converter_pick",{kind:"midi",device:null}));
+      if(result?.midi_filename)await changeMode("piano",{},result.midi_filename);
+    }catch(e){setError(api.errorText(e));}
+  }
   useLayoutEffect(()=>{if(restoreScroll.current!==null&&scroll.current){scroll.current.scrollTop=restoreScroll.current;restoreScroll.current=null;}},[sheet]);
   async function regenerate(changes:Values){const current=sheetRef.current;if(!current.source||busy)return;setBusy(true);setError("");restoreScroll.current=scroll.current?.scrollTop??0;
     try{const value=await invoke<SheetContent>("generate_sheet",{midiFilename:current.source.midi_filename,settings:{...current.source.settings,...changes},expectedRevision:current.revision??null});setSheet(p=>(value.revision??0)>=(p.revision??0)?value:p);}
@@ -81,22 +118,24 @@ export default function Overlay({kind}:{kind:string}) {
   function inheritedValue(chord:number){return [...points].sort((a,b)=>a.chord-b.chord).filter(p=>p.chord<=chord).at(-1)?.value??0;}
   const manual=sheet.source?.settings.transpose_mode==="manual";
   const modeControl=<select aria-label="Transpose mode" title={!sheet.source?"Requires source MIDI":undefined} disabled={!sheet.source||busy} value={String(sheet.source?.settings.transpose_mode??"none")} onChange={e=>void regenerate({transpose_mode:e.target.value})}>{Object.entries(transposeModes).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>;
-  return <div className={`aux-window ${kind==="monitor"?"monitor-window":""}`}><TitleBar label={kind==="monitor"?"Monitor":"Sheet"} onError={setError}/><div className="overlay" style={{opacity}}>{kind==="monitor"?<>
+  const viewOptions=<>
+    <label>Opacity<input aria-label="Sheet opacity" type="range" min="0.2" max="1" step="0.05" value={opacity} onChange={e=>changeView({opacity:+e.target.value})}/></label>
+    <label><input type="checkbox" checked={top} onChange={e=>options(e.target.checked)}/> Stay on top</label>
+  </>;
+  return <div className={`aux-window ${kind==="monitor"?"monitor-window":""}`}><TitleBar label={kind==="monitor"?"Monitor":piano?"Piano":"QWERTY"} onError={setError}/><div className="overlay" style={{opacity}}>{kind==="monitor"?<>
     <div className="monitor-values"><span>{sequence[(status.selected+sequence.length-1)%sequence.length]}</span><strong>{status.target??status.current??"—"}</strong><span>{sequence[(status.selected+1)%sequence.length]}</span></div>
     <div className="button-row monitor-controls"><button disabled={busy||!status.armed||status.busy||status.editing} onClick={()=>void command("previous")}>Previous</button><button title={!bindingsReady?"Assign Up/Down in Transposer.":undefined} disabled={busy||(!status.armed&&(!bindingsReady||status.editing))} onClick={()=>void command("toggle")}>{status.armed?"Pause":"Resume"}</button><button disabled={busy||!status.armed||status.busy||status.editing} onClick={()=>void command("next")}>Next</button></div>
   </>:<>
+    <div className="sheet-mode-switch" role="group" aria-label="Sheet format"><button aria-pressed={!piano} disabled={busy} onClick={()=>{if(piano)void changeMode("qwerty");}}>QWERTY</button>{state.settings.show_piano_button&&<button aria-pressed={!!piano} disabled={busy||!state.settings.show_converter} onClick={()=>{if(!piano)void changeMode("piano");}}>Piano</button>}{busy&&<span role="status">Working…</span>}</div>
+    {piano?<Suspense fallback={<p role="status">Loading piano viewer…</p>}><PianoSheet content={piano} revision={sheet.revision??0} zoom={zoom} onZoom={zoom=>changeView({zoom})} busy={busy} onOpen={()=>void openMidi()} onGenerate={options=>void changeMode("piano",options)} onError={setError} viewOptions={viewOptions}/></Suspense>:<>
     <SheetTools text={sheet.image?"":sheet.text??""} image={!!sheet.image} colored={colored} onColored={colored=>changeView({colored})} centered={centered} onCentered={centered=>changeView({centered})} zoom={zoom} onZoom={zoom=>changeView({zoom})} onError={setError} hideLegend onSendTransposes={sendTransposes} busy={busy}
       onOpen={()=>void api.whilePaused(()=>open({multiple:false,filters:[{name:"Sheet",extensions:["txt","png","jpg","jpeg","webp"]}]}).then(path=>path&&invoke("overlay_sheet",{path,text:null}))).catch(e=>setError(api.errorText(e)))}
-      viewOptions={<>
-      <label>Opacity<input aria-label="Sheet opacity" type="range" min="0.2" max="1" step="0.05" value={opacity} onChange={e=>changeView({opacity:+e.target.value})}/></label>
-      <label><input type="checkbox" checked={top} onChange={e=>options(e.target.checked)}/> Stay on top</label>
-    </>}>
+      viewOptions={viewOptions}>
       {modeControl}
     </SheetTools>
-    {busy&&<p role="status">Working…</p>}
     <div className="sheet-scroll" ref={scroll}>{sheet.image?<img alt="Piano sheet" src={sheet.image} style={{width:`${zoom*100}%`}}/>:sheet.text?<SheetText text={sheet.text} colored={colored} centered={centered} zoom={zoom}
       lineContent={manual?(line,i)=>{const match=/^Transpose by:\s*([+-]?\d+)/i.exec(line);const chord=sheet.source?.line_chord_map[i];return match&&chord!=null&&chord>=0?<TransposeValue value={Number(match[1])} chord={chord} disabled={busy} onCommit={value=>changePoint(chord,value)} onError={setError}/>:null;}:undefined}
       lineAction={manual?i=>{const chord=sheet.source?.line_chord_map[i];const line=sheet.text?.split("\n")[i]??"";if(chord==null||chord<0||!line.trim()||/^<!--/.test(line))return null;const exists=points.some(p=>p.chord===chord);if(/^Transpose by:/i.test(line))return exists?<button className="sheet-point-action" disabled={busy} aria-label={`Remove transpose at chord ${chord}`} onClick={()=>removePoint(chord)}>−</button>:null;return !exists?<button className="sheet-point-action" disabled={busy} aria-label={`Add transpose at chord ${chord}`} onClick={()=>changePoint(chord,inheritedValue(chord))}>+</button>:null;}:undefined}
-    />:<p className="muted">Open a sheet, or send one from Convert → Sheets.</p>}</div>
+    />:<p className="muted">Open a sheet, or send one from Convert → Sheets.</p>}</div></>}
   </>}{(error||statusError)&&<p role="alert" title={error||statusError||undefined}>{error||statusError}</p>}</div></div>;
 }

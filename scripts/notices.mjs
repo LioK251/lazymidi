@@ -24,8 +24,11 @@ writeFileSync('THIRD_PARTY_DEPENDENCIES.html',html);
 const lock=JSON.parse(readFileSync('package-lock.json','utf8'));
 let frontend='lazymidi production frontend dependency notices\n';
 for(const [path,p] of Object.entries(lock.packages).filter(([path,p])=>path&&!p.dev)) {
+  if(p.optional&&!existsSync(path)) continue;
   frontend+=`\n${path.replace(/^node_modules\//,'')} ${p.version} · ${p.license??''}\n`;
   const licenses=readdirSync(path).filter(name=>/^(licen[sc]e|copying|notice)/i.test(name));
+  // isarray publishes its complete MIT license in the README.
+  if(path.endsWith('/isarray')&&!licenses.length) licenses.push('README.md');
   if(!licenses.length) throw new Error(`No frontend license text for ${path}`);
   for(const file of licenses) frontend+=readFileSync(join(path,file),'utf8')+'\n';
 }

@@ -95,8 +95,9 @@ Windows x64 is currently qualified. The supplied old converter environment was
 checked with Python 3.10.19/PyTorch 2.9.1+cu128; an actual generated-audio CUDA
 conversion completed and produced valid MIDI without installing packages.
 
-Development pack manifests record these measured Windows x64 sizes. Packs are
-not included in 0.1.4; use an existing compatible environment. Developers can
+Development pack manifests record these measured Windows x64 version 1 sizes.
+These packs do not include Piano notation. Packs are not distributed with the
+app; use an existing compatible environment. Developers can
 generate local packs under `target/converter-packs/`:
 
 | Pack | Download bytes | Installed bytes | Local install manifest |
@@ -167,13 +168,43 @@ Extension access is
 limited to submissions/import and its own jobs, not library/settings/history.
 The replacement v0.1.5 extension downloads MuseScore MIDI directly using LibreScore's dynamic MD5 authorization and legacy fallback, then uses the existing scoped MIDI import. Replace the older unpacked extension, which used a file picker. No additional page button is added. Full notices for the adapted MIT code and bundled MD5 helper are under `extension/vendor/`. Native-player token interception is not included; upstream API or CDN changes and website verification can still prevent downloading.
 
+### Piano notation
+
+Choose **Piano** beside **QWERTY** on a MIDI song. Both use the existing sheet
+window. Piano shows treble and bass staves, with playback, seeking, zoom and a
+following cursor. Scrolling by hand turns Follow off; enable it again to follow
+playback. Closing or minimizing the viewer pauses playback.
+
+**Settings → Modules → Show Piano button** is on by default. Turn it off and
+apply settings to hide converter Piano actions and fit more songs per row.
+
+Piano uses `music21==9.7.1` in the selected Python environment and the bundled
+OpenSheetMusicDisplay renderer. It needs no notation program or online service.
+Older environments can still convert audio and generate QWERTY sheets. If Piano
+reports a missing dependency, select an environment with music21 or install a
+version 2 local runtime pack through **Convert → Runtime setup**. lazymidi does
+not install packages into an existing environment.
+
+Piano tracks are selected first; use **Tracks & rhythm** to choose others. Named
+left/right tracks determine the staff; other tracks split at C4 by default.
+Notation quantizes timing to sixteenths and triplets, with finer detail available.
+Playback preserves the selected tracks' original timing, velocities and pedals.
+The score is an automatic transcription: dense or freely timed MIDI may need
+manual editing in a notation program. It supports beat-based MIDI types 0 and 1,
+up to 8 MiB, 20,000 selected notes, 8,000 beats and 2,000 measures.
+
+Library search has its own page position. Clearing the search restores the last
+browsing page; deleting files clamps that position to the remaining pages.
+
 ## Build and qualification
 
 `python scripts/build-converter-pack.py cpu` (or `cuda`) builds a versioned
 embedded Python directory, pinned packages/model and FFmpeg. It requires a
 trusted local FFmpeg distribution (`--ffmpeg C:/ffmpeg` by default).
-Do not commit generated multi-gigabyte packs. `converter/packs.json` records
-measured sizes and hashes; release URLs are deliberately null in this build.
+The version 2 recipe includes music21. Do not commit generated multi-gigabyte
+packs. `converter/packs.json` still records the measured version 1 sizes and
+hashes; generate new manifests when building version 2 packs. Release URLs are
+deliberately null in this build.
 
 The local Gyan FFmpeg build is GPLv3. Packs retain its license, exact FFmpeg
 source archive and build configuration. Before public redistribution, obtain
