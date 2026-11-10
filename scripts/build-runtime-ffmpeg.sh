@@ -35,7 +35,7 @@ case "$(uname -s)" in
   Darwin) export MACOSX_DEPLOYMENT_TARGET=14.0 ;;
 esac
 cd "$work/openssl-3.5.9"
-perl ./Configure "${openssl_target[@]}" no-shared no-tests --prefix="$prefix" --libdir=lib
+perl ./Configure ${openssl_target[@]+"${openssl_target[@]}"} no-shared no-tests --prefix="$prefix" --libdir=lib
 make -j"$jobs"
 make install_sw
 cd "$work/lame-3.100"
@@ -47,7 +47,7 @@ cd "$work/ffmpeg-8.1.3"
 ./configure --prefix="$output" --disable-autodetect --disable-gpl --disable-nonfree \
   --disable-shared --enable-static --disable-doc --disable-debug --disable-ffplay \
   --enable-openssl --enable-version3 --enable-libmp3lame --pkg-config-flags=--static \
-  --extra-cflags="-I$prefix/include" --extra-ldflags="$ldflags" "${ffmpeg_target[@]}"
+  --extra-cflags="-I$prefix/include" --extra-ldflags="$ldflags" ${ffmpeg_target[@]+"${ffmpeg_target[@]}"}
 make -j"$jobs"
 make install
 "$output/bin/ffmpeg" -version > "$output/licenses/FFmpeg-build.txt"

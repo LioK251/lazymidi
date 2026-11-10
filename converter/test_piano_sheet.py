@@ -1,11 +1,13 @@
 import base64
 import io
 import pathlib
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
 import mido
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from piano_sheet import generate
 
 

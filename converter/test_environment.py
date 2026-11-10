@@ -47,6 +47,28 @@ class EnvironmentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "model file is missing"):
             probe.check()
 
+    def test_model_checks_gate_gpu_support_and_keep_cpu_available(self):
+        self.torch.version.cuda = "12.8"
+        with patch.object(probe, "check_model") as model:
+            self.assertEqual(probe.check(inference=True)["devices"], ["cpu", "cuda"])
+            self.assertEqual([call.args[0] for call in model.call_args_list], ["cpu", "cuda"])
+            def gpu_failure(device):
+                if device == "cuda":
+                    raise RuntimeError("GPU model failed")
+            model.side_effect = gpu_failure
+            result = probe.check(inference=True)
+            self.assertEqual(result["devices"], ["cpu"])
+            self.assertIn("GPU model failed", result["cuda_error"])
+            model.side_effect = RuntimeError("CPU failed")
+            with self.assertRaisesRegex(ValueError, "CPU model check failed"):
+                probe.check(inference=True)
+
+    def test_mps_requires_a_successful_model_probe(self):
+        self.torch.backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: True))
+        with patch.object(probe.sys, "platform", "darwin"), patch.object(probe, "check_model") as model:
+            self.assertEqual(probe.check(inference=True)["devices"], ["cpu", "mps"])
+            self.assertEqual([call.args[0] for call in model.call_args_list], ["cpu", "mps"])
+
     def test_notation_dependency_is_optional_for_existing_environments(self):
         def import_module(name):
             if name == "music21":
