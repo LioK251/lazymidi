@@ -282,6 +282,14 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
         playback=piano.piano.midi_base64;pianoRevision=piano.revision;
       }finally{stopPiano();clearTimeout(pianoTimer);}
       }
+      const {WebviewWindow}=await import("@tauri-apps/api/webviewWindow");
+      const retained=await WebviewWindow.getByLabel("sheet");
+      await retained?.close();
+      for(let wait=0;wait<40&&await retained?.isVisible();wait++)await new Promise(resolve=>setTimeout(resolve,25));
+      if(!await WebviewWindow.getByLabel("sheet")||await retained?.isVisible())throw new Error("Piano sheet was not retained hidden.");
+      await openOverlay("sheet");
+      if(!await retained?.isVisible())throw new Error("Piano sheet did not reopen.");
+      if((await invoke<{revision:number}>("get_sheet")).revision!==pianoRevision)throw new Error("Reopening Piano changed the sheet.");
       let rejected=false;try{await invoke("generate_sheet",{midiFilename:"smoke.mid",settings:{},expectedRevision:sheet.revision-1});}catch{rejected=true;}
       if(!rejected)throw new Error("Stale sheet generation was accepted.");
       const fonts=await invoke<{soundfonts:{filename:string;size:number}[]}>("converter_request",{method:"GET",path:"/api/soundfonts",body:null});

@@ -407,6 +407,7 @@
       let preferred = selectedUrl;
       if(!preferred)try { preferred = (await loadSheetsSettings()).visualizer_soundfont || ''; } catch (_) {}
       if (!preferred) try { preferred = localStorage.getItem('pianoSoundFontUrl') || ''; } catch (_) {}
+      preferred = window.resolvePianoSoundFont?.(preferred) || preferred;
       sfSelect.value = data.soundfonts.find(sf => sf.url === preferred)?.url
         || BUILTIN_PIANO;
     } catch (e) {
@@ -1462,7 +1463,7 @@
       await ensureLibsLoaded();
       if (revision !== openRevision) return;
 
-      if (sfSelect && !sfSelect.value) await loadSoundFontList();
+      if (sfSelect) await loadSoundFontList();
       if (revision !== openRevision) return;
 
       await loadMidi(midiFilename, revision, midiBase64);

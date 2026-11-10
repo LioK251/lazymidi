@@ -127,6 +127,10 @@ window. Piano shows treble and bass staves, playback, seeking, zoom and a follow
 cursor. Manual scrolling turns Follow off. Closing, minimizing, replacing the
 score or opening another player pauses the previous playback.
 
+Piano and Visualizer share the selected SoundFont. Closing either window keeps
+its font loaded until the app exits, as does switching sheets or songs. Each
+viewer initializes its own audio engine on first use.
+
 **Settings → Modules → Show Piano button** defaults on. Turn it off and apply
 settings to hide Piano in Convert and the floating viewer. Library cards keep
 the same compact Sheet, Export and × row either way. An already loaded score stays open.

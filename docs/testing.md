@@ -3,11 +3,11 @@
 ## Version 0.1.8 release qualification — 2026-11-10
 
 The current Windows preview is unpublished, pending the user's app testing.
-168 frontend/extension tests, 21 private-service tests and 11 notation tests
-pass, as do the production TypeScript/Vite build and Windows NSIS packaging.
-The earlier runtime qualification passed 57 Rust workspace tests, 45 SDK-free
-core tests, six environment tests, three installer-script tests, formatting and
-Clippy. Runtime/model installation code did not change in this preview.
+171 frontend/extension tests and 57 Rust workspace tests pass, as do formatting,
+the production TypeScript/Vite build and Windows NSIS packaging. The earlier
+notation/runtime qualification passed 21 private-service tests, 11 notation
+tests, 45 SDK-free core tests, six environment tests, three installer-script
+tests and Clippy. Runtime/model installation code did not change in this preview.
 
 Notation fixtures cover two staves, overlapping voices, ties, triplets, key and
 meter changes, rests, one-hand pieces, track selection, malformed files and
@@ -16,13 +16,15 @@ tempo detection, staccato releases, accidental cancellation and bar-crossing tie
 “Abyss - Kaiju No. 8 OP | Piano | YUNGBLUD” now engraves as 59 measures at an
 estimated 115 BPM with four flats. Standard/detail views contain 88/106 rests
 (previously 1,252 in Standard), 12 accidentals and no unintended tuplets.
-Rendered opening, verse, chorus and ending passages were inspected. A sweep of
-5,040 playback positions found no backward cursor jumps, down from 120.
-The cursor now interpolates engraved positions on each audio-clock frame. In
-a five-second Abyss sample it moved at every sampled position, instead of
-remaining still in 182 of 199 intervals and then jumping between notes.
-Its width at normal zoom is 30 pixels, previously 5. Regression checks cover
-tempo changes, estimated rhythm, line breaks, zoom and replacement-song timing.
+Rendered opening, verse, chorus and ending passages were inspected. The layout
+now preserves each measure's minimum engraving width: compressed measures at
+high zoom had reversed some note positions, causing 177/367 backward samples
+in Standard/Detailed views at 700 px and 2× zoom. A 277,222-position sweep across
+22 combinations of rhythm, width (420–1200 px) and zoom (0.5–3×) found none.
+The cursor interpolates engraved positions on each audio-clock frame and stays
+12 pixels wide at every zoom. Compact playback controls and marker styling were
+inspected at 420, 700 and 1000 px. Regression checks cover tempo changes,
+estimated rhythm, line breaks, resizing, zoom and replacement-song timing.
 Play, seeking, Follow, manual scrolling, zoom and repeated score replacement
 passed. Both modes retain identical playback MIDI; the original file's hash is
 unchanged. The user's song is not a distributed fixture.
@@ -34,14 +36,20 @@ pausing before detach. Library checks cover 900–1360 px windows: Sheet, Export
 and × share one aligned row, with four columns at 1120 px whether Piano is on
 or off. Search and page position survive Settings changes. Sheet resizing and
 zoom were checked at 420, 700 and 1000 px widths.
+An imported 380 MB SoundFont generated non-silent PCM with output muted. Real
+Abyss playback had no backward clock or marker movement. Initial loading used
+46 bounded reads; mode changes and three MIDI replacements added none. Browser
+checks also passed shared SoundFont selection between Piano and Visualizer.
+Each native viewer retains its own audio engine and loaded font; this is shared
+selection, not a single synthesizer instance spanning windows.
 Opening another player stops the previous one in browser tests and the shared
 player regression. Live WebView2 playback instrumentation was unavailable;
 physical audio output and that native handoff remain for manual testing.
 
 The current packaged Windows/WebView2 check passes with full Abyss notation and
-the isolated CPU environment, plus shared sheet state, scoped
+the existing environment and isolated app storage, plus shared sheet state, scoped
 assets, floating-window minimize/restore, stale revisions, large SoundFont
-ranges and visualizer reuse. SDK and generated keyboard output stay off.
+ranges and Sheet/Visualizer reuse. SDK and generated keyboard output stay off.
 The user's library and active runtime selection are unchanged.
 Existing-environment and fresh CPU/NVIDIA installation checks passed during
 the earlier runtime qualification.

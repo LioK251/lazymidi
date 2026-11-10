@@ -8,7 +8,7 @@ import * as api from "./backend";
 let sheetEvent:(event:{payload:SheetContent})=>void=()=>{};
 let loadingEvent:(event:{payload:{revision:number;working:boolean;error?:string}})=>void=()=>{};
 vi.mock("@tauri-apps/api/core",()=>({invoke:vi.fn(),isTauri:()=>false}));
-vi.mock("./PianoSheet",()=>({default:({content}:{content:{midi_filename:string}})=><div>Piano score {content.midi_filename}</div>}));
+vi.mock("./PianoSheet",()=>({default:({content,active=true}:{content:{midi_filename:string};active?:boolean})=><div hidden={!active}>Piano score {content.midi_filename}</div>}));
 vi.mock("@tauri-apps/api/event",()=>({listen:vi.fn(async(name,listener)=>{if(name==="sheet-content")sheetEvent=listener;if(name==="sheet-loading")loadingEvent=listener;return()=>{};})}));
 beforeEach(()=>localStorage.clear());
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.clearAllMocks();});
@@ -41,12 +41,14 @@ it("switches formats in the same viewer and rejects an older QWERTY reply",async
   });
   await act(async()=>{render(<Overlay kind="sheet"/>);});
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Piano"}));});
-  expect(await screen.findByText("Piano score Song.mid")).toBeTruthy();
+  const pianoNode=await screen.findByText("Piano score Song.mid");
   await act(async()=>{sheetEvent({payload:qwerty});});
   expect(screen.getByText("Piano score Song.mid")).toBeTruthy();
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"QWERTY"}));});
   expect(invoke).toHaveBeenLastCalledWith("generate_sheet",{midiFilename:"Song.mid",settings:source.settings,expectedRevision:11});
   expect(screen.getByLabelText("Piano sheet").textContent).toContain("[etu]");
+  expect(pianoNode.isConnected).toBe(true);
+  expect(pianoNode.hidden).toBe(true);
   expect(invoke).not.toHaveBeenCalledWith("open_overlay",expect.anything());
 });
 

@@ -56,8 +56,8 @@ it("sends only player settings that changed so other-window drafts stay intact",
   try{
     w.eval(readFileSync(resolve("public/converter/bridge.js"),"utf8"));
     w.dispatchEvent(new w.MessageEvent("message",{source:w,origin:w.location.origin,data:{type:"converter-visualize",settings:{visualizer_speed:280,visualizer_soundfont:""},assetRoot:"/"}}));
-    await w.saveSheetsSettings({visualizer_speed:280,visualizer_soundfont:"piano.sf2"});
-    expect(post).toHaveBeenCalledWith({type:"converter-settings-save",settings:{visualizer_soundfont:"piano.sf2"}},w.location.origin);
+    await w.saveSheetsSettings({visualizer_speed:280,visualizer_soundfont:"/soundfonts/piano.sf2"});
+    expect(post).toHaveBeenCalledWith({type:"converter-settings-save",settings:{visualizer_soundfont:"/soundfonts/piano.sf2"}},w.location.origin);
     await w.fetch('/soundfonts/piano.sf2',{headers:{Range:'bytes=0-1023'}});
     expect(nativeFetch).toHaveBeenCalledWith('/soundfonts/piano.sf2',{headers:{Range:'bytes=0-1023'}});
   }finally{w.close();}

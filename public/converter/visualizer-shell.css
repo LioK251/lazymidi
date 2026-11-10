@@ -41,5 +41,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .score-transport .pv-loading-overlay{position:static;padding:4px 8px;min-height:0;gap:4px;background:transparent}
 .score-transport .pv-loading-spinner,.score-transport .pv-loading-progress{display:none}
 .score-transport .pv-loading-text{font-size:12px}
-.score-transport .pv-controls{justify-content:flex-start}
+.score-transport .pv-controls{justify-content:flex-start;padding:5px 6px;gap:6px}
+.score-transport .pv-controls button,.score-transport .pv-controls select{min-height:28px!important;height:28px;padding:3px 6px}
+.score-transport .pv-transport button,.score-transport .pv-volume-icon{width:28px;padding:0}
+.score-transport .pv-time{font-variant-numeric:tabular-nums;min-width:78px}
 .score-transport .pv-soundfont-controls{margin-left:auto}

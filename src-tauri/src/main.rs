@@ -156,10 +156,10 @@ fn main() {
                 }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     overlays::save_geometry(window);
-                    if window.label() == "visualizer" {
+                    if window.label() == "visualizer" || window.label() == "sheet" {
                         use tauri::Emitter;
                         api.prevent_close();
-                        let _ = window.emit("visualizer-visibility", false);
+                        let _ = window.emit(&format!("{}-visibility", window.label()), false);
                         let _ = window.hide();
                     }
                 }

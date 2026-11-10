@@ -16,12 +16,15 @@ vi.mock("opensheetmusicdisplay",()=>{
   return {Fraction,OutlineAndFillStyleEnum:{PlaybackCursor:3},OpenSheetMusicDisplay:class {
     ready=false;Zoom=1;
     cursor={show:vi.fn(),cursorElement:document.createElement("img")};
-    GraphicSheet={calculateCursorLineAtTimestamp:vi.fn((timestamp:Fraction)=>{
+    EngravingRules={PageLeftMargin:5,PageRightMargin:5,SystemLeftMargin:0,SystemRightMargin:0};
+    GraphicSheet={MeasureList:[[{minimumStaffEntriesWidth:30,beginInstructionsWidth:10,endInstructionsWidth:1}]],
+      calculateCursorLineAtTimestamp:vi.fn((timestamp:Fraction)=>{
       const beat=timestamp.RealValue*4,system=Math.floor(beat/4),x=10+(beat%4)*10,y=5+system*20;
       return {Start:{x,y},End:{x,y:y+12}};
     })};
     render=vi.fn();clear=vi.fn();
     constructor(element:HTMLElement){instances.push(this);this.render.mockImplementation(()=>{
+      this.cursor.cursorElement=document.createElement("img");
       this.cursor.cursorElement.width=30*this.Zoom;
       element.replaceChildren(document.createElementNS("http://www.w3.org/2000/svg","svg"),this.cursor.cursorElement);
     });}
@@ -68,21 +71,30 @@ it("allows manual reading and explicitly restoring Follow",async()=>{
   expect(follow.checked).toBe(true);
   fireEvent.wheel(screen.getByLabelText("Piano notation"));expect(follow.checked).toBe(false);
   fireEvent.click(follow);expect(follow.checked).toBe(true);
+  fireEvent.keyDown(screen.getByLabelText("Piano notation"),{key:"ArrowRight"});expect(follow.checked).toBe(false);
 });
 
 it("moves the marker between note onsets, changes lines immediately, and retains its position after zoom",async()=>{
   const props={content:content(),revision:1,zoom:1,busy:false,viewOptions:null,...callbacks()};
   const view=render(<PianoSheet {...props}/>);await act(async()=>{});
   const frame=screen.getByTitle("Piano playback") as HTMLIFrameElement;
-  const osmd=instances[0],marker=osmd.cursor.cursorElement;
+  const osmd=instances[0];let marker=osmd.cursor.cursorElement;
   const seek=(time:number)=>fireEvent(window,new MessageEvent("message",{origin:location.origin,source:frame.contentWindow,data:{type:"converter-playback",revision:1,time}}));
   seek(.1);const first=marker.style.transform;
   seek(.15);expect(marker.style.transform).not.toBe(first);
-  seek(3.5);expect(marker.style.transform).toBe("translate3d(85px, 250px, 0)");
+  seek(3.5);expect(marker.style.transform).toBe("translate3d(94px, 250px, 0)");
   view.rerender(<PianoSheet {...props} zoom={2}/>);
-  expect(marker.style.transform).toBe("translate3d(170px, 500px, 0)");
+  marker=osmd.cursor.cursorElement;
+  expect(marker.style.transform).toBe("translate3d(194px, 500px, 0)");
+  expect(marker.classList.contains('piano-score-cursor')).toBe(true);
+  expect(marker.width).toBe(12);
   expect(marker.height).toBe(240);
-  seek(.1);expect(marker.style.transform).toBe("translate3d(210px, 100px, 0)");
+  seek(.1);expect(marker.style.transform).toBe("translate3d(234px, 100px, 0)");
+});
+
+it("preserves the engraver's minimum measure width when the score is zoomed in",async()=>{
+  await act(async()=>{render(<PianoSheet content={content()} revision={1} zoom={2} busy={false} viewOptions={null} {...callbacks()}/>);});
+  expect((document.querySelector('.piano-score-paper') as HTMLElement).style.minWidth).toBe('1020px');
 });
 
 it("follows original performance times when the written beat grid is estimated",async()=>{
@@ -112,11 +124,15 @@ it("pauses playback during regeneration and before the viewer unmounts",async()=
   const props={content:content(),revision:1,zoom:1,viewOptions:null,...callbacks()};
   const view=render(<PianoSheet {...props} busy={false}/>);
   await act(async()=>{});
-  const player=(screen.getByTitle("Piano playback") as HTMLIFrameElement).contentWindow!;
+  const frame=screen.getByTitle("Piano playback") as HTMLIFrameElement,player=frame.contentWindow!;
   const post=vi.spyOn(player,"postMessage");
   const stop=vi.fn();Object.assign(player,{setVisualizerActive:stop});
   view.rerender(<PianoSheet {...props} busy/>);
   expect(post).toHaveBeenLastCalledWith({type:"converter-visibility",visible:false},location.origin);
+  view.rerender(<PianoSheet {...props} busy={false} active={false}/>);
+  fireEvent(document,new Event('visibilitychange'));
+  expect(post).toHaveBeenLastCalledWith({type:"converter-visibility",visible:false},location.origin);
+  expect(screen.getByTitle('Piano playback')).toBe(frame);
   view.unmount();
   expect(stop).toHaveBeenCalledWith(false);
   expect(post).toHaveBeenLastCalledWith({type:"converter-visibility",visible:false},location.origin);

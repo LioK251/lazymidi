@@ -14,8 +14,8 @@ export function scorePosition(times:number[],time:number):number {
   return Math.max(0,low-1);
 }
 
-export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate,onOpen,onError,viewOptions}:{
-  content:PianoContent;revision:number;zoom:number;busy:boolean;onZoom:(zoom:number)=>void;
+export default function PianoSheet({content,revision,zoom,busy,active=true,onZoom,onGenerate,onOpen,onError,viewOptions}:{
+  content:PianoContent;revision:number;zoom:number;busy:boolean;active?:boolean;onZoom:(zoom:number)=>void;
   onGenerate:(options:PianoOptions)=>void;onOpen:()=>void;onError:(message:string)=>void;viewOptions:ReactNode;
 }) {
   const container=useRef<HTMLDivElement>(null),paper=useRef<HTMLDivElement>(null),frame=useRef<HTMLIFrameElement>(null);
@@ -25,7 +25,8 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
   const [playerHeight,setPlayerHeight]=useState(96);
   const followRef=useRef(follow);followRef.current=follow;
   const zoomRef=useRef(zoom);zoomRef.current=zoom;
-  const requestRef=useRef({content,revision});requestRef.current={content,revision};
+  const requestRef=useRef({content,revision,active,busy});requestRef.current={content,revision,active,busy};
+  const windowVisible=useRef(true);
   const settings=useRef<Values>({...defaults});
   const [tracks,setTracks]=useState(content.track_ids);
   const [split,setSplit]=useState(String(content.split));
@@ -45,17 +46,37 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
       beat=a.beat+(time-a.time)/(b.time-a.time)*(b.beat-a.beat);
     }
     // Interpolate engraved positions at the audio clock, including rests and line breaks.
-    const line=osmd.GraphicSheet.calculateCursorLineAtTimestamp(new Fraction(Math.max(0,beat),4),OutlineAndFillStyleEnum.PlaybackCursor);
+    const timestamp=new Fraction(Math.max(0,beat),4),score=osmd.GraphicSheet;
+    const line=score.calculateCursorLineAtTimestamp(timestamp,OutlineAndFillStyleEnum.PlaybackCursor);
     if(!line)return;
     const marker=osmd.cursor.cursorElement,scale=10*osmd.Zoom;
+    marker.width=12;
     marker.style.left="0px";marker.style.top="0px";
     marker.style.transform=`translate3d(${line.Start.x*scale-marker.width/2}px, ${line.Start.y*scale}px, 0)`;
     marker.height=Math.round((line.End.y-line.Start.y)*scale);
     if(followRef.current){
       const bounds=marker.getBoundingClientRect(),viewport=scroller.getBoundingClientRect();
-      if(time<=0)scroller.scrollTop=0;
+      if(time<=0){scroller.scrollTop=0;scroller.scrollLeft=0;}
       else if(bounds.top>viewport.bottom-80||bounds.bottom<viewport.top+20)scroller.scrollTop+=bounds.top-viewport.top-48;
+      if(bounds.right>viewport.right-24)scroller.scrollLeft+=bounds.right-viewport.right+24;
+      else if(bounds.left<viewport.left+24)scroller.scrollLeft+=bounds.left-viewport.left-24;
     }
+  }
+
+  function redraw(){
+    const osmd=renderer.current,node=paper.current;
+    if(!osmd?.IsReadyToRender()||!node||!requestRef.current.active)return;
+    try{
+      node.style.minWidth="280px";osmd.Zoom=zoomRef.current;osmd.render();
+      const measures=osmd.GraphicSheet.MeasureList.flat(),rules=osmd.EngravingRules;
+      const minimum=Math.max(0,...measures.map(m=>m.minimumStaffEntriesWidth+m.endInstructionsWidth))+Math.max(0,...measures.map(m=>m.beginInstructionsWidth));
+      const width=Math.ceil((minimum+rules.PageLeftMargin+rules.PageRightMargin+rules.SystemLeftMargin+rules.SystemRightMargin)*10*osmd.Zoom);
+      // Overcompressing a measure can reverse the engraver's note positions.
+      if(width>node.clientWidth){node.style.minWidth=`${Math.max(280,width)}px`;osmd.render();}
+      osmd.cursor.show();
+      osmd.cursor.cursorElement.classList.add("piano-score-cursor");osmd.cursor.cursorElement.alt="";
+      updateCursor(clock.current);
+    }catch(e){setRenderError(api.errorText(e));}
   }
 
   useEffect(()=>{
@@ -63,13 +84,8 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
     setLoading(true);setRenderError("");clock.current=0;
     const osmd=new OpenSheetMusicDisplay(paper.current!,{backend:"svg",autoResize:false,drawingParameters:"compact",drawCredits:false,
       drawPartNames:false,drawMeasureNumbers:true,drawMetronomeMarks:true,followCursor:false,
-      cursorsOptions:[{type:0,color:"#397c63",alpha:0.45,follow:false}]});
+      cursorsOptions:[{type:1,color:"#397c63",alpha:0.18,follow:false}]});
     renderer.current=osmd;
-    const redraw=()=>{
-      if(disposed||!osmd.IsReadyToRender())return;
-      try{osmd.Zoom=zoomRef.current;osmd.render();osmd.cursor.show();updateCursor(clock.current);}
-      catch(e){setRenderError(api.errorText(e));}
-    };
     void osmd.load(content.musicxml).then(()=>{
       if(disposed)return;
       redraw();
@@ -79,27 +95,25 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
     let width=0;
     const observer=new ResizeObserver(entries=>{
       const next=entries[0]?.contentRect.width??0;
-      if(next===width)return;width=next;cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(redraw);
+      if(next<=0||next===width)return;width=next;cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(redraw);
     });
     observer.observe(container.current!);
     return()=>{disposed=true;observer.disconnect();cancelAnimationFrame(resizeFrame);osmd.clear();if(renderer.current===osmd)renderer.current=null;};
   },[content.musicxml,midi,revision]);
-  useEffect(()=>{
-    const osmd=renderer.current;if(!osmd?.IsReadyToRender())return;
-    try{osmd.Zoom=zoom;osmd.render();osmd.cursor.show();updateCursor(clock.current);}catch(e){setRenderError(api.errorText(e));}
-  },[zoom]);
+  useEffect(redraw,[zoom,active]);
   useEffect(()=>{if(follow)updateCursor(clock.current);},[follow]);
   useEffect(()=>{setTracks(content.track_ids);setSplit(String(content.split));setRhythm(content.rhythm);},[content]);
 
   const send=(value:object)=>frame.current?.contentWindow?.postMessage(value,location.origin);
+  const sendVisibility=()=>send({type:"converter-visibility",visible:requestRef.current.active&&!requestRef.current.busy&&windowVisible.current&&!document.hidden});
   function loadPlayer(){
     const current=requestRef.current;
     send({type:"converter-visualize",filename:current.content.midi_filename,revision:current.revision,
       midiBase64:current.content.midi_base64,settings:settings.current,assetRoot:convertFileSrc("/","converter")});
-    send({type:"converter-visibility",visible:!document.hidden});
+    sendVisibility();
   }
   useEffect(()=>{loadPlayer();},[revision]);
-  useEffect(()=>{if(busy)send({type:"converter-visibility",visible:false});else send({type:"converter-visibility",visible:!document.hidden});},[busy]);
+  useEffect(sendVisibility,[busy,active]);
   // Pause while the iframe's document is still attached.
   useLayoutEffect(()=>{
     let disposed=false,stopVisibility=()=>{};
@@ -119,18 +133,19 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
         .finally(()=>send({type:"converter-import-complete"}));
       if(data?.type==="converter-settings-save"){
         const changed=Object.fromEntries(Object.entries(data.settings??{}).filter(([key])=>visualizerSetting(key)));
+        settings.current={...settings.current,...changed};
         void converterRequest<Values>("/api/settings").then(latest=>converterRequest("/api/settings",{...latest,...changed})).catch(e=>onError(api.errorText(e)));
       }
     };
-    const visibility=()=>send({type:"converter-visibility",visible:!document.hidden});
+    const visibility=()=>sendVisibility();
     const playerWindow=frame.current?.contentWindow as (Window&{setVisualizerActive?:(visible:boolean)=>void})|null;
     const stop=()=>{playerWindow?.setVisualizerActive?.(false);playerWindow?.postMessage({type:"converter-visibility",visible:false},location.origin);};
     window.addEventListener("message",handle);document.addEventListener("visibilitychange",visibility);window.addEventListener("beforeunload",stop);
-    void listen<boolean>("sheet-visibility",e=>send({type:"converter-visibility",visible:e.payload})).then(f=>{if(disposed)f();else stopVisibility=f;});
+    void listen<boolean>("sheet-visibility",e=>{windowVisible.current=e.payload;sendVisibility();}).then(f=>{if(disposed)f();else stopVisibility=f;});
     return()=>{disposed=true;stop();stopVisibility();window.removeEventListener("message",handle);document.removeEventListener("visibilitychange",visibility);window.removeEventListener("beforeunload",stop);};
   },[]);
 
-  return <section className="piano-sheet">
+  return <section className="piano-sheet" hidden={!active}>
     <div className="sheet-tools sheet-toolbar">
       <button disabled={busy} onClick={onOpen}>Open MIDI</button>
       <details className="piano-score-options"><summary>Tracks & rhythm</summary><div className="piano-score-panel">
@@ -151,8 +166,8 @@ export default function PianoSheet({content,revision,zoom,busy,onZoom,onGenerate
     {loading&&<p role="status">Drawing score…</p>}
     {renderError&&<p role="alert">Could not draw this score: {renderError}</p>}
     <div className="piano-score-scroll" ref={container} tabIndex={0} aria-label="Piano notation" onWheel={()=>setFollow(false)} onTouchMove={()=>setFollow(false)}
-      onPointerDown={e=>{if(e.clientX>=e.currentTarget.getBoundingClientRect().right-18)setFollow(false);}}
-      onKeyDown={e=>{if(["ArrowUp","ArrowDown","PageUp","PageDown","Home","End"].includes(e.key))setFollow(false);}}>
+      onPointerDown={e=>{const bounds=e.currentTarget.getBoundingClientRect();if(e.clientX>=bounds.right-18||e.clientY>=bounds.bottom-18)setFollow(false);}}
+      onKeyDown={e=>{if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","PageUp","PageDown","Home","End"].includes(e.key))setFollow(false);}}>
       <div className="piano-score-paper" ref={paper}/>
     </div>
     <iframe title="Piano playback" className="piano-score-player" ref={frame} src="/converter/visualizer.html?score=1" style={{height:playerHeight}} onLoad={loadPlayer}/>

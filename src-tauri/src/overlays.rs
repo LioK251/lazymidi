@@ -78,9 +78,9 @@ pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Err
     if let Some(window) = app.get_webview_window(&kind) {
         window.show().map_err(|e| e.to_string())?;
         window.unminimize().map_err(|e| e.to_string())?;
-        if kind == "visualizer" {
+        if kind == "visualizer" || kind == "sheet" {
             window
-                .emit("visualizer-visibility", true)
+                .emit(&format!("{kind}-visibility"), true)
                 .map_err(|e| e.to_string())?;
         }
         return Ok(());
