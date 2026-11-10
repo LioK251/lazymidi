@@ -37,6 +37,8 @@ Thumbs.db
 /converter/sheets/
 /converter/soundfonts/
 /converter/runtimes/
+/converter/runtime-tools/*
+!/converter/runtime-tools/README.txt
 /converter/downloads/
 /converter/history.json
 /converter/settings.json

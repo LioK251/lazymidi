@@ -65,18 +65,25 @@ Global shortcuts use the Windows/macOS/X11 backend; native Wayland is unsupporte
 ## Converter
 
 Enable the Converter tab in Settings, then open **Convert → Runtime setup** and
-choose **Install Converter**. The download includes Python, Transkun's piano
-model, FFmpeg and music21. No terminal or separate Python installation is needed.
+choose **Install Converter**. The app downloads a private Python and installs
+Transkun's piano model, music21 and the other required packages. FFmpeg is
+included with the app. No terminal, compiler or separate Python setup is needed.
 
-CPU is the default. Windows x64 and Linux x64 also offer an NVIDIA CUDA pack.
-Both Mac architectures have a standard pack; Apple GPU processing is enabled
-only after a successful local model check. Installation shows download and disk
-sizes, progress, cancellation and retry. It checks a short real conversion and
-Piano support before changing the selected runtime.
+CPU is the default on Windows x64, Linux x64 and both Mac architectures.
+Windows and Linux also offer NVIDIA GPU setup. Apple GPU processing is enabled
+only after a successful local model check. Allow 4 GB free disk space for CPU
+or 12 GB for NVIDIA GPU setup. An internet connection is needed during setup;
+conversion and notation then run locally.
 
-An unsuccessful or cancelled setup keeps the previous runtime. Runtime changes
-are rejected during an active conversion. **Check again** rechecks the selected
-runtime without a folder dialog; **Update Converter** installs the current pack.
+Setup shows the current step, download progress, cancellation and retry. It
+checks a short real conversion and Piano support before selecting the new
+runtime. An unsuccessful or cancelled setup keeps the previous runtime, and
+runtime changes are rejected during an active conversion. Download archives
+and temporary build files are removed after setup.
+
+**Check again** rechecks the selected runtime without a folder dialog.
+**Update Converter** installs the current dependencies in a fresh private
+runtime. The app release contains no Python/model packs or numbered downloads.
 
 ### Reuse an existing converter environment
 
@@ -84,17 +91,12 @@ Under **Advanced setup**, choose **Use existing converter environment** and
 select its folder. Supported layouts include `.venv`, `.cuda-venv`, Windows
 `Scripts/python.exe` and Unix `bin/python` or `bin/python3`. The check requires
 64-bit Python 3.10+, the conversion dependencies, Transkun's model and FFmpeg.
-Piano additionally needs music21; the distributed packs include version 9.7.1.
+Piano additionally needs music21; automatic setup installs version 9.7.1.
 
 The check does not install or change packages in that environment. Existing
 environments without music21 can still convert audio and make QWERTY sheets.
 Keep the selected environment and FFmpeg in place. Importing an old library is
 a separate action.
-
-**Install local pack** accepts the matching JSON manifest beside the complete
-ZIP, or beside all its numbered ZIP parts. The installer verifies each part
-and the complete archive, rejects unsafe paths, and restores Unix executable
-permissions before running the checks.
 
 ### Conversion and library
 
@@ -160,20 +162,34 @@ cannot read library settings or history.
 
 ## Build and qualification
 
-Run the **Converter runtimes** workflow to produce all supported packs. It builds
-FFmpeg 8.1.3, OpenSSL 3.5.9 and LAME 3.100 from pinned source archives, with GPL
-and nonfree components disabled. Matching sources, build instructions and
-licenses ship inside each pack.
+Run the **Runtime tools** workflow to prepare FFmpeg and the small ncls wheel
+for each platform. It builds FFmpeg 8.1.3, OpenSSL 3.5.9 and LAME 3.100 from
+pinned source archives with GPL and nonfree components disabled. The tools and
+licenses go in `converter/runtime-tools/`; generated binaries stay out of Git.
+The [matching source archives](https://lazymidi.vercel.app/third-party/) and
+bundled build recipe allow rebuilding the tools.
 
-The runtime builder uses standalone Python 3.11.18, music21 9.7.1, Transkun 2.0.1
-and PyTorch 2.9.1. Intel Mac uses PyTorch 2.2.2, the last supported Intel Mac wheel.
-Any compiled Python dependencies are built in CI. Runtimes are relocated before
-qualification, so users need neither a compiler nor the build machine's paths.
+`converter/runtime-setup.json` pins each upstream Python archive's URL, size
+and SHA-256. Only a verified archive is extracted. `converter/install_runtime.py`
+installs packages directly from PyPI and PyTorch into that private interpreter,
+with package caching disabled and temporary files scoped to the installation.
+It uses Python 3.11.18, music21 9.7.1, Transkun 2.0.1 and PyTorch 2.9.1. Intel Mac
+uses PyTorch 2.2.2, the last supported Intel Mac wheel. CUDA uses the cu128 build.
+Windows and Intel Mac need a compiled ncls wheel, which the tools workflow builds
+so users do not need a compiler.
 
-Manifests in `converter/packs.json` record release URLs, exact sizes and SHA-256
-hashes. Native installer tests exercise extraction, permissions, real conversion,
-Piano support and cancellation. Packaged app checks cover QWERTY, normal/fine
-Piano rendering, scoped assets and floating windows.
+Linux and macOS packaging workflows take the **Runtime tools** run ID, install
+through the actual in-app setup code, and check real conversion and Piano before
+verifying the packaged application. To qualify the native installer locally:
+
+```sh
+cargo test -p lazymidi direct_runtime_installs_and_runs -- --ignored --nocapture
+```
+
+Set `LAZYMIDI_TEST_ENVIRONMENT_OUTPUT=target/native-runtime.json` to retain the
+isolated environment for a packaged check. Set `LAZYMIDI_TEST_RUNTIME_VARIANT=cuda`
+to qualify NVIDIA setup. The tests also cover checksum rejection, cancellation,
+cleanup and preservation of the selected environment.
 
 For a local packaged check with a validated environment:
 

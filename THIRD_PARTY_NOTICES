@@ -93,12 +93,14 @@ Additional optional modules:
    converter/SOURCE-NOTICE.txt and converter/source/ inside the frontend.
    js-synthesizer BSD and @tonejs/midi MIT notices are in the frontend notices.
 
-Optional runtime packs contain Python, PyTorch, Transkun (including its
-pretrained model), FFmpeg and their own dependencies. Package license texts
-and exact versions are retained in each pack. Version 2 packs build FFmpeg
-8.1.3, OpenSSL 3.5.9 and LAME 3.100 with GPL and nonfree components disabled.
-Matching source archives, licenses and the complete build recipe are included
-under licenses/ffmpeg/. See docs/optional-modules.md.
+Runtime setup downloads Python, PyTorch and Transkun (including its pretrained
+model) directly into a private environment. Package licenses and exact installed
+versions are retained there. The application bundles FFmpeg 8.1.3 with OpenSSL
+3.5.9 and LAME 3.100, with GPL and nonfree components disabled (LGPL version 3).
+Its licenses and complete build recipe are in converter/runtime-tools/licenses/.
+Matching source archives: https://lazymidi.vercel.app/third-party/
+The bundled ncls 0.0.71 wheel includes its MIT license. Users may replace the
+FFmpeg executables in the installed Converter runtime. See docs/optional-modules.md.
 
 Browser extension MuseScore downloads:
 

@@ -56,7 +56,9 @@
       "../converter/transkun_runner.py",
       "../converter/console_ui.py",
       "../converter/LICENSE",
-      "../converter/packs.json"
+      "../converter/runtime-setup.json",
+      "../converter/install_runtime.py",
+      "../converter/runtime-tools/"
     ],
     "windows": {
       "nsis": {

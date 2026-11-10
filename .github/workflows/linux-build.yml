@@ -3,10 +3,16 @@ name: Linux packages
 on:
   workflow_dispatch:
     inputs:
-      runtime_run:
-        description: Successful Converter runtimes workflow run ID
+      tools_run:
+        description: Successful Runtime tools workflow run ID
         required: true
         type: string
+
+      variant:
+        description: Processing option to qualify through in-app setup
+        type: choice
+        default: cpu
+        options: [cpu, cuda]
 
 permissions:
   contents: read
@@ -38,6 +44,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: python -m pip install -r converter/requirements-test.txt
+      - run: python -B converter/test_install_runtime.py
       - run: python -B converter/test_environment.py
       - run: python -B converter/test_service.py
       - run: python -B converter/test_piano_sheet.py
@@ -47,15 +54,15 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - uses: actions/download-artifact@v4
         with:
-          name: converter-linux-x86_64-cpu
-          run-id: ${{ inputs.runtime_run }}
+          name: runtime-tools-linux-x86_64
+          run-id: ${{ inputs.tools_run }}
           github-token: ${{ github.token }}
-          path: target/converter-packs
-      - name: Install and qualify the downloadable runtime
+          path: converter/runtime-tools
+      - name: Install and qualify through the in-app setup path
         env:
-          LAZYMIDI_TEST_PACK_MANIFEST: target/converter-packs/linux-x86_64-cpu.json
+          LAZYMIDI_TEST_RUNTIME_VARIANT: ${{ inputs.variant }}
           LAZYMIDI_TEST_ENVIRONMENT_OUTPUT: target/native-runtime.json
-        run: cargo test -p lazymidi --locked built_runtime_installs_and_runs -- --ignored --nocapture
+        run: cargo test -p lazymidi --locked direct_runtime_installs_and_runs -- --ignored --nocapture
       - run: cargo fetch --locked
       - name: Build Debian and AppImage packages
         run: npm run bundle -- --bundles deb,appimage --config '{"bundle":{"linux":{"deb":{"depends":["libasound2"]}}}}'
@@ -85,7 +92,7 @@ jobs:
               (temp / 'lazymidi-appimage/squashfs-root', 'AppRun'),
           ):
               assert (folder / executable).is_file(), executable
-              for name in ('service.py', 'check_environment.py', 'THIRD_PARTY_NOTICES'):
+              for name in ('service.py', 'check_environment.py', 'install_runtime.py', 'ffmpeg', 'THIRD_PARTY_NOTICES'):
                   assert list(folder.rglob(name)), name
               subprocess.run([sys.executable, 'scripts/verify-native-modules.py', str(folder / executable),
                               '--environment', 'target/native-runtime.json'], check=True, timeout=160)

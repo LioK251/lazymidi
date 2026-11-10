@@ -8,9 +8,8 @@ import {SheetText,SheetTools} from "./SheetText";
 import {listen} from "@tauri-apps/api/event";
 import {converterRequest,defaults,transposeModes,gamePoints,visualizerSetting,displayName} from "./converter-api";
 import type {Values,SheetContent} from "./converter-api";
-type Pack={variant:string;version:string;bytes:number;installed_bytes:number;url:string|null;parts?:{url:string|null}[]};
 type ExistingEnvironment={python:string;python_version:string;torch_version:string;cuda_error:string|null;mps_error?:string|null;devices:string[];piano_notation:boolean|null};
-type RuntimeStatus={status:{installed:string|null;running:boolean;installing:boolean;validating?:boolean;environment?:ExistingEnvironment|null;pack_version?:string|null;phase?:string|null;received:number;total:number;error:string|null};packs:Pack[];platform?:string};
+type RuntimeStatus={status:{installed:string|null;running:boolean;installing:boolean;validating?:boolean;environment?:ExistingEnvironment|null;runtime_version?:string|null;phase?:string|null;received:number;total:number;error:string|null};variants:string[];version:string;platform?:string};
 type MidiFile={filename:string;video_title:string;time_str:string;file_size:number;source_type:string;thumbnail_url?:string};
 type History={midi_name:string;video_title:string;timestamp:number;type:string};
 type Job={status:string;progress?:string;error?:string;midi_name?:string};
@@ -29,7 +28,7 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
   const [settings,setSettings]=useState<Values>(defaults);
   const devices=runtime?.status.environment?.devices??["cpu"];
   const device=devices.includes(String(settings.compute_device))?String(settings.compute_device):"cpu";
-  const [packVariant,setPackVariant]=useState("cpu");
+  const [installVariant,setInstallVariant]=useState("cpu");
   const checkedRuntimes=useRef(new Set<string>());
   const [sheet,setSheet]=useState("");const [sheetId,setSheetId]=useState("");const [lineMap,setLineMap]=useState<number[]>([]);
   const [sheetColors,setSheetColors]=useState(true);const [sheetZoom,setSheetZoom]=useState(1);
@@ -111,15 +110,14 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
     setRuntime(await invoke<RuntimeStatus>("converter_status"));
   });
   const useEnvironment=(recheck=false)=>setup("converter_use_environment",{recheck},!recheck);
-  const installPack=(local=false)=>setup("converter_install",{variant:packVariant,local},local);
-  const pack=runtime?.packs.find(p=>p.variant===packVariant);
-  const downloadable=!!pack&&(pack.parts?.length?pack.parts.every(p=>p.url):!!pack.url);
+  const installConverter=()=>setup("converter_install",{variant:installVariant});
+  const available=!!runtime?.variants.includes(installVariant);
   const phase=runtime?.status.phase??(runtime?.status.validating?"checking":"downloading");
-  const setupLabel=({downloading:"Downloading Converter…",verifying:"Verifying download…",extracting:"Installing Converter…",checking:"Checking conversion and Piano…"} as Record<string,string>)[phase]??"Setting up Converter…";
-  const setupProgress=phase==="downloading"||phase==="extracting";
+  const setupLabel=({downloading:"Downloading Python…",extracting:"Preparing Python…","python-packages":"Installing Python packages…",torch:"Installing conversion engine…",converter:"Installing model and Piano notation…",checking:"Checking conversion and Piano…",cancelling:"Cancelling setup…"} as Record<string,string>)[phase]??"Setting up Converter…";
+  const setupProgress=phase==="downloading"&&!!runtime?.status.total;
   useEffect(()=>{
     if(!installed||setupBusy||runtime?.status.error||runtime?.status.environment?.devices?.length)return;
-    const key=runtime?.status.environment?.python??`${runtime?.status.installed}:${runtime?.status.pack_version}`;
+    const key=runtime?.status.environment?.python??`${runtime?.status.installed}:${runtime?.status.runtime_version}`;
     if(checkedRuntimes.current.has(key))return;
     checkedRuntimes.current.add(key);
     void useEnvironment(true);
@@ -135,7 +133,7 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
   try{displayedPoints=manualPoints();}catch{/* Invalid JSON remains editable and is rejected on Generate/Save. */}
   const exportFile=(id:string)=>run(()=>dialog("converter_export",{id}));
   return <div className="converter-panel" data-midi-typing>
-    <div className="section-heading"><h1>Converter</h1><span className="muted">{ready?"Ready":loadError?"Needs attention":!api.desktop?"Desktop preview":!runtime?"Checking setup…":installed?"Starting converter…":"Setup required"}</span></div>
+    <div className="section-heading"><h1>Converter</h1><span className="muted">{ready?"Ready":setupBusy?"Setting up…":loadError?"Needs attention":!api.desktop?"Desktop preview":!runtime?"Checking setup…":installed?"Starting converter…":"Setup required"}</span></div>
     <nav className="segmented" aria-label="Converter sections">{["Convert","Library","Sheets"].map(name=><button key={name} aria-pressed={section===name} onClick={()=>setSection(name)}>{name}</button>)}</nav>
     <p className="converter-intro">{{Convert:"Turn piano audio into MIDI, then make a sheet or preview the notes.",Library:"Your converted and imported MIDI. Choose a song to preview or make a sheet.",Sheets:"Turn MIDI notes into a Virtual Piano sheet."}[section]}</p>
     {!api.desktop&&<p className="notice">Conversion and file imports work in the desktop app.</p>}
@@ -143,20 +141,20 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
     {installed&&!ready&&!loadError&&!setupBusy&&<p role="status">Starting converter…</p>}
     {section==="Convert"&&<details className="converter-setup" open={!installed||setupBusy||!!runtime?.status.error||runtime?.status.environment?.piano_notation===false}>
       <summary>Runtime setup</summary>
-      {installed?<p className="help">{runtime?.status.environment?.piano_notation?"Piano ready":"Piano needs a setup check"} · {devices.map(d=>({cpu:"CPU",cuda:"NVIDIA CUDA",mps:"Apple GPU"})[d]??d).join(", ")}</p>:<><h2>Install Converter</h2><p className="help">One download includes audio conversion and Piano sheets. No Python setup needed.</p></>}
-      {runtime&&runtime.packs.length>1&&<label className="field">Runtime<select value={packVariant} disabled={setupBusy} onChange={e=>setPackVariant(e.target.value)}>{runtime.packs.map(p=><option key={p.variant} value={p.variant}>{p.variant==="cpu"?"CPU · Recommended":"NVIDIA GPU · Includes CPU"}</option>)}</select></label>}
-      {pack&&<p className="help">{size(pack.bytes)} download · {size(pack.installed_bytes)} installed{packVariant==="cuda"?" · Requires a compatible NVIDIA GPU":runtime?.platform==="macos-aarch64"?" · Apple GPU enabled if its check passes":""}</p>}
+      {installed?<p className="help">{runtime?.status.environment?.piano_notation?"Piano ready":"Piano needs a setup check"} · {devices.map(d=>({cpu:"CPU",cuda:"NVIDIA CUDA",mps:"Apple GPU"})[d]??d).join(", ")}</p>:<><h2>Install Converter</h2><p className="help">Setup installs Python and the required packages automatically. Conversion runs on your computer.</p></>}
+      {runtime&&runtime.variants.length>1&&<label className="field">Processing<select value={installVariant} disabled={setupBusy} onChange={e=>setInstallVariant(e.target.value)}>{runtime.variants.map(variant=><option key={variant} value={variant}>{variant==="cpu"?"CPU · Recommended":"NVIDIA GPU · Includes CPU"}</option>)}</select></label>}
+      {available&&<p className="help">{installVariant==="cuda"?"Downloads several GB. Allow 12 GB free disk space; requires a compatible NVIDIA GPU.":"Allow 4 GB free disk space. An internet connection is needed during setup."}{runtime?.platform==="macos-aarch64"?" Apple GPU is enabled if its check passes.":""}</p>}
       <div className="button-row">
-        <button className="primary" disabled={!api.desktop||busy||setupBusy||!!jobId||!downloadable} onClick={()=>void installPack()}>{runtime?.status.error?"Retry setup":!installed?"Install Converter":runtime?.status.pack_version===pack?.version&&runtime?.status.environment?.piano_notation?"Reinstall Converter":"Update Converter"}</button>
+        <button className="primary" disabled={!api.desktop||busy||setupBusy||!!jobId||!available} onClick={()=>void installConverter()}>{runtime?.status.error?"Retry setup":!installed?"Install Converter":runtime?.status.runtime_version===runtime?.version&&runtime?.status.installed===installVariant&&runtime?.status.environment?.piano_notation?"Reinstall Converter":"Update Converter"}</button>
         {installed&&<button disabled={busy||setupBusy||!!jobId} onClick={()=>void useEnvironment(true)}>Check again</button>}
-        {setupBusy&&<button onClick={()=>void invoke("converter_stop")}>Cancel setup</button>}
+        {setupBusy&&<button disabled={phase==="cancelling"} onClick={()=>void invoke("converter_stop")}>Cancel setup</button>}
       </div>
-      {setupBusy&&<div className="runtime-progress" role="status"><p>{setupLabel}</p><progress aria-label="Runtime setup progress" max={runtime?.status.total||1} value={setupProgress?runtime?.status.received:undefined}/><small>{setupProgress?`${size(runtime?.status.received??0)} / ${size(runtime?.status.total??0)}`:"This can take a few minutes."}</small></div>}
-      {runtime?.status.error&&<div className="notice error" role="alert"><p>{runtime.status.error.toLowerCase().includes("cancelled")?"Setup cancelled.":"Setup did not finish. Retry or choose another runtime."}</p><details><summary>Error details</summary><pre>{runtime.status.error}</pre></details></div>}
-      {runtime&&!downloadable&&<p className="help">No download is available for this runtime. Check for an app update or use Advanced setup.</p>}
+      {setupBusy&&<div className="runtime-progress" role="status"><p>{setupLabel}</p><progress aria-label="Runtime setup progress" max={runtime?.status.total||1} value={setupProgress?runtime?.status.received:undefined}/><small>{setupProgress?`${size(runtime?.status.received??0)} / ${size(runtime?.status.total??0)}`:"This can take several minutes. Keep lazymidi open."}</small></div>}
+      {runtime?.status.error&&<div className="notice error" role="alert"><p>{runtime.status.error.toLowerCase().includes("cancelled")?"Setup cancelled.":"Setup did not finish. Check your connection and free disk space, then retry."}</p><details><summary>Error details</summary><pre>{runtime.status.error}</pre></details></div>}
+      {runtime&&!available&&<p className="help">Automatic setup is unavailable on this computer. Use an existing environment under Advanced setup.</p>}
       <details className="converter-advanced"><summary>Advanced setup</summary>
-        <div className="button-row"><button disabled={!api.desktop||busy||setupBusy||!!jobId} onClick={()=>void useEnvironment()}>Use existing converter environment</button><button disabled={!api.desktop||busy||setupBusy||!!jobId} onClick={()=>void installPack(true)}>Install local pack</button></div>
-        <p className="help">Choose a Python environment folder, or a pack’s JSON file beside its ZIP or ZIP parts.</p>
+        <div className="button-row"><button disabled={!api.desktop||busy||setupBusy||!!jobId} onClick={()=>void useEnvironment()}>Use existing converter environment</button></div>
+        <p className="help">Choose a compatible Python environment folder. Its packages will be checked without changing them.</p>
         {runtime?.status.environment&&<p className="help runtime-details">Python {runtime.status.environment.python_version} · PyTorch {runtime.status.environment.torch_version}<br/>{runtime.status.environment.python}</p>}
         {(runtime?.status.environment?.cuda_error||runtime?.status.environment?.mps_error)&&<p className="help runtime-details">{runtime.status.environment.cuda_error||runtime.status.environment.mps_error}</p>}
       </details>

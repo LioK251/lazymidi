@@ -3,7 +3,8 @@
 ## Version 0.1.8 release qualification — 2026-11-10
 
 164 frontend/extension tests, 57 Rust workspace tests, 45 SDK-free core tests,
-21 private-service tests, five notation tests and six environment tests pass.
+21 private-service tests, five notation tests, six environment tests and three
+installer-script tests pass.
 Production TypeScript/Vite builds, Rust formatting and Clippy pass. Specialized
 native installation and model-inference checks run separately from the unit suite.
 
@@ -23,28 +24,30 @@ and sheet windows down to 320 × 190. Hiding Piano changes the 1120 px library
 from three to four columns without resetting search or its page.
 
 The isolated Windows/WebView2 check covers full Abyss notation with both an
-existing environment and a fresh CPU pack, plus shared sheet state, scoped
+existing environment and fresh CPU/NVIDIA installations, plus shared sheet state, scoped
 assets, floating-window minimize/restore, stale revisions, large SoundFont
 ranges and visualizer reuse. SDK and generated keyboard output stay off.
 The user's library and active runtime selection are unchanged.
 
-Runtime builds relocate and qualify Python 3.11.18, music21 9.7.1, Transkun 2.0.1
-and bundled FFmpeg. Every pack runs dependency checks, real CPU model inference,
-service tests and notation tests. Windows/Linux have CPU and CUDA variants;
-both Mac architectures have CPU packs. GPU processing is offered only after a
-successful local model check. Windows CUDA was also checked on an RTX 5080.
-A Requests dependency warning is prevented by pinning compatible chardet and
-checking the import with warnings treated as errors.
+Runtime setup downloads pinned Python 3.11.18 and installs music21 9.7.1,
+Transkun 2.0.1 and the remaining dependencies directly from PyPI/PyTorch. The app
+bundles FFmpeg and the small ncls wheel; no complete model runtime or numbered
+parts are release assets. Native tests run the actual installer in isolated
+storage, then check real CPU inference and Piano. Windows/Linux have CPU and
+CUDA variants; both Mac architectures support CPU setup. GPU processing is
+offered only after a successful local model check. Windows CUDA is checked on
+an RTX 5080. A Requests dependency warning is prevented by pinning compatible
+chardet and checking its import with warnings treated as errors.
 
-Linux and macOS release workflows install the generated CPU pack before testing
-the packaged application. Debian/AppImage checks run under X11; both Mac DMGs
-are mounted and their architecture, resources and ad-hoc signatures checked.
-Each package must render normal/fine Piano and pass the same floating-window,
-scoped-asset and retained-visualizer checks before its artifact is uploaded.
-Runtime uploads verify archive/part hashes and GitHub's stored asset digests.
-Extraction preserves Linux's case-sensitive terminal filenames and creates
-files without overwriting an existing destination. Windows/macOS case-collision
-rejection and invalid-path cleanup remain covered by the archive regression.
+Linux and macOS release workflows install dependencies through the in-app
+setup code before checking the packaged application. Debian/AppImage checks run
+under X11; both Mac DMGs are mounted and their architecture, resources and
+ad-hoc signatures checked. Each package must render normal/fine Piano and pass
+the same floating-window, scoped-asset and retained-visualizer checks before its
+artifact is uploaded. Native unit tests reject incorrect download sizes and
+checksums, cancel the installation process tree, and preserve the prior runtime.
+The Python installer tests verify private interpreter enforcement, official
+package indexes, disabled package caching and temporary-file cleanup.
 
 The website passes 24 desktop/mobile Chromium and WebKit checks, including
 accessibility. Its source stays private and outside the repository and releases.

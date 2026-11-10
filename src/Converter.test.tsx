@@ -15,7 +15,7 @@ beforeEach(()=>{
   vi.mocked(WebviewWindow.getByLabel).mockResolvedValue(null);
   let revision=0;
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
-    if(command==="converter_status")return {status:{installed:"cpu",running:true,installing:false,environment,received:0,total:0,error:null},packs:[]} as never;
+    if(command==="converter_status")return {status:{installed:"cpu",running:true,installing:false,environment,received:0,total:0,error:null},variants:[],version:"3"} as never;
     if(command==="generate_sheet"){const a=args as {midiFilename:string;settings:Record<string,unknown>};return {text:"[etu]",sheets_filename:"test_sheets.txt",revision:++revision,source:{midi_filename:a.midiFilename,settings:a.settings,line_chord_map:[0]}};}
     const path=(args as {path?:string})?.path;
     if(path==="/api/midi-files")return {midi_files:[file]} as never;
@@ -74,7 +74,7 @@ it("saves the compute preference immediately, restores it, and keeps draft forma
   const original=vi.mocked(invoke).getMockImplementation()!;
   let saved:Record<string,unknown>={quantize:35};
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
-    if(command==="converter_status")return {status:{installed:"cuda",running:true,environment:{...environment,devices:["cpu","cuda"]}},packs:[]};
+    if(command==="converter_status")return {status:{installed:"cuda",running:true,environment:{...environment,devices:["cpu","cuda"]}},variants:[],version:"3"};
     const a=args as {path?:string;body?:Record<string,unknown>};
     if(a?.path==="/api/settings"){if(a.body)saved=a.body;return saved;}
     return original(command,args);
@@ -102,7 +102,7 @@ it("uses CPU when a saved CUDA preference is unavailable without overwriting it"
 it("keeps the previous compute device when saving fails",async()=>{
   const original=vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
-    if(command==="converter_status")return {status:{installed:"cuda",running:true,environment:{...environment,devices:["cpu","cuda"]}},packs:[]};
+    if(command==="converter_status")return {status:{installed:"cuda",running:true,environment:{...environment,devices:["cpu","cuda"]}},variants:[],version:"3"};
     const a=args as {path?:string;body?:unknown};if(a?.path==="/api/settings"&&a.body)throw new Error("Save failed");
     return original(command,args);
   });
@@ -115,7 +115,7 @@ it.each(["cuda","mps"])("uses the checked %s capability and keeps an unavailable
   const original=vi.mocked(invoke).getMockImplementation()!;
   let supported=true;
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
-    if(command==="converter_status")return {status:{installed:gpu==="cuda"?"cuda":"cpu",running:true,environment:{...environment,devices:supported?["cpu",gpu]:["cpu"]}},packs:[],platform:gpu==="mps"?"macos-aarch64":"windows-x86_64"};
+    if(command==="converter_status")return {status:{installed:gpu==="cuda"?"cuda":"cpu",running:true,environment:{...environment,devices:supported?["cpu",gpu]:["cpu"]}},variants:[],version:"3",platform:gpu==="mps"?"macos-aarch64":"windows-x86_64"};
     if((args as {path?:string})?.path==="/api/settings")return {compute_device:gpu};
     return original(command,args);
   });
@@ -134,22 +134,23 @@ it("installs CPU by default, shows progress, and offers retry after cancellation
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
     if(command==="converter_install"){installing=true;error=null;return;}
     if(command==="converter_stop"){installing=false;error="Installation cancelled.";return;}
-    if(command==="converter_status")return {status:{installed:null,installing,phase:installing?"downloading":null,received:256*1024**2,total:512*1024**2,error},packs:["cpu","cuda"].map(variant=>({variant,version:"2",bytes:512*1024**2,installed_bytes:1024**3,url:"https://github.com/LioK251/lazymidi/releases/download/v0.1.8/runtime.zip"}))};
+    if(command==="converter_status")return {status:{installed:null,installing,phase:installing?"downloading":null,received:12*1024**2,total:24*1024**2,error},variants:["cpu","cuda"],version:"3"};
     return original(command,args);
   });
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
   const install=screen.getByRole("button",{name:"Install Converter"});
   expect(install.closest("details")?.querySelector("summary")?.textContent).toBe("Runtime setup");
-  expect(screen.getByText("512.0 MB download · 1.00 GB installed")).toBeTruthy();
+  expect(screen.queryByRole("button",{name:"Install local pack"})).toBeNull();
+  expect(screen.getByText(/Allow 4 GB free disk space/)).toBeTruthy();
   await act(async()=>{fireEvent.click(install);});
-  expect(invoke).toHaveBeenCalledWith("converter_install",{variant:"cpu",local:false});
-  expect(screen.getByText("Downloading Converter…")).toBeTruthy();
-  expect((screen.getByRole("progressbar") as HTMLProgressElement).value).toBe(256*1024**2);
+  expect(invoke).toHaveBeenCalledWith("converter_install",{variant:"cpu"});
+  expect(screen.getByText("Downloading Python…")).toBeTruthy();
+  expect((screen.getByRole("progressbar") as HTMLProgressElement).value).toBe(12*1024**2);
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Cancel setup"}));});
   await screen.findByRole("button",{name:"Retry setup"},{timeout:3000});
   expect(screen.getByText("Setup cancelled.")).toBeTruthy();
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Retry setup"}));});
-  expect(screen.getByText("Downloading Converter…")).toBeTruthy();
+  expect(screen.getByText("Downloading Python…")).toBeTruthy();
 });
 it("checks the selected runtime again without opening a folder dialog",async()=>{
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
@@ -161,7 +162,7 @@ it("rechecks legacy runtime metadata once and restores its saved GPU preference"
   let checked=false;
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
     if(command==="converter_use_environment"){checked=true;return;}
-    if(command==="converter_status")return {status:{installed:"cuda",environment:{...environment,devices:checked?["cpu","cuda"]:undefined,piano_notation:checked?true:null}},packs:[]};
+    if(command==="converter_status")return {status:{installed:"cuda",environment:{...environment,devices:checked?["cpu","cuda"]:undefined,piano_notation:checked?true:null}},variants:[],version:"3"};
     if((args as {path?:string})?.path==="/api/settings")return {compute_device:"cuda"};
     return original(command,args);
   });
@@ -198,7 +199,7 @@ it("reuses an existing environment with validation progress and CUDA capability"
   let phase="empty";
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
     if(command==="converter_use_environment"){phase="checking";return;}
-    if(command==="converter_status")return {status:{installed:phase==="ready"?"cuda":null,validating:phase==="checking",installing:false,environment:phase==="ready"?{...environment,devices:["cpu","cuda"]}:null},packs:[]};
+    if(command==="converter_status")return {status:{installed:phase==="ready"?"cuda":null,validating:phase==="checking",installing:false,environment:phase==="ready"?{...environment,devices:["cpu","cuda"]}:null},variants:[],version:"3"};
     return original(command,args);
   });
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
@@ -216,7 +217,7 @@ it("reuses an existing environment with validation progress and CUDA capability"
 });
 it("shows failed environment validation while retaining the existing runtime",async()=>{
   const original=vi.mocked(invoke).getMockImplementation()!;
-  vi.mocked(invoke).mockImplementation(async(command,args)=>command==="converter_status"?{status:{installed:"cpu",installing:false,validating:false,error:"Cannot load transkun: missing dependency"},packs:[]}:original(command,args));
+  vi.mocked(invoke).mockImplementation(async(command,args)=>command==="converter_status"?{status:{installed:"cpu",installing:false,validating:false,error:"Cannot load transkun: missing dependency"},variants:[],version:"3"}:original(command,args));
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
   expect(await screen.findByText("Cannot load transkun: missing dependency")).toBeTruthy();
   expect((screen.getByRole("button",{name:"Choose audio or video"}) as HTMLButtonElement).disabled).toBe(false);
@@ -443,7 +444,7 @@ it("never exports a stale sheet after switching MIDI while generation is pending
  });
 it("does not offer a Visualizer tab before setup",async()=>{
   const original=vi.mocked(invoke).getMockImplementation()!;
-  vi.mocked(invoke).mockImplementation(async(command,args)=>command==="converter_status"?{status:{installed:null,installing:false},packs:[]}:original(command,args));
+  vi.mocked(invoke).mockImplementation(async(command,args)=>command==="converter_status"?{status:{installed:null,installing:false},variants:[],version:"3"}:original(command,args));
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
   expect(screen.getByRole("heading",{name:"Install Converter"})).toBeTruthy();
   expect((screen.getByRole("button",{name:"Choose audio or video"}) as HTMLButtonElement).disabled).toBe(true);

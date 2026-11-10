@@ -15,25 +15,16 @@ use std::{
 };
 use tauri::{Emitter, Manager};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Pack {
-    pub version: String,
-    pub variant: String,
-    pub platform: String,
-    pub bytes: u64,
-    pub installed_bytes: u64,
-    pub sha256: String,
-    pub file: String,
-    pub url: Option<String>,
-    #[serde(default)]
-    pub parts: Vec<PackPart>,
+#[derive(Deserialize)]
+struct RuntimeSetup {
+    version: String,
+    python: std::collections::BTreeMap<String, PythonDownload>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PackPart {
-    pub file: String,
-    pub bytes: u64,
-    pub sha256: String,
-    pub url: Option<String>,
+#[derive(Deserialize)]
+struct PythonDownload {
+    bytes: u64,
+    sha256: String,
+    url: String,
 }
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Status {
@@ -42,7 +33,7 @@ pub struct Status {
     pub installing: bool,
     pub validating: bool,
     pub environment: Option<ExistingEnvironment>,
-    pub pack_version: Option<String>,
+    pub runtime_version: Option<String>,
     pub phase: Option<String>,
     pub received: u64,
     pub total: u64,
@@ -78,7 +69,7 @@ struct RuntimePaths {
     tool_dirs: Vec<PathBuf>,
     variant: String,
     environment: Option<ExistingEnvironment>,
-    pack_version: Option<String>,
+    runtime_version: Option<String>,
 }
 pub struct Converter {
     pub status: Arc<Mutex<Status>>,
@@ -243,7 +234,7 @@ fn active_runtime(directory: &Path) -> Result<RuntimePaths, String> {
                 tool_dirs: vec![pack.join("ffmpeg")],
                 variant,
                 environment: config::read_json(&pack.join("runtime.json")).ok(),
-                pack_version: metadata["version"].as_str().map(str::to_owned),
+                runtime_version: metadata["version"].as_str().map(str::to_owned),
             })
         }
         RuntimeSelection::Existing(environment) => {
@@ -253,7 +244,7 @@ fn active_runtime(directory: &Path) -> Result<RuntimePaths, String> {
                 &environment.ffprobe,
             ] {
                 if !path.is_absolute() || !path.is_file() {
-                    return Err(format!("Existing environment file is missing: {}. Choose the environment again or install a runtime pack.", path.display()));
+                    return Err(format!("Existing environment file is missing: {}. Choose the environment again or install Converter in Runtime setup.", path.display()));
                 }
             }
             Ok(RuntimePaths {
@@ -271,7 +262,7 @@ fn active_runtime(directory: &Path) -> Result<RuntimePaths, String> {
                 }
                 .into(),
                 environment: Some(environment),
-                pack_version: None,
+                runtime_version: None,
             })
         }
     }
@@ -506,7 +497,7 @@ impl Converter {
         self.control.stopped.store(false, Ordering::Release);
         let directory = root(app)?;
         let runtime = active_runtime(&directory).map_err(|e| {
-            format!("Choose an existing converter environment or install a runtime pack. {e}")
+            format!("Choose an existing converter environment or install Converter in Runtime setup. {e}")
         })?;
         let token = uuid::Uuid::new_v4().to_string() + &uuid::Uuid::new_v4().to_string();
         let data = directory.join("data");
@@ -585,7 +576,7 @@ impl Converter {
         status.error = None;
         status.installed = Some(runtime.variant);
         status.environment = runtime.environment;
-        status.pack_version = runtime.pack_version;
+        status.runtime_version = runtime.runtime_version;
         Ok(())
     }
     fn select_runtime(
@@ -705,26 +696,19 @@ pub async fn converter_status(app: tauri::AppHandle) -> Result<serde_json::Value
             Ok(runtime) => {
                 status.installed = Some(runtime.variant);
                 status.environment = runtime.environment;
-                status.pack_version = runtime.pack_version;
+                status.runtime_version = runtime.runtime_version;
             }
             Err(error) => {
                 status.installed = None;
                 status.environment = None;
-                status.pack_version = None;
+                status.runtime_version = None;
                 if directory.join("active.json").exists() {
                     status.error = Some(error);
                 }
             }
         }
-        let manifest: serde_json::Value = config::read_json(&source(&app)?.join("packs.json"))
-            .unwrap_or(serde_json::json!({"packs":[]}));
-        let packs: Vec<Pack> =
-            serde_json::from_value(manifest["packs"].clone()).unwrap_or_default();
-        let packs: Vec<_> = packs
-            .into_iter()
-            .filter(|p| p.platform == host_platform())
-            .collect();
-        Ok(serde_json::json!({"status":status,"packs":packs,"platform":host_platform()}))
+        let setup = setup_manifest(&source(&app)?)?;
+        Ok(serde_json::json!({"status":status,"variants":setup_variants(&setup),"version":setup.version,"platform":host_platform()}))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -790,7 +774,7 @@ pub async fn converter_use_environment(
                 }
                 let selection = if let Some(name) = pack_name {
                     if environment.piano_notation != Some(true) {
-                        return Err("Piano is missing from this runtime. Install the current Converter pack.".into());
+                        return Err("Piano is missing from this runtime. Update Converter in Runtime setup.".into());
                     }
                     config::atomic_save(&directory.join("runtimes").join(&name).join("runtime.json"), &environment)?;
                     RuntimeSelection::Pack(name)
@@ -811,29 +795,30 @@ pub async fn converter_use_environment(
     .map_err(|e| e.to_string())?
     .map_err(Error::from)
 }
-fn check_pack(pack: &Pack) -> Result<(), String> {
-    if pack.platform != host_platform()
-        || !["cpu", "cuda"].contains(&pack.variant.as_str())
-        || !safe_name(&pack.version)
-        || pack.bytes > 12 * 1024 * 1024 * 1024
-        || pack.installed_bytes > 24 * 1024 * 1024 * 1024
-    {
-        return Err("Unsupported converter pack.".into());
+fn setup_manifest(source: &Path) -> Result<RuntimeSetup, String> {
+    let setup: RuntimeSetup = config::read_json(&source.join("runtime-setup.json"))?;
+    if !safe_name(&setup.version) {
+        return Err("Invalid runtime setup version.".into());
     }
-    Ok(())
+    Ok(setup)
 }
-fn extract_pack(
-    directory: &Path,
+fn setup_variants(setup: &RuntimeSetup) -> Vec<&'static str> {
+    if !setup.python.contains_key(&host_platform()) {
+        vec![]
+    } else if cfg!(target_os = "macos") {
+        vec!["cpu"]
+    } else {
+        vec!["cpu", "cuda"]
+    }
+}
+fn verify_python(
     archive: &Path,
-    pack: &Pack,
+    download: &PythonDownload,
     cancel: &AtomicBool,
-    status: &Mutex<Status>,
-) -> Result<tempfile::TempDir, String> {
-    check_pack(pack)?;
-    status.lock().unwrap_or_else(|e| e.into_inner()).phase = Some("verifying".into());
+) -> Result<(), String> {
     let mut file = fs::File::open(archive).map_err(|e| e.to_string())?;
-    if file.metadata().map_err(|e| e.to_string())?.len() != pack.bytes {
-        return Err("Pack size mismatch.".into());
+    if file.metadata().map_err(|e| e.to_string())?.len() != download.bytes {
+        return Err("Python download size mismatch. Retry setup.".into());
     }
     let mut hash = Sha256::new();
     let mut buffer = vec![0; 1024 * 1024];
@@ -847,227 +832,210 @@ fn extract_pack(
         }
         hash.update(&buffer[..n]);
     }
-    if format!("{:x}", hash.finalize()) != pack.sha256 {
-        return Err("Pack checksum mismatch.".into());
+    if format!("{:x}", hash.finalize()) != download.sha256 {
+        return Err("Python download checksum mismatch. Retry setup.".into());
     }
-    fs::create_dir_all(directory.join("runtimes")).map_err(|e| e.to_string())?;
-    let staging = tempfile::tempdir_in(directory.join("runtimes")).map_err(|e| e.to_string())?;
-    let mut zip = zip::ZipArchive::new(fs::File::open(archive).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
-    if zip.len() > 100_000 {
-        return Err("Too many runtime files.".into());
-    }
-    let mut total = 0u64;
-    {
-        let mut state = status.lock().unwrap_or_else(|e| e.into_inner());
-        state.phase = Some("extracting".into());
-        state.total = pack.installed_bytes;
-        state.received = 0;
-    }
-    let mut names = std::collections::HashSet::new();
-    for i in 0..zip.len() {
-        if cancel.load(Ordering::Acquire) {
-            return Err("Installation cancelled.".into());
-        }
-        let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
-        let relative = entry.enclosed_name().ok_or("Unsafe archive path.")?;
-        let name = if cfg!(target_os = "linux") {
-            relative.to_string_lossy().into_owned()
-        } else {
-            relative.to_string_lossy().to_lowercase()
-        };
-        if entry.name().contains(['\\', ':'])
-            || relative
-                .components()
-                .any(|c| !safe_name(&c.as_os_str().to_string_lossy()))
-            || entry.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000)
-            || !names.insert(name)
-        {
-            return Err("Unsafe archive entry.".into());
-        }
-        total = total
-            .checked_add(entry.size())
-            .ok_or("Pack is too large.")?;
-        if total > pack.installed_bytes {
-            return Err("Installed size exceeds manifest.".into());
-        }
-        let path = staging.path().join(relative);
-        if entry.is_dir() {
-            fs::create_dir_all(path).map_err(|e| e.to_string())?;
-            continue;
-        }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let mut out = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .map_err(|e| e.to_string())?;
-        let expected = entry.size();
-        let mut written = 0u64;
-        loop {
-            if cancel.load(Ordering::Acquire) {
-                return Err("Installation cancelled.".into());
-            }
-            let n = entry.read(&mut buffer).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
-            }
-            written += n as u64;
-            if written > expected {
-                return Err("Archive entry exceeds declared size.".into());
-            }
-            out.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
-            status.lock().unwrap_or_else(|e| e.into_inner()).received = total - expected + written;
-        }
-        if written != expected {
-            return Err("Incomplete runtime file.".into());
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = if entry.unix_mode().unwrap_or(0) & 0o111 != 0 {
-                0o755
-            } else {
-                0o644
-            };
-            fs::set_permissions(&path, fs::Permissions::from_mode(mode))
-                .map_err(|e| e.to_string())?;
-        }
-    }
-    let metadata: serde_json::Value = config::read_json(&staging.path().join("pack.json"))?;
-    if metadata["variant"] != pack.variant
-        || metadata["version"] != pack.version
-        || metadata["platform"] != pack.platform
-        || !pack_python(staging.path()).is_file()
-        || !["ffmpeg", "ffprobe"].iter().all(|tool| {
-            staging
-                .path()
-                .join("ffmpeg")
-                .join(if cfg!(windows) {
-                    format!("{tool}.exe")
-                } else {
-                    (*tool).into()
-                })
-                .is_file()
-        })
-    {
-        return Err("Incomplete runtime pack.".into());
-    }
-    Ok(staging)
+    Ok(())
 }
-fn download_pack(
+fn download_python(
     directory: &Path,
-    pack: &Pack,
-    local_archive: Option<&Path>,
+    download: &PythonDownload,
     cancel: &AtomicBool,
     status: &Mutex<Status>,
 ) -> Result<tempfile::NamedTempFile, String> {
-    check_pack(pack)?;
-    let mut temp = tempfile::NamedTempFile::new_in(directory).map_err(|e| e.to_string())?;
-    let parts = if pack.parts.is_empty() {
-        vec![PackPart {
-            file: pack.file.clone(),
-            bytes: pack.bytes,
-            sha256: pack.sha256.clone(),
-            url: pack.url.clone(),
-        }]
-    } else {
-        pack.parts.clone()
-    };
-    if parts.len() > 16
-        || parts.iter().try_fold(0u64, |n, p| n.checked_add(p.bytes)) != Some(pack.bytes)
+    if !download
+        .url
+        .starts_with("https://github.com/astral-sh/python-build-standalone/releases/download/")
+        || download.bytes == 0
+        || download.bytes > 64 * 1024 * 1024
+        || download.sha256.len() != 64
     {
-        return Err("Invalid runtime download manifest.".into());
+        return Err("Untrusted Python download.".into());
     }
+    let mut archive = tempfile::NamedTempFile::new_in(directory).map_err(|e| e.to_string())?;
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
     let mut received = 0;
-    for part in parts {
-        if !safe_name(&part.file) {
-            return Err("Invalid runtime part filename.".into());
+    let mut buffer = vec![0; 256 * 1024];
+    {
+        let mut state = status.lock().unwrap_or_else(|e| e.into_inner());
+        state.phase = Some("downloading".into());
+        state.received = 0;
+        state.total = download.bytes;
+    }
+    while received < download.bytes {
+        if cancel.load(Ordering::Acquire) {
+            return Err("Installation cancelled.".into());
         }
-        let mut hash = Sha256::new();
-        let mut count = 0;
-        let mut buffer = vec![0; 1024 * 1024];
-        while count < part.bytes {
+        let end = (received + 4 * 1024 * 1024 - 1).min(download.bytes - 1);
+        let mut response = client
+            .get(&download.url)
+            .header("Range", format!("bytes={received}-{end}"))
+            .send()
+            .and_then(|r| r.error_for_status())
+            .map_err(|e| {
+                format!("Could not download Python. Check your connection and retry. {e}")
+            })?;
+        let expected = format!("bytes {received}-{end}/{}", download.bytes);
+        if response.status() != reqwest::StatusCode::PARTIAL_CONTENT
+            || response
+                .headers()
+                .get("Content-Range")
+                .and_then(|v| v.to_str().ok())
+                != Some(&expected)
+        {
+            return Err("Incorrect Python download range. Retry setup.".into());
+        }
+        loop {
             if cancel.load(Ordering::Acquire) {
                 return Err("Installation cancelled.".into());
             }
-            let (mut response, end): (Box<dyn Read>, u64) = if let Some(archive) = &local_archive {
-                let path = scoped_file(
-                    archive.parent().ok_or("Missing pack directory.")?,
-                    &part.file,
-                )?;
-                let file = fs::File::open(path).map_err(|e| e.to_string())?;
-                if file.metadata().map_err(|e| e.to_string())?.len() != part.bytes {
-                    return Err("Pack part size mismatch.".into());
-                }
-                (Box::new(file), part.bytes - 1)
-            } else {
-                let url = part.url.as_ref().ok_or("Runtime URL unavailable.")?;
-                if !url.starts_with("https://github.com/LioK251/lazymidi/releases/download/") {
-                    return Err("Untrusted runtime URL.".into());
-                }
-                let end = (count + 16 * 1024 * 1024 - 1).min(part.bytes - 1);
-                let response = client
-                    .get(url)
-                    .header("Range", format!("bytes={count}-{end}"))
-                    .send()
-                    .and_then(|r| r.error_for_status())
-                    .map_err(|e| e.to_string())?;
-                if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
-                    return Err("Download server must support ranged downloads.".into());
-                }
-                let expected = format!("bytes {count}-{end}/{}", part.bytes);
-                if response
-                    .headers()
-                    .get("Content-Range")
-                    .and_then(|v| v.to_str().ok())
-                    != Some(&expected)
-                {
-                    return Err("Incorrect runtime download range.".into());
-                }
-                (Box::new(response), end)
-            };
-            loop {
-                if cancel.load(Ordering::Acquire) {
-                    return Err("Installation cancelled.".into());
-                }
-                let n = response.read(&mut buffer).map_err(|e| e.to_string())?;
-                if n == 0 {
-                    break;
-                }
-                count += n as u64;
-                if count > end + 1 {
-                    return Err("Download exceeds requested range.".into());
-                }
-                hash.update(&buffer[..n]);
-                temp.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
-                status.lock().unwrap_or_else(|e| e.into_inner()).received = received + count;
+            let n = response.read(&mut buffer).map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
             }
-            if count != end + 1 {
-                return Err("Incomplete runtime download.".into());
+            received += n as u64;
+            if received > end + 1 {
+                return Err("Python download exceeds the expected size.".into());
             }
+            archive.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
+            status.lock().unwrap_or_else(|e| e.into_inner()).received = received;
         }
-        if format!("{:x}", hash.finalize()) != part.sha256 {
-            return Err("Download part checksum mismatch.".into());
+        if received != end + 1 {
+            return Err("Incomplete Python download. Retry setup.".into());
         }
-        received += part.bytes;
     }
-    Ok(temp)
+    verify_python(archive.path(), download, cancel)?;
+    Ok(archive)
 }
-
+fn run_setup(
+    command: &mut Command,
+    stage: &Path,
+    cancel: &AtomicBool,
+    status: &Mutex<Status>,
+) -> Result<(), String> {
+    if cancel.load(Ordering::Acquire) {
+        return Err("Installation cancelled.".into());
+    }
+    let output = tempfile::NamedTempFile::new_in(stage).map_err(|e| e.to_string())?;
+    command
+        .current_dir(stage)
+        .stdin(Stdio::null())
+        .stdout(output.as_file().try_clone().map_err(|e| e.to_string())?)
+        .stderr(output.as_file().try_clone().map_err(|e| e.to_string())?);
+    let mut process = spawn_managed(command, Arc::new(Control::default()))?;
+    let deadline = Instant::now() + Duration::from_secs(3600);
+    loop {
+        if cancel.load(Ordering::Acquire) {
+            return Err("Installation cancelled.".into());
+        }
+        if let Ok(phase) = config::read_json::<String>(&stage.join("setup-phase.json")) {
+            status.lock().unwrap_or_else(|e| e.into_inner()).phase = Some(phase);
+        }
+        if let Some(exit) = process.child.try_wait().map_err(|e| e.to_string())? {
+            if exit.success() {
+                return Ok(());
+            }
+            use std::io::{Seek, SeekFrom};
+            let mut file = output.reopen().map_err(|e| e.to_string())?;
+            let length = file.metadata().map_err(|e| e.to_string())?.len();
+            file.seek(SeekFrom::Start(length.saturating_sub(4000)))
+                .map_err(|e| e.to_string())?;
+            let mut tail = Vec::new();
+            file.read_to_end(&mut tail).map_err(|e| e.to_string())?;
+            return Err(format!("Setup could not finish ({exit}). Check your connection and free disk space, then retry.\n{}", String::from_utf8_lossy(&tail).trim()));
+        }
+        if Instant::now() > deadline {
+            return Err("Setup timed out. Check your connection and retry.".into());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+fn install_runtime(
+    directory: &Path,
+    source: &Path,
+    variant: &str,
+    cancel: &AtomicBool,
+    status: &Mutex<Status>,
+) -> Result<tempfile::TempDir, String> {
+    let setup = setup_manifest(source)?;
+    if !setup_variants(&setup).contains(&variant) {
+        return Err("This processing option is not supported on this computer.".into());
+    }
+    let tools = source.join("runtime-tools");
+    for tool in ["ffmpeg", "ffprobe"] {
+        if !tools
+            .join(format!("{tool}{}", std::env::consts::EXE_SUFFIX))
+            .is_file()
+        {
+            return Err("The app is missing its converter tools. Reinstall lazymidi using the full installer or portable ZIP.".into());
+        }
+    }
+    fs::create_dir_all(directory.join("runtimes")).map_err(|e| e.to_string())?;
+    let staging = tempfile::tempdir_in(directory.join("runtimes")).map_err(|e| e.to_string())?;
+    let archive = download_python(directory, &setup.python[&host_platform()], cancel, status)?;
+    {
+        let mut state = status.lock().unwrap_or_else(|e| e.into_inner());
+        state.phase = Some("extracting".into());
+        state.received = 0;
+        state.total = 0;
+    }
+    let tar = if cfg!(windows) {
+        PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()))
+            .join("System32/tar.exe")
+    } else {
+        PathBuf::from("/usr/bin/tar")
+    };
+    // Only the pinned, checksum-verified upstream archive reaches the platform extractor.
+    run_setup(
+        Command::new(tar)
+            .arg("-xf")
+            .arg(archive.path())
+            .arg("-C")
+            .arg(staging.path()),
+        staging.path(),
+        cancel,
+        status,
+    )?;
+    drop(archive);
+    if !pack_python(staging.path()).is_file() {
+        return Err("Python setup is incomplete. Retry setup.".into());
+    }
+    run_setup(
+        Command::new(pack_python(staging.path()))
+            .args(["-I", "-B", "-X", "utf8"])
+            .arg(source.join("install_runtime.py"))
+            .arg(staging.path())
+            .arg(tools)
+            .arg(variant),
+        staging.path(),
+        cancel,
+        status,
+    )?;
+    fs::remove_file(staging.path().join("setup-phase.json")).map_err(|e| e.to_string())?;
+    status.lock().unwrap_or_else(|e| e.into_inner()).phase = Some("checking".into());
+    let environment = validate_environment(
+        &pack_python(staging.path()),
+        source,
+        &[staging.path().join("ffmpeg")],
+        cancel,
+    )?;
+    if environment.piano_notation != Some(true) {
+        return Err("Piano setup did not pass its check. Retry setup.".into());
+    }
+    config::atomic_save(&staging.path().join("runtime.json"), &environment)?;
+    config::atomic_save(
+        &staging.path().join("pack.json"),
+        &serde_json::json!({
+            "version":setup.version,"variant":variant,"platform":host_platform()
+        }),
+    )?;
+    Ok(staging)
+}
 #[tauri::command]
-pub async fn converter_install(
-    app: tauri::AppHandle,
-    variant: String,
-    local: bool,
-) -> Result<(), Error> {
-    use tauri_plugin_dialog::DialogExt;
+pub async fn converter_install(app: tauri::AppHandle, variant: String) -> Result<(), Error> {
     if !app
         .state::<App>()
         .runtime
@@ -1077,105 +1045,29 @@ pub async fn converter_install(
     {
         return Err("Enable Convert first.".to_string().into());
     }
-    let local_path = if local {
-        app.dialog()
-            .file()
-            .add_filter("Pack manifest", &["json"])
-            .blocking_pick_file()
-            .map(|p| p.into_path())
-            .transpose()
-            .map_err(|e| e.to_string())?
-    } else {
-        None
-    };
-    if local && local_path.is_none() {
-        return Ok(());
-    }
-    let (pack, local_archive) = if let Some(path) = local_path {
-        let pack: Pack = config::read_json(&path)?;
-        if !safe_name(&pack.file) {
-            return Err("Invalid pack filename.".to_string().into());
-        }
-        let archive = path
-            .parent()
-            .ok_or("Missing directory.".to_string())?
-            .join(&pack.file);
-        (pack, Some(archive))
-    } else {
-        let manifest: serde_json::Value = config::read_json(&source(&app)?.join("packs.json"))?;
-        let packs: Vec<Pack> =
-            serde_json::from_value(manifest["packs"].clone()).map_err(|e| e.to_string())?;
-        (
-            packs
-                .into_iter()
-                .find(|p| p.variant == variant && p.platform == host_platform())
-                .ok_or_else(|| "No download is available for this computer.".to_string())?,
-            None,
-        )
-    };
-    check_pack(&pack)?;
-    if local {
-        use tauri_plugin_dialog::MessageDialogButtons;
-        if !app.dialog().message(format!("Install {} runtime?\nDownload: {:.1} MiB · Installed: {:.1} MiB\nSHA256: {}\nOnly install packs you trust.",pack.variant,pack.bytes as f64/1048576.,pack.installed_bytes as f64/1048576.,pack.sha256)).title("Converter runtime").buttons(MessageDialogButtons::OkCancel).blocking_show(){return Ok(());}
-    }
+    let directory = root(&app)?;
+    let source = source(&app)?;
     let (cancel, status) = {
         let state = app.state::<App>();
         let converter = state
             .converter
             .lock()
             .map_err(|_| "Converter unavailable.".to_string())?;
-        let setup_busy = {
-            let status = converter.status.lock().unwrap_or_else(|e| e.into_inner());
-            status.installing || status.validating
-        };
-        if setup_busy {
+        let mut status = converter.status.lock().unwrap_or_else(|e| e.into_inner());
+        if status.installing || status.validating {
             return Err("A runtime setup is already running.".to_string().into());
         }
         converter.cancel.store(false, Ordering::Release);
-        let mut status = converter.status.lock().unwrap_or_else(|e| e.into_inner());
         status.installing = true;
-        status.phase = Some(if local { "verifying" } else { "downloading" }.into());
+        status.phase = Some("downloading".into());
         status.error = None;
-        status.total = pack.bytes;
+        status.total = 0;
         status.received = 0;
         (converter.cancel.clone(), converter.status.clone())
     };
-    let directory = root(&app)?;
-    let probe_source = source(&app)?;
     std::thread::spawn(move || {
         let result = (|| -> Result<(), String> {
-            fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-            let mut download = None;
-            let archive = if let Some(path) = local_archive.as_ref().filter(|p| p.is_file()) {
-                path.clone()
-            } else {
-                let temp = download_pack(
-                    &directory,
-                    &pack,
-                    local_archive.as_deref(),
-                    &cancel,
-                    &status,
-                )?;
-                let path = temp.path().to_owned();
-                download = Some(temp);
-                path
-            };
-            let staging = extract_pack(&directory, &archive, &pack, &cancel, &status)?;
-            drop(download);
-            status.lock().unwrap_or_else(|e| e.into_inner()).phase = Some("checking".into());
-            let environment = validate_environment(
-                &pack_python(staging.path()),
-                &probe_source,
-                &[staging.path().join("ffmpeg")],
-                &cancel,
-            )?;
-            if environment.piano_notation != Some(true) {
-                return Err(
-                    "This runtime cannot open Piano sheets. Install the current Converter pack."
-                        .into(),
-                );
-            }
-            config::atomic_save(&staging.path().join("runtime.json"), &environment)?;
+            let staging = install_runtime(&directory, &source, &variant, &cancel, &status)?;
             let name = staging
                 .path()
                 .file_name()
@@ -1210,6 +1102,14 @@ pub async fn converter_stop(app: tauri::AppHandle) {
         app.state::<App>()
             .converter_cancel
             .store(true, Ordering::Release);
+        app.state::<App>()
+            .converter
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .phase = Some("cancelling".into());
         return;
     }
     {
@@ -1729,246 +1629,138 @@ mod tests {
         assert!(!safe_name("CON.txt"));
         assert!(!safe_name("path."));
     }
-    fn fixture(directory: &Path, entries: &[(&str, &[u8])]) -> (PathBuf, Pack) {
-        let path = directory.join("pack.zip");
-        let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
-        let mut installed = 0;
-        for (name, bytes) in entries {
-            zip.start_file(
-                *name,
-                zip::write::SimpleFileOptions::default().unix_permissions(0o755),
-            )
-            .unwrap();
-            zip.write_all(bytes).unwrap();
-            installed += bytes.len() as u64;
-        }
-        zip.finish().unwrap();
-        let bytes = fs::read(&path).unwrap();
-        let pack = Pack {
-            version: "test".into(),
-            variant: "cpu".into(),
-            platform: host_platform(),
-            bytes: bytes.len() as u64,
-            installed_bytes: installed,
-            sha256: format!("{:x}", Sha256::digest(&bytes)),
-            file: "pack.zip".into(),
-            url: None,
-            parts: vec![],
-        };
-        (path, pack)
-    }
     #[test]
-    fn local_parts_verify_sizes_hashes_and_cancellation_before_activation() {
+    fn python_download_is_verified_before_execution() {
         let root = tempfile::tempdir().unwrap();
-        let (archive, mut pack) = fixture(root.path(), &[("data", b"synthetic runtime payload")]);
+        let archive = root.path().join("python.tar.gz");
+        fs::write(&archive, b"test Python archive").unwrap();
         let bytes = fs::read(&archive).unwrap();
-        for (index, data) in bytes.chunks(bytes.len().div_ceil(2)).enumerate() {
-            let name = format!("pack.zip.part{}", index + 1);
-            fs::write(root.path().join(&name), data).unwrap();
-            pack.parts.push(PackPart {
-                file: name,
-                bytes: data.len() as u64,
-                sha256: format!("{:x}", Sha256::digest(data)),
-                url: None,
-            });
-        }
+        let mut download = PythonDownload {
+            bytes: bytes.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+            url: "https://example.com/python.tar.gz".into(),
+        };
         let cancel = AtomicBool::new(false);
         let status = Mutex::new(Status::default());
-        config::atomic_save(&root.path().join("active.json"), &"previous").unwrap();
-        let joined = download_pack(root.path(), &pack, Some(&archive), &cancel, &status).unwrap();
-        assert_eq!(fs::read(joined.path()).unwrap(), bytes);
-        assert_eq!(status.lock().unwrap().received, pack.bytes);
-        pack.parts[0].sha256 = "0".repeat(64);
-        assert!(
-            download_pack(root.path(), &pack, Some(&archive), &cancel, &status)
-                .unwrap_err()
-                .contains("checksum")
-        );
-        cancel.store(true, Ordering::Release);
-        assert!(
-            download_pack(root.path(), &pack, Some(&archive), &cancel, &status)
-                .unwrap_err()
-                .contains("cancelled")
-        );
-        cancel.store(false, Ordering::Release);
-        pack.parts.clear();
-        pack.url = Some("https://example.com/untrusted.zip".into());
-        assert!(download_pack(root.path(), &pack, None, &cancel, &status)
+        verify_python(&archive, &download, &cancel).unwrap();
+        assert!(download_python(root.path(), &download, &cancel, &status)
             .unwrap_err()
             .contains("Untrusted"));
+        download.bytes += 1;
+        assert!(verify_python(&archive, &download, &cancel)
+            .unwrap_err()
+            .contains("size"));
+        download.bytes -= 1;
+        download.sha256 = "0".repeat(64);
+        assert!(verify_python(&archive, &download, &cancel)
+            .unwrap_err()
+            .contains("checksum"));
+        cancel.store(true, Ordering::Release);
+        assert!(verify_python(&archive, &download, &cancel)
+            .unwrap_err()
+            .contains("cancelled"));
+    }
+    #[test]
+    fn setup_failure_and_cancellation_preserve_selection_and_clean_staging() {
+        let root = tempfile::tempdir().unwrap();
+        config::atomic_save(&root.path().join("active.json"), &"previous").unwrap();
+        fs::create_dir(root.path().join("runtimes")).unwrap();
+        let stage = tempfile::tempdir_in(root.path().join("runtimes")).unwrap();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let status = Mutex::new(Status::default());
+        let mut fail = if cfg!(windows) {
+            Command::new("cmd.exe")
+        } else {
+            Command::new("sh")
+        };
+        fail.args(if cfg!(windows) {
+            vec!["/C", "exit 9"]
+        } else {
+            vec!["-c", "exit 9"]
+        });
+        assert!(run_setup(&mut fail, stage.path(), &cancel, &status)
+            .unwrap_err()
+            .contains("could not finish"));
+        let signal = cancel.clone();
+        let trigger = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            signal.store(true, Ordering::Release);
+        });
+        let mut wait = if cfg!(windows) {
+            Command::new("powershell.exe")
+        } else {
+            Command::new("sh")
+        };
+        wait.args(if cfg!(windows) {
+            vec![
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Sleep -Seconds 30",
+            ]
+        } else {
+            vec!["-c", "sleep 30"]
+        });
+        let started = Instant::now();
+        assert!(run_setup(&mut wait, stage.path(), &cancel, &status)
+            .unwrap_err()
+            .contains("cancelled"));
+        trigger.join().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(3));
+        drop(stage);
+        assert_eq!(
+            fs::read_dir(root.path().join("runtimes")).unwrap().count(),
+            0
+        );
         assert_eq!(
             config::read_json::<String>(&root.path().join("active.json")).unwrap(),
             "previous"
         );
     }
     #[test]
-    fn failed_install_preserves_working_pack_and_cleans_staging() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path();
-        config::atomic_save(&root.join("active.json"), &"previous").unwrap();
-        let cancel = AtomicBool::new(false);
-        let status = Mutex::new(Status::default());
-        for bad in [
-            "../escape",
-            "python/CON.txt",
-            "Python/PYTHON.exe",
-            "python/incomplete.exe",
-        ] {
-            let (archive, mut pack) =
-                fixture(root, &[("python/python.exe", b"test"), (bad, b"bad")]);
-            assert!(extract_pack(root, &archive, &pack, &cancel, &status).is_err());
-            pack.sha256 = "wrong".into();
-            assert!(extract_pack(root, &archive, &pack, &cancel, &status)
-                .unwrap_err()
-                .contains("checksum"));
-            assert_eq!(
-                config::read_json::<String>(&root.join("active.json")).unwrap(),
-                "previous"
-            );
-            if root.join("runtimes").exists() {
-                assert_eq!(fs::read_dir(root.join("runtimes")).unwrap().count(), 0);
-            }
-        }
-        let metadata = serde_json::to_vec(
-            &serde_json::json!({"version":"test","variant":"cpu","platform":host_platform()}),
-        )
-        .unwrap();
-        let python = if cfg!(windows) {
-            "python/python.exe"
-        } else {
-            "python/bin/python3"
-        };
-        let ffmpeg = if cfg!(windows) {
-            "ffmpeg/ffmpeg.exe"
-        } else {
-            "ffmpeg/ffmpeg"
-        };
-        let ffprobe = if cfg!(windows) {
-            "ffmpeg/ffprobe.exe"
-        } else {
-            "ffmpeg/ffprobe"
-        };
-        let (archive, mut pack) = fixture(
-            root,
-            &[
-                ("pack.json", &metadata),
-                (python, b"test"),
-                (ffmpeg, b"test"),
-                (ffprobe, b"test"),
-            ],
-        );
-        cancel.store(true, Ordering::Release);
-        assert!(extract_pack(root, &archive, &pack, &cancel, &status)
-            .unwrap_err()
-            .contains("cancelled"));
-        cancel.store(false, Ordering::Release);
-        let staged = extract_pack(root, &archive, &pack, &cancel, &status).unwrap();
-        assert!(pack_python(staged.path()).is_file());
-        assert_eq!(
-            config::read_json::<String>(&root.join("active.json")).unwrap(),
-            "previous"
-        );
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                fs::metadata(pack_python(staged.path()))
-                    .unwrap()
-                    .permissions()
-                    .mode()
-                    & 0o777,
-                0o755
-            );
-        }
-        drop(staged);
-        assert_eq!(fs::read_dir(root.join("runtimes")).unwrap().count(), 0);
-        pack.platform = "another-platform".into();
-        assert!(extract_pack(root, &archive, &pack, &cancel, &status)
-            .unwrap_err()
-            .contains("Unsupported"));
-
-        let (archive, pack) = fixture(
-            root,
-            &[
-                ("pack.json", &metadata),
-                (python, b"test"),
-                (ffmpeg, b"test"),
-                (ffprobe, b"test"),
-                ("python/share/terminfo/2/2621A", b"upper"),
-                ("python/share/terminfo/2/2621a", b"lower"),
-            ],
-        );
-        let result = extract_pack(root, &archive, &pack, &cancel, &status);
-        if cfg!(target_os = "linux") {
-            let staged = result.unwrap();
-            assert_eq!(
-                fs::read(staged.path().join("python/share/terminfo/2/2621A")).unwrap(),
-                b"upper"
-            );
-            assert_eq!(
-                fs::read(staged.path().join("python/share/terminfo/2/2621a")).unwrap(),
-                b"lower"
-            );
-        } else {
-            assert!(result.unwrap_err().contains("Unsafe"));
-        }
-    }
-    #[test]
-    #[ignore = "Installs a built runtime and checks real conversion and Piano in isolation"]
-    fn built_runtime_installs_and_runs() {
-        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join(
-            std::env::var_os("LAZYMIDI_TEST_PACK_MANIFEST")
-                .expect("Set LAZYMIDI_TEST_PACK_MANIFEST"),
-        );
-        let pack: Pack = config::read_json(&manifest).unwrap();
+    #[ignore = "Downloads and installs Converter using the actual in-app setup path"]
+    fn direct_runtime_installs_and_runs() {
         let root = tempfile::tempdir().unwrap();
-        let cancel = AtomicBool::new(false);
-        let status = Mutex::new(Status::default());
-        let archive = download_pack(
-            root.path(),
-            &pack,
-            Some(&manifest.parent().unwrap().join(&pack.file)),
-            &cancel,
-            &status,
-        )
-        .unwrap();
-        let staged = extract_pack(root.path(), archive.path(), &pack, &cancel, &status).unwrap();
         let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter");
-        let environment = validate_environment(
-            &pack_python(staged.path()),
+        let variant =
+            std::env::var("LAZYMIDI_TEST_RUNTIME_VARIANT").unwrap_or_else(|_| "cpu".into());
+        let staged = install_runtime(
+            root.path(),
             &source,
-            &[staged.path().join("ffmpeg")],
+            &variant,
             &AtomicBool::new(false),
+            &Mutex::new(Status::default()),
         )
         .unwrap();
+        let environment: ExistingEnvironment =
+            config::read_json(&staged.path().join("runtime.json")).unwrap();
         assert_eq!(environment.piano_notation, Some(true));
         assert!(environment.devices.iter().any(|d| d == "cpu"));
-        config::atomic_save(&staged.path().join("runtime.json"), &environment).unwrap();
+        assert!(!staged.path().join("setup-temp").exists());
+        assert!(!staged.path().join("setup-phase.json").exists());
         config::atomic_save(
             &root.path().join("active.json"),
             &staged.path().file_name().unwrap().to_str().unwrap(),
         )
         .unwrap();
-        let active = active_runtime(root.path()).unwrap();
-        assert_eq!(active.environment.unwrap().piano_notation, Some(true));
-        let mut cmd = std::process::Command::new(active.python);
-        cmd.args([
-            "-X",
-            "utf8",
-            "-c",
-            "import torch,transkun,flask;print(torch.__version__)",
-        ]);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
-        }
-        let output = cmd.output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+        assert_eq!(
+            active_runtime(root.path())
+                .unwrap()
+                .runtime_version
+                .as_deref(),
+            Some("3")
         );
+        let mut command = Command::new(&environment.python);
+        command
+            .args(["-I", "-B", "-X", "utf8"])
+            .arg(source.join("test_piano_sheet.py"));
+        run_setup(
+            &mut command,
+            staged.path(),
+            &AtomicBool::new(false),
+            &Mutex::new(Status::default()),
+        )
+        .unwrap();
         if let Some(output) = std::env::var_os("LAZYMIDI_TEST_ENVIRONMENT_OUTPUT") {
             config::atomic_save(
                 &PathBuf::from(env!("CARGO_MANIFEST_DIR"))

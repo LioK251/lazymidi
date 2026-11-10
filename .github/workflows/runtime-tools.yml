@@ -1,9 +1,9 @@
-name: Converter runtimes
+name: Runtime tools
 on:
   workflow_dispatch:
     inputs:
       ffmpeg_run:
-        description: Reuse FFmpeg artifacts from a successful runtime run (leave blank to rebuild)
+        description: Reuse FFmpeg artifacts from a successful FFmpeg tools run (leave blank to rebuild)
         required: false
         type: string
 permissions:
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.11'
       - uses: actions/download-artifact@v4
         if: inputs.ffmpeg_run != ''
         with:
@@ -63,36 +63,12 @@ jobs:
             target/runtime-ffmpeg/install/bin/*
             target/runtime-ffmpeg/install/licenses/**
           if-no-files-found: error
-          retention-days: 14
-  runtime:
-    needs: ffmpeg
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {os: windows-latest, platform: windows-x86_64, variant: cpu}
-          - {os: windows-latest, platform: windows-x86_64, variant: cuda}
-          - {os: ubuntu-22.04, platform: linux-x86_64, variant: cpu}
-          - {os: ubuntu-22.04, platform: linux-x86_64, variant: cuda}
-          - {os: macos-15, platform: macos-aarch64, variant: cpu}
-          - {os: macos-15-intel, platform: macos-x86_64, variant: cpu}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - uses: actions/download-artifact@v4
-        with:
-          name: ffmpeg-${{ matrix.platform }}
-          path: target/runtime-ffmpeg/install
-      - name: Build and qualify relocated runtime
-        run: python -B scripts/build-converter-pack.py ${{ matrix.variant }}
+          retention-days: 7
+      - name: Prepare bundled tools and compiler-free setup wheel
+        run: python -B scripts/prepare-runtime-tools.py
       - uses: actions/upload-artifact@v4
         with:
-          name: converter-${{ matrix.platform }}-${{ matrix.variant }}
-          path: target/converter-packs/*
+          name: runtime-tools-${{ matrix.platform }}
+          path: converter/runtime-tools/**
           if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
+          retention-days: 7
