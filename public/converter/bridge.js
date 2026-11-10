@@ -83,6 +83,7 @@ window.addEventListener('message',event=>{
     }
   }
   if(message?.type==='converter-visibility') window.setVisualizerActive?.(message.visible);
+  if(message?.type==='converter-seek'&&message.revision===playbackRevision&&Number.isFinite(message.time))window.seekPianoPlayback?.(message.time);
   if(message?.type==='converter-style') {
     settings={...settings,visualizer_style:message.style};
     window.dispatchEvent(new CustomEvent('piano-style-change',{detail:message.style}));

@@ -969,6 +969,15 @@
     });
   }
 
+  window.seekPianoPlayback = time => {
+    if (!midi || !seekBar || seekBar.disabled || !Number.isFinite(time)) return;
+    seekBar.value = clamp(time, 0, totalDuration);
+    seekBar.dispatchEvent(new Event('input'));
+    seekBar.dispatchEvent(new Event('change'));
+    updateTransportUI();
+    renderFrame();
+  };
+
   function closeModal() {
     stopPlayback();
     if (sceneMedia?.tagName === 'VIDEO') sceneMedia.pause();

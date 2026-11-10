@@ -3,19 +3,21 @@
 ## Version 0.1.8 release qualification — 2026-11-10
 
 The current Windows preview is unpublished, pending the user's app testing.
-171 frontend/extension tests and 57 Rust workspace tests pass, as do formatting,
-the production TypeScript/Vite build and Windows NSIS packaging. The earlier
-notation/runtime qualification passed 21 private-service tests, 11 notation
-tests, 45 SDK-free core tests, six environment tests, three installer-script
-tests and Clippy. Runtime/model installation code did not change in this preview.
+174 frontend/extension tests, 17 notation tests and 21 private-service tests
+pass, as do the production TypeScript/Vite build, Windows NSIS packaging and
+portable ZIP integrity checks. The opt-in transcription
+test was not rerun. The preceding preview passed 57 Rust workspace tests,
+formatting and Windows NSIS packaging; Rust and runtime installation code are
+unchanged. Earlier runtime qualification also passed 45 SDK-free core tests,
+six environment tests, three installer-script tests and Clippy.
 
 Notation fixtures cover two staves, overlapping voices, ties, triplets, key and
 meter changes, rests, one-hand pieces, track selection, malformed files and
 unchanged playback. They also cover mixed straight/triplet rhythms, placeholder
 tempo detection, staccato releases, accidental cancellation and bar-crossing ties.
 “Abyss - Kaiju No. 8 OP | Piano | YUNGBLUD” now engraves as 59 measures at an
-estimated 115 BPM with four flats. Standard/detail views contain 88/106 rests
-(previously 1,252 in Standard), 12 accidentals and no unintended tuplets.
+estimated 115 BPM with four flats. Extra voice-padding rests are hidden, and
+the score has no unintended tuplets.
 Rendered opening, verse, chorus and ending passages were inspected. The layout
 now preserves each measure's minimum engraving width: compressed measures at
 high zoom had reversed some note positions, causing 177/367 backward samples
@@ -29,6 +31,24 @@ Play, seeking, Follow, manual scrolling, zoom and repeated score replacement
 passed. Both modes retain identical playback MIDI; the original file's hash is
 unchanged. The user's song is not a distributed fixture.
 
+The current notation checks also use Queen – Bohemian Rhapsody (Piano Cover),
+Fantaisie-Impromptu and It's Me It's Verity. Queen's bars 18–20 keep rising
+accompaniment on the bass staff, align slightly separated chord attacks/releases
+and hide redundant voice rests. Its irregular transcription retains the MIDI's
+clock; no constant tempo is forced. Fantaisie's two unnamed tracks keep their
+hands across C4, with independent triplets and sixteenths and the authored sharp
+key signature. Bar-crossing rhythm splitting uses exact fractions to avoid a
+rounding loop. Export preserves those ties without rebuilding oversized tuplets.
+Original MIDI files and playback events remain unchanged.
+
+Click-to-seek passed on notes, rests and empty staff space in the four songs,
+at 420–1120 px and 1–3× zoom, including scrolling and original-performance timing.
+Both paused and playing states are preserved. A ledger-note regression catches
+the nearest staff lookup selecting an adjacent beat instead of the clicked note.
+Follow was checked across all 52 Verity bars at 1120×760, 700×620 and 420×700,
+including bar 33, oversized staves, manual scrolling, restoring Follow and
+backward seeks. The complete playing staff stays visible whenever it fits.
+
 UI regressions cover the saved Piano-button preference in Convert and the
 floating viewer, the Working indicator beside Piano, search-page restoration,
 deletion, format switching, superseded loading events, tempo-aware seeking and
@@ -38,7 +58,8 @@ or off. Search and page position survive Settings changes. Sheet resizing and
 zoom were checked at 420, 700 and 1000 px widths.
 An imported 380 MB SoundFont generated non-silent PCM with output muted. Real
 Abyss playback had no backward clock or marker movement. Initial loading used
-46 bounded reads; mode changes and three MIDI replacements added none. Browser
+46 bounded reads; three playing seeks, mode changes and three MIDI replacements
+added none. Browser
 checks also passed shared SoundFont selection between Piano and Visualizer.
 Each native viewer retains its own audio engine and loaded font; this is shared
 selection, not a single synthesizer instance spanning windows.
@@ -46,8 +67,9 @@ Opening another player stops the previous one in browser tests and the shared
 player regression. Live WebView2 playback instrumentation was unavailable;
 physical audio output and that native handoff remain for manual testing.
 
-The current packaged Windows/WebView2 check passes with full Abyss notation and
-the existing environment and isolated app storage, plus shared sheet state, scoped
+The current Windows/WebView2 build passes with full Queen and Fantaisie notation,
+including Standard/Detailed generation, using the existing environment and
+isolated app storage. These checks cover shared sheet state, scoped
 assets, floating-window minimize/restore, stale revisions, large SoundFont
 ranges and Sheet/Visualizer reuse. SDK and generated keyboard output stay off.
 The user's library and active runtime selection are unchanged.

@@ -5,7 +5,7 @@ import {runInNewContext} from "node:vm";
 function bridge(channels=new Set<any>()){
   let receive:(event:unknown)=>void=()=>{};
   const parent={postMessage:vi.fn()};
-  const window={fetch:vi.fn(),addEventListener:vi.fn((type,fn)=>{if(type==='message')receive=fn;}),dispatchEvent:vi.fn(),openPianoVisualizer:vi.fn(async()=>{} ),refreshPianoSoundFonts:vi.fn(async()=>{})};
+  const window={fetch:vi.fn(),addEventListener:vi.fn((type,fn)=>{if(type==='message')receive=fn;}),dispatchEvent:vi.fn(),openPianoVisualizer:vi.fn(async()=>{} ),refreshPianoSoundFonts:vi.fn(async()=>{}),seekPianoPlayback:vi.fn()};
   class BroadcastChannel {
     name:string;onmessage?: (event:{data:unknown})=>void;
     constructor(name:string){this.name=name;channels.add(this);}
@@ -17,6 +17,15 @@ function bridge(channels=new Set<any>()){
   return {parent,window,context,send:(data:unknown,origin="http://localhost",source:unknown=parent)=>receive({data,origin,source})};
 }
 const path="/visualizer-backgrounds/"+"a".repeat(32)+".png";
+it('seeks only the current score and accepts finite playback times from its parent',()=>{
+  const b=bridge();b.send({type:'converter-visualize',revision:7,settings:{},assetRoot:'/'});
+  b.send({type:'converter-seek',revision:7,time:5});
+  expect(b.window.seekPianoPlayback).toHaveBeenCalledWith(5);
+  b.send({type:'converter-seek',revision:6,time:8});
+  b.send({type:'converter-seek',revision:7,time:Infinity});
+  b.send({type:'converter-seek',revision:7,time:8},'https://foreign.example');
+  expect(b.window.seekPianoPlayback).toHaveBeenCalledOnce();
+});
 it('shares the selected SoundFont between open viewers without reopening their MIDI or echoing settings',async()=>{
   const channels=new Set(),visualizer=bridge(channels),sheet=bridge(channels);
   for(const b of [visualizer,sheet])b.send({type:'converter-visualize',filename:'song.mid',settings:{visualizer_soundfont:'builtin'},assetRoot:'http://converter.localhost/%2F'});

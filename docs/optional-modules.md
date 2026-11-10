@@ -124,7 +124,9 @@ legacy `_transkun` suffix, while exports use `_lazymidi`.
 Choose **Sheet** on a Library card, then **Float** if it opens inside Convert.
 The floating viewer's **QWERTY** and **Piano** buttons switch formats in the same
 window. Piano shows treble and bass staves, playback, seeking, zoom and a following
-cursor. Manual scrolling turns Follow off. Closing, minimizing, replacing the
+cursor. Click a note, rest or bar to jump there; playing stays playing and paused
+stays paused. Follow keeps both staves visible when they fit in the window.
+Manual scrolling turns Follow off. Closing, minimizing, replacing the
 score or opening another player pauses the previous playback.
 
 Piano and Visualizer share the selected SoundFont. Closing either window keeps
@@ -136,8 +138,11 @@ settings to hide Piano in Convert and the floating viewer. Library cards keep
 the same compact Sheet, Export and × row either way. An already loaded score stays open.
 
 Use **Tracks & rhythm** to select tracks, change the staff split or choose finer
-rhythm detail. Named left/right tracks determine the staff; other tracks split
-at C4 by default. Notation groups chords, simplifies short releases into staccato
+rhythm detail. Named left/right tracks determine the staff. At the default C4
+split, two piano tracks with distinct registers stay together as hands, and
+mixed-track accompaniment can rise above middle C. A custom split applies to
+unnamed tracks. Each staff keeps its own straight or triplet rhythm.
+Notation groups chords, simplifies short releases into staccato
 notes and estimates a key when none was stored. For regular transcriptions with
 a placeholder MIDI clock, it estimates the written rhythm and tempo as well.
 Playback retains the selected tracks' original timing,
@@ -145,7 +150,8 @@ velocities and pedals. QWERTY retains Auto, Multi, Manual and Original transpose
 modes, editable transpose headings and Send to Transposer.
 
 Notation is automatic; freely timed performances and dense arrangements may
-need editing in a notation program. Supported inputs are beat-based MIDI types
+need editing in a notation program. MIDI does not preserve the published score's
+layout, fingerings or phrasing marks. Supported inputs are beat-based MIDI types
 0 and 1, up to 8 MiB, 20,000 selected notes, 8,000 beats and 2,000 measures.
 Source MIDI files remain unchanged.
 

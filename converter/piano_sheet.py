@@ -65,13 +65,13 @@ def _split_mixed_durations(voice, origin):
     for value in list(voice.notesAndRests):
         if not any(t.numberNotesActual > 3 for t in value.duration.tuplets):
             continue
-        offset = value.offset
+        offset = Fraction(value.offset)
         voice.remove(value)
         pending = deque([value])
         while pending:
             piece = pending.popleft()
             if any(t.numberNotesActual > 3 for t in piece.duration.tuplets):
-                start = origin + offset
+                start = Fraction(origin) + offset
                 length = math.floor(start) + 1 - start
                 if length >= piece.quarterLength:
                     length = Fraction(2) ** (math.ceil(math.log2(piece.quarterLength)) - 1)
@@ -79,7 +79,37 @@ def _split_mixed_durations(voice, origin):
                 pending.extendleft((second, first))
             else:
                 voice.insert(offset, piece)
-                offset += piece.quarterLength
+                offset += Fraction(piece.quarterLength)
+
+
+def _align_chords(staff):
+    # Small attack/release differences in a played chord should not create extra voices.
+    groups = []
+    for value in staff.notes:
+        previous = groups[-1] if groups else []
+        if (not previous or value.offset - previous[0].offset > .08 or
+                any(n.pitch == value.pitch for n in previous) or
+                min(n.offset + n.quarterLength for n in previous) - value.offset <
+                min(n.quarterLength for n in [*previous, value]) * .5):
+            groups.append([value])
+        else:
+            previous.append(value)
+    for values in groups:
+        if len(values) < 2:
+            continue
+        start = median(value.offset for value in values)
+        releases = []
+        for value in sorted(values, key=lambda n: n.offset + n.quarterLength):
+            end = value.offset + value.quarterLength
+            if not releases or end - releases[-1][0][1] > .08:
+                releases.append([])
+            releases[-1].append((value, end))
+        for release in releases:
+            end = median(end for _, end in release)
+            for value, _ in release:
+                staff.setElementOffset(value, start)
+                value.quarterLength = end - start
+    return groups
 
 
 def generate(path, track_ids=None, split=60, rhythm="normal"):
@@ -155,6 +185,19 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
         raise ValueError("This score has too many measures. Choose a shorter MIDI.")
 
     subdivision = 8 if rhythm == "fine" else 4
+    hands = {}
+    for identity in selected:
+        name = tracks[identity]["name"]
+        if re.search(r"\b(left hand|left|lh)\b", name, re.I):
+            hands[identity] = 1
+        elif re.search(r"\b(right hand|right|rh)\b", name, re.I):
+            hands[identity] = 0
+    if not hands and split == 60 and len(selected) == 2 and all(tracks[t]["piano"] for t in selected):
+        registers = {identity: median(n[1] for n in notes if n[0] == identity) for identity in {n[0] for n in notes}}
+        if len(registers) == 2:
+            lower, upper = sorted(registers, key=registers.get)
+            if registers[upper] - registers[lower] >= 12:
+                hands = {lower: 1, upper: 0}
     notes, signatures, performance = _performance_grid(notes, signatures, midi.ticks_per_beat, subdivision)
     score_end = max(n[3] for n in notes) / midi.ticks_per_beat
     score = stream.Score()
@@ -188,41 +231,58 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
                     staff.remove(previous)
             staff.insert(offset, element)
     for identity, pitch, start, end_tick, velocity in notes:
-        name = tracks[identity]["name"]
-        hand = 1 if re.search(r"\b(left hand|left|lh)\b", name, re.I) else 0 if re.search(r"\b(right hand|right|rh)\b", name, re.I) else int(pitch < split)
+        hand = hands.get(identity, int(pitch < split))
         value = note.Note(pitch, quarterLength=(end_tick - start) / midi.ticks_per_beat)
         value.volume.velocity = velocity
         staves[hand].insert(start / midi.ticks_per_beat, value)
 
-    beat_offsets = defaultdict(set)
+    attacks_by_staff = [_align_chords(staff) for staff in staves]
+    if not hands and split == 60 and len(selected) == 1 and tracks[selected[0]]["piano"]:
+        bass, index, held_until = list(staves[1].notes), 0, 0
+        for values in attacks_by_staff[0]:
+            start = values[0].offset
+            while index < len(bass) and bass[index].offset <= start:
+                held_until = max(held_until, bass[index].offset + bass[index].quarterLength)
+                index += 1
+            ordered = sorted(values, key=lambda n: n.pitch.midi)
+            if len(ordered) < 2 or held_until > start + .08 or ordered[0].pitch.midi > 64:
+                continue
+            boundary = max(range(1, min(3, len(ordered))), key=lambda i: ordered[i].pitch.midi - ordered[i-1].pitch.midi)
+            if ordered[boundary].pitch.midi - ordered[boundary-1].pitch.midi < 4 or ordered[boundary-1].pitch.midi > 67:
+                continue
+            # A mixed track's accompaniment can rise above middle C while the bass is silent.
+            for value in ordered[:boundary]:
+                offset = value.offset
+                staves[0].remove(value)
+                staves[1].insert(offset, value)
     for staff in staves:
+        beat_offsets = defaultdict(set)
         for value in staff.notes:
             beat_offsets[math.floor(value.offset)].add(float(value.offset % 1))
-    divisors = {}
-    triplets = 6 if rhythm == "fine" else 3
-    for beat, offsets in beat_offsets.items():
-        straight_error = sum(abs(x - round(x * subdivision) / subdivision) for x in offsets)
-        triplet_error = sum(abs(x - round(x * triplets) / triplets) for x in offsets)
-        offbeats = {round(x * triplets) for x in offsets if 0 < round(x * triplets) < triplets
-                    and abs(x - round(x * triplets) / triplets) < .06
-                    and abs(x - round(x * subdivision) / subdivision) > .025}
-        divisors[beat] = triplets if len(offbeats) >= 2 and triplet_error < straight_error * .55 else subdivision
-    for staff in staves:
+        divisors = {}
+        triplets = 6 if rhythm == "fine" else 3
+        for beat, offsets in beat_offsets.items():
+            straight_error = sum(abs(x - round(x * subdivision) / subdivision) for x in offsets)
+            triplet_error = sum(abs(x - round(x * triplets) / triplets) for x in offsets)
+            offbeats = {round(x * triplets) for x in offsets if 0 < round(x * triplets) < triplets
+                        and abs(x - round(x * triplets) / triplets) < .06
+                        and abs(x - round(x * subdivision) / subdivision) > .025}
+            divisors[beat] = triplets if len(offbeats) >= 2 and triplet_error < straight_error * .55 else subdivision
         attacks = defaultdict(list)
         for value in list(staff.notes):
             divisor = divisors[math.floor(value.offset)]
             offset = Fraction(round(value.offset * divisor), divisor)
-            attacks[offset].append((value, divisor))
+            attacks[offset].append((value, divisor, value.offset + value.quarterLength))
             staff.remove(value)
         groups = defaultdict(list)
         offsets = sorted(attacks)
         for index, offset in enumerate(offsets):
             gap = offsets[index + 1] - offset if index + 1 < len(offsets) else None
-            for value, divisor in attacks[offset]:
+            for value, divisor, end in attacks[offset]:
                 played = value.quarterLength
-                length = Fraction(max(1, round(played * divisor)), divisor)
+                length = max(Fraction(1, divisor), Fraction(round(end * divisor), divisor) - offset)
                 short = False
-                if gap is not None and gap <= 1 and played <= gap + .12:
+                if gap is not None and gap <= 1 and end - offset <= gap + .12:
                     length = gap
                     short = played < gap * .5
                 groups[offset, length].append((value, short))
@@ -241,8 +301,11 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
         estimated_key = score.analyze("key")
         for staff in staves:
             staff.insert(0, key.KeySignature(estimated_key.sharps))
-            for pitch in staff.pitches:
-                if pitch.accidental and pitch.accidental.alter * estimated_key.sharps < 0:
+    for staff in staves:
+        for value in staff.notes:
+            signature = staff.getElementAtOrBefore(value.offset, [key.KeySignature])
+            for pitch in value.pitches:
+                if signature and pitch.accidental and pitch.accidental.alter * signature.sharps < 0:
                     pitch.getEnharmonic(inPlace=True)
     # Both hands need the same span, including conductor changes after one hand stops.
     score_end = max(staff.highestTime for staff in staves)
@@ -264,16 +327,28 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
                 measure.insert(0, voice)
             measure.makeRests(timeRangeFromBarDuration=True, fillGaps=True, inPlace=True)
             voice_count = max(voice_count, len(measure.voices))
+            sounding = [(n.offset, n.offset + n.quarterLength) for voice in measure.voices for n in voice.notes]
             for index, voice in enumerate(measure.voices):
                 voice.id = voice_offset + index + 1
                 _split_mixed_durations(voice, measure.offset)
+                # Padding keeps voices aligned but should not cover sounding notes with rests.
+                for rest in voice.getElementsByClass(note.Rest):
+                    if index > 0 or any(start <= rest.offset and end >= rest.offset + rest.quarterLength for start, end in sounding):
+                        rest.style.hideObjectOnPrint = True
         voice_offset += voice_count
         staff.makeAccidentals(inPlace=True)
     score.insert(0, layout.StaffGroup(staves, name="Piano", symbol="brace", barTogether=True))
     score.makeNotation(inPlace=True)
+    score.splitAtDurations(recurse=True)
+    for staff in score.parts:
+        for measure in staff.getElementsByClass(stream.Measure):
+            for voice in measure.voices or [measure]:
+                _split_mixed_durations(voice, measure.offset)
     if any(len(part.getElementsByClass(stream.Measure)) > 2000 for part in score.parts):
         raise ValueError("This score has too many measures. Choose a shorter MIDI.")
     exporter = musicxml.m21ToXml.GeneralObjectExporter(score)
+    # Export the finished ties without recombining mixed rhythms into large tuplets.
+    exporter.makeNotation = False
     xml = exporter.parse().decode("utf-8")
 
     playback = mido.MidiFile(type=midi.type, ticks_per_beat=midi.ticks_per_beat)

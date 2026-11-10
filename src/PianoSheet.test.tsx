@@ -13,11 +13,13 @@ vi.mock("opensheetmusicdisplay",()=>{
     constructor(public numerator:number,public denominator:number){}
     get RealValue(){return this.numerator/this.denominator;}
   }
-  return {Fraction,OutlineAndFillStyleEnum:{PlaybackCursor:3},OpenSheetMusicDisplay:class {
+  return {Fraction,PointF2D:class{constructor(public x:number,public y:number){}},GraphicalMeasure:class{},OutlineAndFillStyleEnum:{PlaybackCursor:3},OpenSheetMusicDisplay:class {
     ready=false;Zoom=1;
     cursor={show:vi.fn(),cursorElement:document.createElement("img")};
     EngravingRules={PageLeftMargin:5,PageRightMargin:5,SystemLeftMargin:0,SystemRightMargin:0};
     GraphicSheet={MeasureList:[[{minimumStaffEntriesWidth:30,beginInstructionsWidth:10,endInstructionsWidth:1}]],
+      domToSvg:vi.fn(point=>point),svgToOsmd:vi.fn(point=>point),
+      GetNearestNote:vi.fn(),tryGetTimeStampFromPosition:vi.fn(()=>new Fraction(3,8)),GetNearestObject:vi.fn(),
       calculateCursorLineAtTimestamp:vi.fn((timestamp:Fraction)=>{
       const beat=timestamp.RealValue*4,system=Math.floor(beat/4),x=10+(beat%4)*10,y=5+system*20;
       return {Start:{x,y},End:{x,y:y+12}};
@@ -72,6 +74,40 @@ it("allows manual reading and explicitly restoring Follow",async()=>{
   fireEvent.wheel(screen.getByLabelText("Piano notation"));expect(follow.checked).toBe(false);
   fireEvent.click(follow);expect(follow.checked).toBe(true);
   fireEvent.keyDown(screen.getByLabelText("Piano notation"),{key:"ArrowRight"});expect(follow.checked).toBe(false);
+});
+
+it("keeps the whole playing grand staff visible and leaves manual scrolling alone",async()=>{
+  await act(async()=>{render(<PianoSheet content={content()} revision={1} zoom={1} busy={false} viewOptions={null} {...callbacks()}/>);});
+  const scroller=screen.getByLabelText('Piano notation'),marker=instances[0].cursor.cursorElement;
+  const frame=screen.getByTitle('Piano playback') as HTMLIFrameElement;
+  let top=480;
+  vi.spyOn(scroller,'getBoundingClientRect').mockReturnValue(new DOMRect(0,100,1000,500));
+  vi.spyOn(marker,'getBoundingClientRect').mockImplementation(()=>new DOMRect(200,top-scroller.scrollTop,12,240));
+  const seek=(time:number)=>fireEvent(window,new MessageEvent('message',{origin:location.origin,source:frame.contentWindow,data:{type:'converter-playback',revision:1,time}}));
+  seek(1);
+  expect(marker.getBoundingClientRect().bottom).toBeLessThanOrEqual(552);
+  expect(marker.getBoundingClientRect().top).toBeGreaterThanOrEqual(124);
+  const position=scroller.scrollTop;
+  seek(1.1);expect(scroller.scrollTop).toBe(position);
+  fireEvent.wheel(scroller);top=960;seek(2);expect(scroller.scrollTop).toBe(position);
+  fireEvent.click(screen.getByLabelText('Follow'));
+  expect(marker.getBoundingClientRect().bottom).toBeLessThanOrEqual(552);
+});
+
+it("seeks clicked notation through the performance clock and ignores clicks during regeneration",async()=>{
+  const props={content:{...content(),timing:[{beat:0,time:4},{beat:1,time:4.6},{beat:2,time:5.3}]},revision:7,zoom:1,busy:false,viewOptions:null,...callbacks()};
+  const view=render(<PianoSheet {...props}/>);await act(async()=>{});
+  const frame=screen.getByTitle('Piano playback') as HTMLIFrameElement;
+  const post=vi.spyOn(frame.contentWindow!,'postMessage');
+  fireEvent.click(screen.getByTitle('Click a note or bar to move playback'),{clientX:321,clientY:210});
+  expect(instances[0].GraphicSheet.tryGetTimeStampFromPosition).toHaveBeenCalledWith({x:321,y:210});
+  expect(post).toHaveBeenLastCalledWith({type:'converter-seek',revision:7,time:expect.closeTo(4.95)},location.origin);
+  instances[0].GraphicSheet.GetNearestNote.mockReturnValue({sourceNote:{getAbsoluteTimestamp:()=>({RealValue:.25})}});
+  fireEvent.click(screen.getByTitle('Click a note or bar to move playback'),{clientX:321,clientY:250});
+  expect(post).toHaveBeenLastCalledWith({type:'converter-seek',revision:7,time:4.6},location.origin);
+  view.rerender(<PianoSheet {...props} busy/>);post.mockClear();
+  fireEvent.click(screen.getByTitle('Click a note or bar to move playback'));
+  expect(post).not.toHaveBeenCalled();
 });
 
 it("moves the marker between note onsets, changes lines immediately, and retains its position after zoom",async()=>{

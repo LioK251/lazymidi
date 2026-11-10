@@ -4,6 +4,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 import mido
@@ -46,6 +47,88 @@ def fixture(path):
 
 
 class PianoSheetTests(unittest.TestCase):
+    def test_legato_releases_use_the_quantized_attack_when_filling_the_next_beat(self):
+        midi = mido.MidiFile(ticks_per_beat=1000)
+        midi.tracks.append(mido.MidiTrack([
+            mido.MetaMessage('track_name', name='Right hand'),
+            mido.Message('note_on', note=72, velocity=80, time=140),
+            mido.Message('note_on', note=76, velocity=80, time=1870),
+            mido.Message('note_off', note=72, time=100),
+            mido.Message('note_off', note=76, time=890),
+        ]))
+        midi.save(self.path)
+        xml = ET.fromstring(generate(self.path)['musicxml'])
+        self.assertEqual(len({n.findtext('voice') for n in xml.findall('.//note[pitch]')}), 1)
+
+    def test_separate_piano_tracks_keep_crossing_hands_and_simultaneous_rhythms(self):
+        midi = mido.MidiFile(ticks_per_beat=480)
+        for hand in ('right', 'left'):
+            track = mido.MidiTrack([mido.MetaMessage('key_signature', key='E')])
+            events = []
+            for i in range(16 if hand == 'right' else 24):
+                start = 1920 + i * 120 if hand == 'right' else i * 160
+                pitch = (68, 75, 80, 83)[i % 4] if hand == 'right' else (49, 56, 61, 64, 61, 56)[i % 6]
+                duration = 108 if hand == 'right' else 144
+                events.extend([(start, mido.Message('note_on', note=pitch, velocity=80)),
+                               (start + duration, mido.Message('note_off', note=pitch))])
+            previous = 0
+            for tick, message in sorted(events, key=lambda value: value[0]):
+                track.append(message.copy(time=tick-previous)); previous = tick
+            midi.tracks.append(track)
+        midi.save(self.path)
+        for rhythm in ('normal', 'fine'):
+            result = generate(self.path, rhythm=rhythm)
+            xml = ET.fromstring(result['musicxml'])
+            first, second = xml.findall('.//part/measure')
+            self.assertFalse([n for n in first.findall('note[pitch]') if n.findtext('staff') == '1'])
+            for value in second.findall('note[pitch]'):
+                self.assertEqual(value.findtext('time-modification/actual-notes'),
+                                 '3' if value.findtext('staff') == '2' else None)
+            self.assertEqual(len(second.findall('note[pitch]')), 28)
+            self.assertFalse([n for n in xml.findall('.//note[pitch]') if n.findtext('pitch/alter') == '-1'])
+
+    def test_nearly_simultaneous_chord_releases_do_not_create_extra_voices(self):
+        midi = mido.MidiFile(ticks_per_beat=1000)
+        track = mido.MidiTrack([mido.MetaMessage('track_name', name='Right hand')])
+        events = []
+        for start, end, pitch in ((352, 1110, 60), (389, 1140, 65), (392, 1125, 70)):
+            events.extend([(start, mido.Message('note_on', note=pitch, velocity=80)),
+                           (end, mido.Message('note_off', note=pitch))])
+        previous = 0
+        for tick, message in sorted(events, key=lambda value: value[0]):
+            track.append(message.copy(time=tick-previous)); previous = tick
+        midi.tracks.append(track); midi.save(self.path)
+        original = self.path.read_bytes()
+        for rhythm in ('normal', 'fine'):
+            result = generate(self.path, rhythm=rhythm)
+            xml = ET.fromstring(result['musicxml'])
+            pitched = xml.findall('.//note[pitch]')
+            self.assertEqual(len(pitched), 3)
+            self.assertEqual(sum(n.find('chord') is not None for n in pitched), 2)
+            self.assertEqual(len({n.findtext('voice') for n in pitched}), 1)
+            playback = mido.MidiFile(file=io.BytesIO(base64.b64decode(result['midi_base64'])))
+            self.assertEqual(list(playback.tracks[0]), list(mido.MidiFile(self.path).tracks[0]))
+        self.assertEqual(self.path.read_bytes(), original)
+
+    def test_mixed_track_accompaniment_can_rise_above_middle_c(self):
+        midi = mido.MidiFile(ticks_per_beat=480)
+        track = mido.MidiTrack([
+            mido.Message('note_on', note=48, velocity=80),
+            mido.Message('note_off', note=48, time=480),
+            mido.Message('note_on', note=61, velocity=80, time=1440),
+            mido.Message('note_on', note=64, velocity=80),
+            mido.Message('note_on', note=69, velocity=80),
+            mido.Message('note_off', note=61, time=480),
+            mido.Message('note_off', note=64),
+            mido.Message('note_off', note=69),
+        ])
+        midi.tracks.append(track); midi.save(self.path)
+        xml = ET.fromstring(generate(self.path)['musicxml'])
+        last = xml.findall('.//part/measure')[-1].findall('note[pitch]')
+        self.assertEqual([n.findtext('staff') for n in last], ['1', '2', '2'])
+        explicit = ET.fromstring(generate(self.path, split=61)['musicxml'])
+        self.assertTrue(all(n.findtext('staff') == '1' for n in explicit.findall('.//part/measure')[-1].findall('note[pitch]')))
+
     def test_held_triplets_can_end_before_straight_notes_without_nested_tuplet_rests(self):
         midi = mido.MidiFile(ticks_per_beat=480)
         events = []
@@ -76,6 +159,26 @@ class PianoSheetTests(unittest.TestCase):
         self.assertTrue(xml.findall(".//time-modification"))
         self.assertEqual({n.text for n in xml.findall(".//time-modification/actual-notes")}, {"3"})
         self.assertFalse(xml.findall(".//accidental"))
+
+    def test_bar_crossing_triplets_do_not_recombine_into_twelve_tuplets(self):
+        from music21 import base
+        midi = mido.MidiFile(ticks_per_beat=480)
+        track = mido.MidiTrack([mido.MetaMessage('track_name', name='Right hand')])
+        for pitch, length in ((72,160),(76,160),(79,2160)):
+            track.append(mido.Message('note_on', note=pitch, velocity=80))
+            track.append(mido.Message('note_off', note=pitch, time=length))
+        midi.tracks.append(track); midi.save(self.path)
+        split = base.Music21Object.splitAtQuarterLength
+        calls = 0
+        def bounded_split(value, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            self.assertLess(calls, 64, 'Splitting three notes must terminate')
+            return split(value, *args, **kwargs)
+        with patch.object(base.Music21Object, 'splitAtQuarterLength', bounded_split):
+            xml = ET.fromstring(generate(self.path, rhythm='fine')['musicxml'])
+        self.assertEqual({n.text for n in xml.findall('.//time-modification/actual-notes')}, {'3'})
+        self.assertTrue(xml.findall('.//tie'))
 
     def test_chromatic_notes_still_cancel_with_a_natural(self):
         midi = mido.MidiFile(ticks_per_beat=480)
@@ -159,6 +262,7 @@ class PianoSheetTests(unittest.TestCase):
                 xml = ET.fromstring(result["musicxml"])
                 self.assertTrue(xml.findall(".//rest"))
                 self.assertGreater(len(xml.findall(".//voice")), 2)
+                self.assertTrue(xml.findall('.//note[@print-object="no"]/rest'))
                 self.assertEqual(path.read_bytes(), original)
 
     def setUp(self):
@@ -202,6 +306,14 @@ class PianoSheetTests(unittest.TestCase):
         self.assertFalse(any(m.type == "note_on" for m in playback.tracks[1]))
         self.assertIn("<staff>2</staff>", result["musicxml"])
         self.assertEqual(result["rhythm"], "fine")
+
+    def test_hand_inference_ignores_a_track_with_only_zero_length_notes(self):
+        self.midi.tracks.append(mido.MidiTrack([
+            mido.Message('note_on', note=72, velocity=80),
+            mido.Message('note_off', note=72),
+        ]))
+        self.midi.save(self.path)
+        self.assertTrue(ET.fromstring(generate(self.path)['musicxml']).findall('.//note[pitch]'))
 
     def test_defaults_named_hands_and_no_piano_fallback(self):
         midi = mido.MidiFile(ticks_per_beat=480)
