@@ -2,7 +2,7 @@
 
 ## Version 0.1.8 release qualification — 2026-11-11
 
-The current Windows preview is unpublished, pending the user's app testing.
+The Windows app passed user testing and was approved for release.
 176 frontend/extension tests, 18 notation tests and 21 private-service tests
 pass, as do the production TypeScript/Vite build, Windows NSIS packaging and
 portable ZIP integrity checks. The opt-in transcription
@@ -104,8 +104,8 @@ offered only after a successful local model check. Windows CUDA is checked on
 an RTX 5080. A Requests dependency warning is prevented by pinning compatible
 chardet and checking its import with warnings treated as errors.
 
-Linux and macOS packages must be rebuilt and rechecked after approval of this
-UI/notation revision; their preceding runtime qualification passed. Release workflows install dependencies through the in-app
+Publication requires successful Linux and macOS package checks for this revision;
+their preceding runtime qualification also passed. Release workflows install dependencies through the in-app
 setup code before checking the packaged application. Debian/AppImage checks run
 under X11; both Mac DMGs are mounted and their architecture, resources and
 ad-hoc signatures checked. Each package must render normal/fine Piano and pass
