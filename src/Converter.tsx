@@ -1,4 +1,4 @@
-import {useNotice,useNoticeText} from "./notices";
+import {useNotice} from "./notices";
 import {useEffect,useRef,useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import * as api from "./backend";
@@ -9,8 +9,8 @@ import {listen} from "@tauri-apps/api/event";
 import {converterRequest,defaults,transposeModes,gamePoints,visualizerSetting,displayName} from "./converter-api";
 import type {Values,SheetContent} from "./converter-api";
 type Pack={variant:string;version:string;bytes:number;installed_bytes:number;url:string|null;parts?:{url:string|null}[]};
-type ExistingEnvironment={python:string;python_version:string;torch_version:string;cuda_available:boolean;cuda_error:string|null};
-type RuntimeStatus={status:{installed:string|null;running:boolean;installing:boolean;validating?:boolean;environment?:ExistingEnvironment|null;received:number;total:number;error:string|null};packs:Pack[]};
+type ExistingEnvironment={python:string;python_version:string;torch_version:string;cuda_error:string|null;mps_error?:string|null;devices:string[];piano_notation:boolean|null};
+type RuntimeStatus={status:{installed:string|null;running:boolean;installing:boolean;validating?:boolean;environment?:ExistingEnvironment|null;pack_version?:string|null;phase?:string|null;received:number;total:number;error:string|null};packs:Pack[];platform?:string};
 type MidiFile={filename:string;video_title:string;time_str:string;file_size:number;source_type:string;thumbnail_url?:string};
 type History={midi_name:string;video_title:string;timestamp:number;type:string};
 type Job={status:string;progress?:string;error?:string;midi_name?:string};
@@ -27,14 +27,16 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
   const [url,setUrl]=useState("");
   const [jobId,setJobId]=useState<string|null>(null);const [job,setJob]=useState<Job|null>(null);
   const [settings,setSettings]=useState<Values>(defaults);
-  const device=settings.compute_device==="cuda"&&runtime?.status.installed==="cuda"?"cuda":"cpu";
+  const devices=runtime?.status.environment?.devices??["cpu"];
+  const device=devices.includes(String(settings.compute_device))?String(settings.compute_device):"cpu";
+  const [packVariant,setPackVariant]=useState("cpu");
+  const checkedRuntimes=useRef(new Set<string>());
   const [sheet,setSheet]=useState("");const [sheetId,setSheetId]=useState("");const [lineMap,setLineMap]=useState<number[]>([]);
   const [sheetColors,setSheetColors]=useState(true);const [sheetZoom,setSheetZoom]=useState(1);
   const [source,setSource]=useState("file");
   const [points,setPoints]=useState("[]");const [transpose,setTranspose]=useState(0);
   const [pointChord,setPointChord]=useState(0);
   const [busy,setBusy]=useState(false);const [message,setMessage]=useNotice();
-  const runtimeError=useNoticeText(runtime?.status.error);
   const [ready,setReady]=useState(false);const [loadError,setLoadError]=useState("");
   const [retry,setRetry]=useState(0);const pending=useRef(0);
   const sheetRevision=useRef(0);const generation=useRef(0);
@@ -104,7 +106,24 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
   function sheetOption(key:string,value:unknown){setting(key,value);if(sheet&&ready&&!busy)void run(()=>generateSheet({[key]:value}));}
   const installed=!!runtime?.status.installed;
   const setupBusy=!!(runtime?.status.installing||runtime?.status.validating);
-  const useEnvironment=()=>run(()=>dialog("converter_use_environment",{}));
+  const setup=(command:string,args:Record<string,unknown>,pick=false)=>run(async()=>{
+    await (pick?dialog:invoke)(command,args);
+    setRuntime(await invoke<RuntimeStatus>("converter_status"));
+  });
+  const useEnvironment=(recheck=false)=>setup("converter_use_environment",{recheck},!recheck);
+  const installPack=(local=false)=>setup("converter_install",{variant:packVariant,local},local);
+  const pack=runtime?.packs.find(p=>p.variant===packVariant);
+  const downloadable=!!pack&&(pack.parts?.length?pack.parts.every(p=>p.url):!!pack.url);
+  const phase=runtime?.status.phase??(runtime?.status.validating?"checking":"downloading");
+  const setupLabel=({downloading:"Downloading Converter…",verifying:"Verifying download…",extracting:"Installing Converter…",checking:"Checking conversion and Piano…"} as Record<string,string>)[phase]??"Setting up Converter…";
+  const setupProgress=phase==="downloading"||phase==="extracting";
+  useEffect(()=>{
+    if(!installed||setupBusy||runtime?.status.error||runtime?.status.environment?.devices?.length)return;
+    const key=runtime?.status.environment?.python??`${runtime?.status.installed}:${runtime?.status.pack_version}`;
+    if(checkedRuntimes.current.has(key))return;
+    checkedRuntimes.current.add(key);
+    void useEnvironment(true);
+  },[installed,setupBusy,runtime?.status.error,runtime?.status.environment?.python,runtime?.status.environment?.devices?.length]);
   const query=search.trim().toLowerCase();
   const matchingFiles=files.filter(f=>`${displayName(f.filename)} ${f.video_title} ${f.source_type}`.toLowerCase().includes(query));
   const pages=Math.max(1,Math.ceil(matchingFiles.length/24)),browsePages=Math.max(1,Math.ceil(files.length/24));
@@ -121,33 +140,39 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
     <p className="converter-intro">{{Convert:"Turn piano audio into MIDI, then make a sheet or preview the notes.",Library:"Your converted and imported MIDI. Choose a song to preview or make a sheet.",Sheets:"Turn MIDI notes into a Virtual Piano sheet."}[section]}</p>
     {!api.desktop&&<p className="notice">Conversion and file imports work in the desktop app.</p>}
     {loadError&&<div className="notice error" role="alert"><strong>Could not start the converter.</strong><p>{loadError}</p><button disabled={busy} onClick={()=>setRetry(n=>n+1)}>Retry startup</button></div>}
-    {runtime?.status.validating?<p role="status">Checking Python, Transkun model, FFmpeg and CUDA… <button onClick={()=>void invoke("converter_stop")}>Cancel check</button></p>:installed&&!ready&&!loadError&&<p role="status">Starting converter… Musical input stays available.</p>}
-    {(!installed||runtime?.status.installing)&&section==="Convert"&&<section className="converter-setup">
-      <h2>1. Set up the converter once</h2><p className="help">Already use mp3converter? Reuse its Python environment, model and FFmpeg without downloading another runtime.</p>
-      <button className="primary" disabled={!api.desktop||busy||setupBusy||!!jobId} onClick={()=>void useEnvironment()}>Use existing converter environment</button><p className="help">Choose your old converter folder or its .cuda-venv/.venv folder. Your old app and files stay untouched.</p>
-      <details className="converter-advanced"><summary>Or install a separate runtime pack</summary>
-      <div className="runtime-choices">{runtime?.packs.map(pack=><div key={pack.variant} className="runtime-choice"><h3>{pack.variant==="cpu"?"CPU · Recommended":"NVIDIA GPU"}</h3><p>{pack.variant==="cpu"?"No dedicated graphics card needed.":"Needs a compatible NVIDIA graphics card."}</p><small>{size(pack.bytes)} download · {size(pack.installed_bytes)} on disk</small><button disabled={busy||setupBusy||!(pack.parts?.length?pack.parts.every(p=>p.url):pack.url)} onClick={()=>void run(()=>dialog("converter_install",{variant:pack.variant,local:false}))}>Download {pack.variant.toUpperCase()}</button></div>)}</div>
-      {runtime&&runtime.packs.every(p=>!p.url&&!p.parts?.some(part=>part.url))&&<p className="help">Online packs are not published yet. Have a local pack? Choose its .json file beside the matching .zip.</p>}
-      <div className="button-row"><button className="primary" disabled={!api.desktop||busy||setupBusy} onClick={()=>void run(()=>dialog("converter_install",{variant:"cpu",local:true}))}>Install local pack</button>{runtime?.status.installing&&<button onClick={()=>void invoke("converter_stop")}>Cancel install</button>}</div>
-      {runtime?.status.installing&&<p role="status">Installing · {size(runtime.status.received)} / {size(runtime.status.total)}</p>}
+    {installed&&!ready&&!loadError&&!setupBusy&&<p role="status">Starting converter…</p>}
+    {section==="Convert"&&<details className="converter-setup" open={!installed||setupBusy||!!runtime?.status.error||runtime?.status.environment?.piano_notation===false}>
+      <summary>Runtime setup</summary>
+      {installed?<p className="help">{runtime?.status.environment?.piano_notation?"Piano ready":"Piano needs a setup check"} · {devices.map(d=>({cpu:"CPU",cuda:"NVIDIA CUDA",mps:"Apple GPU"})[d]??d).join(", ")}</p>:<><h2>Install Converter</h2><p className="help">One download includes audio conversion and Piano sheets. No Python setup needed.</p></>}
+      {runtime&&runtime.packs.length>1&&<label className="field">Runtime<select value={packVariant} disabled={setupBusy} onChange={e=>setPackVariant(e.target.value)}>{runtime.packs.map(p=><option key={p.variant} value={p.variant}>{p.variant==="cpu"?"CPU · Recommended":"NVIDIA GPU · Includes CPU"}</option>)}</select></label>}
+      {pack&&<p className="help">{size(pack.bytes)} download · {size(pack.installed_bytes)} installed{packVariant==="cuda"?" · Requires a compatible NVIDIA GPU":runtime?.platform==="macos-aarch64"?" · Apple GPU enabled if its check passes":""}</p>}
+      <div className="button-row">
+        <button className="primary" disabled={!api.desktop||busy||setupBusy||!!jobId||!downloadable} onClick={()=>void installPack()}>{runtime?.status.error?"Retry setup":!installed?"Install Converter":runtime?.status.pack_version===pack?.version&&runtime?.status.environment?.piano_notation?"Reinstall Converter":"Update Converter"}</button>
+        {installed&&<button disabled={busy||setupBusy||!!jobId} onClick={()=>void useEnvironment(true)}>Check again</button>}
+        {setupBusy&&<button onClick={()=>void invoke("converter_stop")}>Cancel setup</button>}
+      </div>
+      {setupBusy&&<div className="runtime-progress" role="status"><p>{setupLabel}</p><progress aria-label="Runtime setup progress" max={runtime?.status.total||1} value={setupProgress?runtime?.status.received:undefined}/><small>{setupProgress?`${size(runtime?.status.received??0)} / ${size(runtime?.status.total??0)}`:"This can take a few minutes."}</small></div>}
+      {runtime?.status.error&&<div className="notice error" role="alert"><p>{runtime.status.error.toLowerCase().includes("cancelled")?"Setup cancelled.":"Setup did not finish. Retry or choose another runtime."}</p><details><summary>Error details</summary><pre>{runtime.status.error}</pre></details></div>}
+      {runtime&&!downloadable&&<p className="help">No download is available for this runtime. Check for an app update or use Advanced setup.</p>}
+      <details className="converter-advanced"><summary>Advanced setup</summary>
+        <div className="button-row"><button disabled={!api.desktop||busy||setupBusy||!!jobId} onClick={()=>void useEnvironment()}>Use existing converter environment</button><button disabled={!api.desktop||busy||setupBusy||!!jobId} onClick={()=>void installPack(true)}>Install local pack</button></div>
+        <p className="help">Choose a Python environment folder, or a pack’s JSON file beside its ZIP or ZIP parts.</p>
+        {runtime?.status.environment&&<p className="help runtime-details">Python {runtime.status.environment.python_version} · PyTorch {runtime.status.environment.torch_version}<br/>{runtime.status.environment.python}</p>}
+        {(runtime?.status.environment?.cuda_error||runtime?.status.environment?.mps_error)&&<p className="help runtime-details">{runtime.status.environment.cuda_error||runtime.status.environment.mps_error}</p>}
       </details>
-    </section>}
-    {installed&&section==="Convert"&&<details className="converter-advanced"><summary>{runtime.status.environment?`Using existing Python ${runtime.status.environment.python_version} · ${runtime.status.environment.cuda_available?"NVIDIA CUDA ready":"CPU"}`:"Installed converter runtime"}</summary>{runtime.status.environment&&<><p className="help">PyTorch {runtime.status.environment.torch_version}<br/>{runtime.status.environment.python}</p>{runtime.status.environment.cuda_error&&<p className="notice">{runtime.status.environment.cuda_error} CPU remains available.</p>}</>}<button disabled={!api.desktop||busy||setupBusy||!!jobId} onClick={()=>void useEnvironment()}>Use existing converter environment</button></details>}
+    </details>}
     {!installed&&section!=="Convert"&&<p className="help">Install a runtime in Convert to use your MIDI files here.</p>}
       {section==="Convert"&&<div className="split converter-workflow"><section className="primary-panel"><h2>Convert piano audio</h2>
         <div className="segmented converter-source" role="group" aria-label="Conversion source"><button aria-pressed={source==="file"} onClick={()=>setSource("file")}>Local file</button><button aria-pressed={source==="link"} onClick={()=>setSource("link")}>Media link</button></div>
         {source==="file"?<div className="converter-drop"><button className="primary" disabled={!ready||busy||!!jobId} onClick={()=>void run(()=>upload("media"))}>Choose audio or video</button><p className="help">MP3, WAV, FLAC, MP4 and more</p></div>:<div className="converter-link"><label className="field">Media link<input value={url} onChange={e=>setUrl(e.target.value)} placeholder="YouTube, TikTok or Discord media URL"/></label>
         <div className="button-row"><button className="primary" disabled={!ready||busy||!!jobId||!url.trim()} onClick={()=>void run(async()=>{const result=await converterRequest<{task_id:string}>("/api/convert",{media_url:url,device});setJobId(result.task_id);setJob({status:"queued"});})}>Convert link</button>{jobId&&<button onClick={()=>void run(()=>converterRequest(`/api/stop/${jobId}`,{}))}>Cancel</button>}</div></div>}
-        <details className="converter-advanced"><summary>Processing options</summary><label className="field">Compute device<select value={device} disabled={!ready||busy} onChange={e=>void run(()=>savePreference("compute_device",e.target.value))}><option value="cpu">CPU · 2 threads</option><option value="cuda" disabled={runtime?.status.installed!=="cuda"}>NVIDIA CUDA</option></select></label></details>
+        <details className="converter-advanced"><summary>Processing options</summary><label className="field">Compute device<select value={device} disabled={!ready||busy} onChange={e=>void run(()=>savePreference("compute_device",e.target.value))}><option value="cpu">CPU · 2 threads</option><option value="cuda" disabled={!devices.includes("cuda")}>NVIDIA CUDA</option>{(runtime?.platform?.startsWith("macos")||devices.includes("mps"))&&<option value="mps" disabled={!devices.includes("mps")}>Apple GPU</option>}</select></label>{device!==settings.compute_device&&<p className="help">Using CPU until your saved GPU choice is available.</p>}</details>
         {job&&<div className="control-block" role="status"><h2>{job.status==="completed"?"MIDI ready":job.status==="error"?"Conversion failed":job.status==="cancelled"?"Conversion cancelled":"Converting…"}</h2><p>{job.error??job.progress??displayName(job.midi_name??"")}</p>{jobId&&source==="file"&&<button onClick={()=>void run(()=>converterRequest(`/api/stop/${jobId}`,{}))}>Cancel</button>}{job.status==="completed"&&<div className="button-row"><button className="primary" disabled={!ready||busy||!job.midi_name} onClick={()=>openSheet(job.midi_name!)}>QWERTY</button>{showPiano&&<button disabled={!ready||busy||!job.midi_name} onClick={()=>openPiano(job.midi_name!)}>Piano</button>}<button disabled={!ready||busy||!job.midi_name} onClick={()=>void openVisualizer(job.midi_name!)}>Preview piano</button><button onClick={()=>setSection("Library")}>Open in Library</button></div>}{job.status==="error"&&device==="cuda"&&<button onClick={()=>void run(async()=>{await savePreference("compute_device","cpu");setMessage("CPU selected. Submit the file or link again to retry.");})}>Use CPU for retry</button>}</div>}
         <p className="help">Best for solo piano. Mixed instruments may produce extra or missing notes.</p></section>
         <aside className="secondary-panel"><h2>Your MIDI library</h2><p className="help">Already have MIDI files or an old mp3converter library?</p><div className="button-row"><button disabled={!ready||busy} onClick={()=>void run(()=>upload("midi"))}>Import MIDI</button><button disabled={!ready} onClick={()=>setSection("Library")}>Open Library ({files.length})</button></div>
           <button disabled={!ready||busy||!!jobId} onClick={()=>void importLibrary()}>Import history & MIDI folder</button><p className="help">Choose the old converter folder or its converted folder. Files are copied; originals stay untouched.</p>
           {files.slice(0,3).map(f=><div className="details-row converter-recent" key={f.filename}><span title={displayName(f.video_title||f.filename)}>{displayName(f.video_title||f.filename)}</span><div className="song-sheet-actions"><button disabled={!ready||busy} onClick={()=>openSheet(f.filename)}>QWERTY</button>{showPiano&&<button disabled={!ready||busy} onClick={()=>openPiano(f.filename)}>Piano</button>}</div></div>)}
-          <details className="converter-advanced"><summary>Runtime setup</summary>
-          <p className="help">Piano notation requires music21 9.7.1. Install an updated runtime pack or choose an existing environment that includes it.</p>
           <p className="help">The browser extension connects automatically while Converter is enabled. Reload supported pages after installing it.</p>
-          <button disabled={!installed||busy||setupBusy||!!jobId} onClick={()=>void run(()=>dialog("converter_install",{variant:"cpu",local:true}))}>Replace runtime from pack</button></details>
         </aside></div>}
       {section==="Library"&&<section className="converter-library-section"><div className="button-row converter-library-toolbar"><input aria-label="Search library" placeholder="Search library…" value={search} onChange={e=>setSearch(e.target.value)}/><button disabled={!ready||busy} onClick={()=>void run(refresh)}>Refresh</button><button disabled={!ready||busy} onClick={()=>void run(()=>upload("midi"))}>Import MIDI</button><button disabled={!ready||busy||!!jobId} onClick={()=>void importLibrary()}>Import history & MIDI folder</button></div><p className="help">Import from your old converter folder, AudioConverterData, or any folder of MIDI files. Existing files are preserved.</p>
         <div className={`converter-library${showPiano?"":" converter-library-compact"}`}>{matchingFiles.slice(currentPage*24,(currentPage+1)*24).map(f=><article className="song-card" key={f.filename} aria-label={displayName(f.video_title||f.filename)}>
@@ -180,6 +205,6 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
           {Object.entries({classic_chord_order:"Classic chord order",sequential_quantizes:"Sequential chord grouping",curly_braces_for_quantized_chords:"Curly braces for grouped chords",include_out_of_range:"Include extended notes",show_out_of_range_text_marks:"Mark extended notes"}).map(([key,label])=><label className="toggle" key={key}><input type="checkbox" checked={!!settings[key]} onChange={e=>setting(key,e.target.checked)}/>{label}</label>)}<label className="field">Extended note separator<input value={String(settings.out_of_range_separator)} onChange={e=>setting("out_of_range_separator",e.target.value)}/></label>
         </details><button disabled={!ready||busy} onClick={()=>void run(saveSettings)}>Save settings</button>
       </aside></div>}
-    {(message||runtimeError)&&<p role="status" className="help">{runtimeError||message}</p>}
+    {message&&<p role="status" className="help">{message}</p>}
   </div>;
 }

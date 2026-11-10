@@ -42,6 +42,8 @@ pub struct Status {
     pub installing: bool,
     pub validating: bool,
     pub environment: Option<ExistingEnvironment>,
+    pub pack_version: Option<String>,
+    pub phase: Option<String>,
     pub received: u64,
     pub total: u64,
     pub error: Option<String>,
@@ -55,6 +57,14 @@ pub struct ExistingEnvironment {
     torch_version: String,
     cuda_available: bool,
     cuda_error: Option<String>,
+    #[serde(default)]
+    mps_available: bool,
+    #[serde(default)]
+    mps_error: Option<String>,
+    #[serde(default)]
+    devices: Vec<String>,
+    #[serde(default)]
+    piano_notation: Option<bool>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
@@ -68,6 +78,7 @@ struct RuntimePaths {
     tool_dirs: Vec<PathBuf>,
     variant: String,
     environment: Option<ExistingEnvironment>,
+    pack_version: Option<String>,
 }
 pub struct Converter {
     pub status: Arc<Mutex<Status>>,
@@ -201,21 +212,38 @@ fn active_pack(directory: &Path) -> Result<PathBuf, String> {
     }
     Ok(directory.join("runtimes").join(name))
 }
+fn host_platform() -> String {
+    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
+}
+fn pack_python(directory: &Path) -> PathBuf {
+    directory.join(if cfg!(windows) {
+        "python/python.exe"
+    } else {
+        "python/bin/python3"
+    })
+}
 fn active_runtime(directory: &Path) -> Result<RuntimePaths, String> {
     match config::read_json::<RuntimeSelection>(&directory.join("active.json"))? {
         RuntimeSelection::Pack(_) => {
             let pack = active_pack(directory)?;
             let metadata: serde_json::Value = config::read_json(&pack.join("pack.json"))?;
+            if metadata["platform"]
+                .as_str()
+                .is_some_and(|p| p != host_platform())
+            {
+                return Err("This runtime is for another operating system or processor.".into());
+            }
             let variant = metadata["variant"]
                 .as_str()
                 .filter(|s| ["cpu", "cuda"].contains(s))
                 .ok_or("Invalid runtime metadata.")?
                 .to_owned();
             Ok(RuntimePaths {
-                python: pack.join("python/python.exe"),
+                python: pack_python(&pack),
                 tool_dirs: vec![pack.join("ffmpeg")],
                 variant,
-                environment: None,
+                environment: config::read_json(&pack.join("runtime.json")).ok(),
+                pack_version: metadata["version"].as_str().map(str::to_owned),
             })
         }
         RuntimeSelection::Existing(environment) => {
@@ -236,11 +264,14 @@ fn active_runtime(directory: &Path) -> Result<RuntimePaths, String> {
                 ],
                 variant: if environment.cuda_available {
                     "cuda"
+                } else if environment.mps_available {
+                    "mps"
                 } else {
                     "cpu"
                 }
                 .into(),
                 environment: Some(environment),
+                pack_version: None,
             })
         }
     }
@@ -258,6 +289,11 @@ fn environment_candidates(path: &Path) -> Result<Vec<PathBuf>, String> {
             "Scripts/python.exe",
             "python/python.exe",
             "python.exe",
+            ".cuda-venv/bin/python",
+            ".venv/bin/python",
+            "bin/python3",
+            "bin/python",
+            "python/bin/python3",
         ]
         .iter()
         .map(|p| path.join(p))
@@ -265,7 +301,16 @@ fn environment_candidates(path: &Path) -> Result<Vec<PathBuf>, String> {
     };
     let candidates: Vec<_> = candidates
         .into_iter()
-        .filter(|p| p.is_file() && p.file_name().is_some_and(|n| n == "python.exe"))
+        .filter(|p| {
+            p.is_file()
+                && p.file_name().is_some_and(|n| {
+                    let name = n.to_string_lossy();
+                    ["python.exe", "python", "python3"].contains(&name.as_ref())
+                        || name.strip_prefix("python3.").is_some_and(|minor| {
+                            !minor.is_empty() && minor.chars().all(|c| c.is_ascii_digit())
+                        })
+                })
+        })
         .collect();
     if candidates.is_empty() {
         return Err("No Python environment found. Choose your converter folder or its .cuda-venv/.venv folder.".into());
@@ -275,6 +320,7 @@ fn environment_candidates(path: &Path) -> Result<Vec<PathBuf>, String> {
 fn validate_environment(
     path: &Path,
     source: &Path,
+    tool_dirs: &[PathBuf],
     cancel: &AtomicBool,
 ) -> Result<ExistingEnvironment, String> {
     let mut errors = Vec::new();
@@ -288,11 +334,19 @@ fn validate_environment(
         command
             .args(["-I", "-B", "-X", "utf8"])
             .arg(source.join("check_environment.py"))
+            .arg("--inference")
             .current_dir(output.path().parent().unwrap())
             .env("OMP_NUM_THREADS", "2")
             .env("MKL_NUM_THREADS", "2")
             .env("OPENBLAS_NUM_THREADS", "2")
             .env("PYTHONDONTWRITEBYTECODE", "1")
+            .env(
+                "PATH",
+                std::env::join_paths(tool_dirs.iter().cloned().chain(std::env::split_paths(
+                    &std::env::var_os("PATH").unwrap_or_default(),
+                )))
+                .map_err(|e| e.to_string())?,
+            )
             .stdin(Stdio::null())
             .stdout(output.reopen().map_err(|e| e.to_string())?)
             .stderr(stderr.reopen().map_err(|e| e.to_string())?);
@@ -303,7 +357,7 @@ fn validate_environment(
                 continue;
             }
         };
-        let deadline = Instant::now() + Duration::from_secs(120);
+        let deadline = Instant::now() + Duration::from_secs(480);
         loop {
             if cancel.load(Ordering::Acquire) {
                 return Err("Environment check cancelled.".into());
@@ -449,9 +503,6 @@ impl Converter {
         {
             return Err("Enable Convert in Settings.".into());
         }
-        if !cfg!(all(windows, target_arch = "x86_64")) {
-            return Err("Converter packs currently support Windows x64 only.".into());
-        }
         self.control.stopped.store(false, Ordering::Release);
         let directory = root(app)?;
         let runtime = active_runtime(&directory).map_err(|e| {
@@ -468,7 +519,14 @@ impl Converter {
             .current_dir(&data)
             .env("LAZYMIDI_CONVERTER_DATA", &data)
             .env("LAZYMIDI_CONVERTER_TOKEN", &token)
-            .env("LAZYMIDI_COMPUTE_CAPABILITY", &runtime.variant)
+            .env(
+                "LAZYMIDI_COMPUTE_CAPABILITY",
+                runtime
+                    .environment
+                    .as_ref()
+                    .map(|e| e.devices.join(","))
+                    .unwrap_or_else(|| "cpu".into()),
+            )
             .env("LAZYMIDI_READY_FILE", &ready)
             .env("OMP_NUM_THREADS", "2")
             .env("MKL_NUM_THREADS", "2")
@@ -527,6 +585,46 @@ impl Converter {
         status.error = None;
         status.installed = Some(runtime.variant);
         status.environment = runtime.environment;
+        status.pack_version = runtime.pack_version;
+        Ok(())
+    }
+    fn select_runtime(
+        &mut self,
+        app: &tauri::AppHandle,
+        directory: &Path,
+        selection: &RuntimeSelection,
+    ) -> Result<(), String> {
+        if self.cancel.load(Ordering::Acquire)
+            || !app
+                .state::<App>()
+                .runtime
+                .snapshot()
+                .settings
+                .show_converter
+        {
+            return Err("Setup cancelled.".into());
+        }
+        let running = self.process.is_some();
+        if running {
+            self.request(
+                app,
+                "POST",
+                "/api/runtime-switch",
+                serde_json::json!({"prepare":true}),
+            )?;
+        }
+        if let Err(error) = config::atomic_save(&directory.join("active.json"), selection) {
+            if running {
+                let _ = self.request(
+                    app,
+                    "POST",
+                    "/api/runtime-switch",
+                    serde_json::json!({"prepare":false}),
+                );
+            }
+            return Err(error);
+        }
+        self.stop();
         Ok(())
     }
     pub(super) fn request(
@@ -607,10 +705,12 @@ pub async fn converter_status(app: tauri::AppHandle) -> Result<serde_json::Value
             Ok(runtime) => {
                 status.installed = Some(runtime.variant);
                 status.environment = runtime.environment;
+                status.pack_version = runtime.pack_version;
             }
             Err(error) => {
                 status.installed = None;
                 status.environment = None;
+                status.pack_version = None;
                 if directory.join("active.json").exists() {
                     status.error = Some(error);
                 }
@@ -618,35 +718,43 @@ pub async fn converter_status(app: tauri::AppHandle) -> Result<serde_json::Value
         }
         let manifest: serde_json::Value = config::read_json(&source(&app)?.join("packs.json"))
             .unwrap_or(serde_json::json!({"packs":[]}));
-        Ok(serde_json::json!({"status":status,"packs":manifest["packs"]}))
+        let packs: Vec<Pack> =
+            serde_json::from_value(manifest["packs"].clone()).unwrap_or_default();
+        let packs: Vec<_> = packs
+            .into_iter()
+            .filter(|p| p.platform == host_platform())
+            .collect();
+        Ok(serde_json::json!({"status":status,"packs":packs,"platform":host_platform()}))
     })
     .await
     .map_err(|e| e.to_string())?
     .map_err(Error::from)
 }
 #[tauri::command]
-pub async fn converter_use_environment(app: tauri::AppHandle) -> Result<(), Error> {
+pub async fn converter_use_environment(
+    app: tauri::AppHandle,
+    recheck: Option<bool>,
+) -> Result<(), Error> {
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         use tauri_plugin_dialog::DialogExt;
-        if !cfg!(all(windows, target_arch = "x86_64")) {
-            return Err(
-                "Existing converter environments currently support Windows x64 only.".into(),
-            );
-        }
         let state = app.state::<App>();
         if !state.runtime.snapshot().settings.show_converter {
             return Err("Enable Convert first.".into());
         }
-        let Some(path) = app
-            .dialog()
-            .file()
-            .set_title("Choose your old converter or Python environment folder")
-            .blocking_pick_folder()
-        else {
-            return Ok(());
-        };
-        let path = path.into_path().map_err(|e| e.to_string())?;
         let directory = root(&app)?;
+        let (path, tool_dirs, pack_name) = if recheck.unwrap_or(false) {
+            let runtime = active_runtime(&directory)?;
+            let pack_name = match config::read_json(&directory.join("active.json"))? {
+                RuntimeSelection::Pack(name) => Some(name),
+                RuntimeSelection::Existing(_) => None,
+            };
+            (runtime.python, runtime.tool_dirs, pack_name)
+        } else {
+            let Some(path) = app.dialog().file()
+                .set_title("Choose a converter or Python environment folder")
+                .blocking_pick_folder() else { return Ok(()); };
+            (path.into_path().map_err(|e| e.to_string())?, vec![], None)
+        };
         let probe_source = source(&app)?;
         let (cancel, status) = {
             let converter = state
@@ -661,6 +769,7 @@ pub async fn converter_use_environment(app: tauri::AppHandle) -> Result<(), Erro
                 return Err("A runtime setup is already running.".into());
             }
             status.validating = true;
+            status.phase = Some("checking".into());
             status.error = None;
             converter.cancel.store(false, Ordering::Release);
             (converter.cancel.clone(), converter.status.clone())
@@ -668,7 +777,7 @@ pub async fn converter_use_environment(app: tauri::AppHandle) -> Result<(), Erro
         let handle = app.clone();
         std::thread::spawn(move || {
             let result = (|| -> Result<(), String> {
-                let environment = validate_environment(&path, &probe_source, &cancel)?;
+                let environment = validate_environment(&path, &probe_source, &tool_dirs, &cancel)?;
                 let state = handle.state::<App>();
                 let mut converter = state
                     .converter
@@ -679,34 +788,20 @@ pub async fn converter_use_environment(app: tauri::AppHandle) -> Result<(), Erro
                 {
                     return Err("Environment check cancelled.".into());
                 }
-                let running = converter.process.is_some();
-                if running {
-                    converter.request(
-                        &handle,
-                        "POST",
-                        "/api/runtime-switch",
-                        serde_json::json!({"prepare":true}),
-                    )?;
-                }
-                if let Err(error) = config::atomic_save(
-                    &directory.join("active.json"),
-                    &RuntimeSelection::Existing(environment.clone()),
-                ) {
-                    if running {
-                        let _ = converter.request(
-                            &handle,
-                            "POST",
-                            "/api/runtime-switch",
-                            serde_json::json!({"prepare":false}),
-                        );
+                let selection = if let Some(name) = pack_name {
+                    if environment.piano_notation != Some(true) {
+                        return Err("Piano is missing from this runtime. Install the current Converter pack.".into());
                     }
-                    return Err(error);
-                }
-                converter.stop();
-                Ok(())
+                    config::atomic_save(&directory.join("runtimes").join(&name).join("runtime.json"), &environment)?;
+                    RuntimeSelection::Pack(name)
+                } else {
+                    RuntimeSelection::Existing(environment)
+                };
+                converter.select_runtime(&handle, &directory, &selection)
             })();
             let mut status = status.lock().unwrap_or_else(|e| e.into_inner());
             status.validating = false;
+            status.phase = None;
             status.error = result.err();
             let _ = handle.emit("converter-status", status.clone());
         });
@@ -716,14 +811,8 @@ pub async fn converter_use_environment(app: tauri::AppHandle) -> Result<(), Erro
     .map_err(|e| e.to_string())?
     .map_err(Error::from)
 }
-fn install_pack(
-    directory: &Path,
-    archive: &Path,
-    pack: &Pack,
-    cancel: &AtomicBool,
-    status: &Mutex<Status>,
-) -> Result<(), String> {
-    if pack.platform != "windows-x86_64"
+fn check_pack(pack: &Pack) -> Result<(), String> {
+    if pack.platform != host_platform()
         || !["cpu", "cuda"].contains(&pack.variant.as_str())
         || !safe_name(&pack.version)
         || pack.bytes > 12 * 1024 * 1024 * 1024
@@ -731,6 +820,17 @@ fn install_pack(
     {
         return Err("Unsupported converter pack.".into());
     }
+    Ok(())
+}
+fn extract_pack(
+    directory: &Path,
+    archive: &Path,
+    pack: &Pack,
+    cancel: &AtomicBool,
+    status: &Mutex<Status>,
+) -> Result<tempfile::TempDir, String> {
+    check_pack(pack)?;
+    status.lock().unwrap_or_else(|e| e.into_inner()).phase = Some("verifying".into());
     let mut file = fs::File::open(archive).map_err(|e| e.to_string())?;
     if file.metadata().map_err(|e| e.to_string())?.len() != pack.bytes {
         return Err("Pack size mismatch.".into());
@@ -758,6 +858,12 @@ fn install_pack(
         return Err("Too many runtime files.".into());
     }
     let mut total = 0u64;
+    {
+        let mut state = status.lock().unwrap_or_else(|e| e.into_inner());
+        state.phase = Some("extracting".into());
+        state.total = pack.installed_bytes;
+        state.received = 0;
+    }
     let mut names = std::collections::HashSet::new();
     for i in 0..zip.len() {
         if cancel.load(Ordering::Acquire) {
@@ -788,7 +894,7 @@ fn install_pack(
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let mut out = fs::File::create(path).map_err(|e| e.to_string())?;
+        let mut out = fs::File::create(&path).map_err(|e| e.to_string())?;
         let expected = entry.size();
         let mut written = 0u64;
         loop {
@@ -804,26 +910,148 @@ fn install_pack(
                 return Err("Archive entry exceeds declared size.".into());
             }
             out.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
+            status.lock().unwrap_or_else(|e| e.into_inner()).received = total - expected + written;
         }
         if written != expected {
             return Err("Incomplete runtime file.".into());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = if entry.unix_mode().unwrap_or(0) & 0o111 != 0 {
+                0o755
+            } else {
+                0o644
+            };
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode))
+                .map_err(|e| e.to_string())?;
         }
     }
     let metadata: serde_json::Value = config::read_json(&staging.path().join("pack.json"))?;
     if metadata["variant"] != pack.variant
         || metadata["version"] != pack.version
-        || !staging.path().join("python/python.exe").is_file()
-        || !staging.path().join("ffmpeg/ffmpeg.exe").is_file()
+        || metadata["platform"] != pack.platform
+        || !pack_python(staging.path()).is_file()
+        || !["ffmpeg", "ffprobe"].iter().all(|tool| {
+            staging
+                .path()
+                .join("ffmpeg")
+                .join(if cfg!(windows) {
+                    format!("{tool}.exe")
+                } else {
+                    (*tool).into()
+                })
+                .is_file()
+        })
     {
         return Err("Incomplete runtime pack.".into());
     }
-    let name = format!("{}-{}-{}", pack.variant, pack.version, uuid::Uuid::new_v4());
-    fs::rename(staging.path(), directory.join("runtimes").join(&name))
-        .map_err(|e| e.to_string())?;
-    config::atomic_save(&directory.join("active.json"), &name)?;
-    status.lock().unwrap_or_else(|e| e.into_inner()).installed = Some(pack.variant.clone());
-    Ok(())
+    Ok(staging)
 }
+fn download_pack(
+    directory: &Path,
+    pack: &Pack,
+    local_archive: Option<&Path>,
+    cancel: &AtomicBool,
+    status: &Mutex<Status>,
+) -> Result<tempfile::NamedTempFile, String> {
+    check_pack(pack)?;
+    let mut temp = tempfile::NamedTempFile::new_in(directory).map_err(|e| e.to_string())?;
+    let parts = if pack.parts.is_empty() {
+        vec![PackPart {
+            file: pack.file.clone(),
+            bytes: pack.bytes,
+            sha256: pack.sha256.clone(),
+            url: pack.url.clone(),
+        }]
+    } else {
+        pack.parts.clone()
+    };
+    if parts.len() > 16
+        || parts.iter().try_fold(0u64, |n, p| n.checked_add(p.bytes)) != Some(pack.bytes)
+    {
+        return Err("Invalid runtime download manifest.".into());
+    }
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut received = 0;
+    for part in parts {
+        if !safe_name(&part.file) {
+            return Err("Invalid runtime part filename.".into());
+        }
+        let mut hash = Sha256::new();
+        let mut count = 0;
+        let mut buffer = vec![0; 1024 * 1024];
+        while count < part.bytes {
+            if cancel.load(Ordering::Acquire) {
+                return Err("Installation cancelled.".into());
+            }
+            let (mut response, end): (Box<dyn Read>, u64) = if let Some(archive) = &local_archive {
+                let path = scoped_file(
+                    archive.parent().ok_or("Missing pack directory.")?,
+                    &part.file,
+                )?;
+                let file = fs::File::open(path).map_err(|e| e.to_string())?;
+                if file.metadata().map_err(|e| e.to_string())?.len() != part.bytes {
+                    return Err("Pack part size mismatch.".into());
+                }
+                (Box::new(file), part.bytes - 1)
+            } else {
+                let url = part.url.as_ref().ok_or("Runtime URL unavailable.")?;
+                if !url.starts_with("https://github.com/LioK251/lazymidi/releases/download/") {
+                    return Err("Untrusted runtime URL.".into());
+                }
+                let end = (count + 16 * 1024 * 1024 - 1).min(part.bytes - 1);
+                let response = client
+                    .get(url)
+                    .header("Range", format!("bytes={count}-{end}"))
+                    .send()
+                    .and_then(|r| r.error_for_status())
+                    .map_err(|e| e.to_string())?;
+                if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+                    return Err("Download server must support ranged downloads.".into());
+                }
+                let expected = format!("bytes {count}-{end}/{}", part.bytes);
+                if response
+                    .headers()
+                    .get("Content-Range")
+                    .and_then(|v| v.to_str().ok())
+                    != Some(&expected)
+                {
+                    return Err("Incorrect runtime download range.".into());
+                }
+                (Box::new(response), end)
+            };
+            loop {
+                if cancel.load(Ordering::Acquire) {
+                    return Err("Installation cancelled.".into());
+                }
+                let n = response.read(&mut buffer).map_err(|e| e.to_string())?;
+                if n == 0 {
+                    break;
+                }
+                count += n as u64;
+                if count > end + 1 {
+                    return Err("Download exceeds requested range.".into());
+                }
+                hash.update(&buffer[..n]);
+                temp.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
+                status.lock().unwrap_or_else(|e| e.into_inner()).received = received + count;
+            }
+            if count != end + 1 {
+                return Err("Incomplete runtime download.".into());
+            }
+        }
+        if format!("{:x}", hash.finalize()) != part.sha256 {
+            return Err("Download part checksum mismatch.".into());
+        }
+        received += part.bytes;
+    }
+    Ok(temp)
+}
+
 #[tauri::command]
 pub async fn converter_install(
     app: tauri::AppHandle,
@@ -871,25 +1099,19 @@ pub async fn converter_install(
         (
             packs
                 .into_iter()
-                .find(|p| p.variant == variant)
-                .ok_or_else(|| {
-                    "This runtime has not been published yet. Install a local pack.".to_string()
-                })?,
+                .find(|p| p.variant == variant && p.platform == host_platform())
+                .ok_or_else(|| "No download is available for this computer.".to_string())?,
             None,
         )
     };
-    if !cfg!(all(windows, target_arch = "x86_64")) {
-        return Err("Runtime installation currently supports Windows x64 only."
-            .to_string()
-            .into());
-    }
+    check_pack(&pack)?;
     if local {
         use tauri_plugin_dialog::MessageDialogButtons;
         if !app.dialog().message(format!("Install {} runtime?\nDownload: {:.1} MiB · Installed: {:.1} MiB\nSHA256: {}\nOnly install packs you trust.",pack.variant,pack.bytes as f64/1048576.,pack.installed_bytes as f64/1048576.,pack.sha256)).title("Converter runtime").buttons(MessageDialogButtons::OkCancel).blocking_show(){return Ok(());}
     }
     let (cancel, status) = {
         let state = app.state::<App>();
-        let mut converter = state
+        let converter = state
             .converter
             .lock()
             .map_err(|_| "Converter unavailable.".to_string())?;
@@ -900,116 +1122,68 @@ pub async fn converter_install(
         if setup_busy {
             return Err("A runtime setup is already running.".to_string().into());
         }
-        converter.stop();
         converter.cancel.store(false, Ordering::Release);
         let mut status = converter.status.lock().unwrap_or_else(|e| e.into_inner());
         status.installing = true;
+        status.phase = Some(if local { "verifying" } else { "downloading" }.into());
         status.error = None;
         status.total = pack.bytes;
         status.received = 0;
         (converter.cancel.clone(), converter.status.clone())
     };
     let directory = root(&app)?;
+    let probe_source = source(&app)?;
     std::thread::spawn(move || {
         let result = (|| -> Result<(), String> {
             fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
             let mut download = None;
-            let archive = if let Some(path) = local_archive {
-                path
+            let archive = if let Some(path) = local_archive.as_ref().filter(|p| p.is_file()) {
+                path.clone()
             } else {
-                let mut temp =
-                    tempfile::NamedTempFile::new_in(&directory).map_err(|e| e.to_string())?;
-                let parts = if pack.parts.is_empty() {
-                    vec![PackPart {
-                        file: pack.file.clone(),
-                        bytes: pack.bytes,
-                        sha256: pack.sha256.clone(),
-                        url: pack.url.clone(),
-                    }]
-                } else {
-                    pack.parts.clone()
-                };
-                if parts.len() > 16
-                    || parts.iter().try_fold(0u64, |n, p| n.checked_add(p.bytes))
-                        != Some(pack.bytes)
-                {
-                    return Err("Invalid runtime download manifest.".into());
-                }
-                let client = reqwest::blocking::Client::builder()
-                    .timeout(Duration::from_secs(30))
-                    .build()
-                    .map_err(|e| e.to_string())?;
-                let mut received = 0;
-                for part in parts {
-                    let url = part.url.as_ref().ok_or("Runtime URL unavailable.")?;
-                    if !safe_name(&part.file)
-                        || !url
-                            .starts_with("https://github.com/LioK251/lazymidi/releases/download/")
-                    {
-                        return Err("Untrusted runtime URL.".into());
-                    }
-                    let mut hash = Sha256::new();
-                    let mut count = 0;
-                    let mut buffer = vec![0; 1024 * 1024];
-                    while count < part.bytes {
-                        if cancel.load(Ordering::Acquire) {
-                            return Err("Installation cancelled.".into());
-                        }
-                        let end = (count + 16 * 1024 * 1024 - 1).min(part.bytes - 1);
-                        let mut response = client
-                            .get(url)
-                            .header("Range", format!("bytes={count}-{end}"))
-                            .send()
-                            .and_then(|r| r.error_for_status())
-                            .map_err(|e| e.to_string())?;
-                        if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
-                            return Err("Download server must support ranged downloads.".into());
-                        }
-                        let expected = format!("bytes {count}-{end}/{}", part.bytes);
-                        if response
-                            .headers()
-                            .get("Content-Range")
-                            .and_then(|v| v.to_str().ok())
-                            != Some(&expected)
-                        {
-                            return Err("Incorrect runtime download range.".into());
-                        }
-                        loop {
-                            if cancel.load(Ordering::Acquire) {
-                                return Err("Installation cancelled.".into());
-                            }
-                            let n = response.read(&mut buffer).map_err(|e| e.to_string())?;
-                            if n == 0 {
-                                break;
-                            }
-                            count += n as u64;
-                            if count > end + 1 {
-                                return Err("Download exceeds requested range.".into());
-                            }
-                            hash.update(&buffer[..n]);
-                            temp.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
-                            status.lock().unwrap_or_else(|e| e.into_inner()).received =
-                                received + count;
-                        }
-                        if count != end + 1 {
-                            return Err("Incomplete runtime download.".into());
-                        }
-                    }
-                    if format!("{:x}", hash.finalize()) != part.sha256 {
-                        return Err("Download part checksum mismatch.".into());
-                    }
-                    received += part.bytes;
-                }
+                let temp = download_pack(
+                    &directory,
+                    &pack,
+                    local_archive.as_deref(),
+                    &cancel,
+                    &status,
+                )?;
                 let path = temp.path().to_owned();
                 download = Some(temp);
                 path
             };
-            install_pack(&directory, &archive, &pack, &cancel, &status)?;
+            let staging = extract_pack(&directory, &archive, &pack, &cancel, &status)?;
             drop(download);
+            status.lock().unwrap_or_else(|e| e.into_inner()).phase = Some("checking".into());
+            let environment = validate_environment(
+                &pack_python(staging.path()),
+                &probe_source,
+                &[staging.path().join("ffmpeg")],
+                &cancel,
+            )?;
+            if environment.piano_notation != Some(true) {
+                return Err(
+                    "This runtime cannot open Piano sheets. Install the current Converter pack."
+                        .into(),
+                );
+            }
+            config::atomic_save(&staging.path().join("runtime.json"), &environment)?;
+            let name = staging
+                .path()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            app.state::<App>()
+                .converter
+                .lock()
+                .map_err(|_| "Converter unavailable.")?
+                .select_runtime(&app, &directory, &RuntimeSelection::Pack(name))?;
+            let _ = staging.keep();
             Ok(())
         })();
         let mut state = status.lock().unwrap_or_else(|e| e.into_inner());
         state.installing = false;
+        state.phase = None;
         state.error = result.err();
         let _ = app.emit("converter-status", state.clone());
     });
@@ -1017,16 +1191,13 @@ pub async fn converter_install(
 }
 #[tauri::command]
 pub async fn converter_stop(app: tauri::AppHandle) {
-    let validating = app
-        .state::<App>()
-        .converter
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .status
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .validating;
-    if validating {
+    let setup_busy = {
+        let state = app.state::<App>();
+        let converter = state.converter.lock().unwrap_or_else(|e| e.into_inner());
+        let status = converter.status.lock().unwrap_or_else(|e| e.into_inner());
+        status.validating || status.installing
+    };
+    if setup_busy {
         app.state::<App>()
             .converter_cancel
             .store(true, Ordering::Release);
@@ -1405,6 +1576,10 @@ mod tests {
             torch_version: "2.9.1+cu128".into(),
             cuda_available: true,
             cuda_error: None,
+            mps_available: false,
+            mps_error: None,
+            devices: vec!["cpu".into(), "cuda".into()],
+            piano_notation: Some(true),
         };
         config::atomic_save(
             &root.join("active.json"),
@@ -1414,9 +1589,19 @@ mod tests {
         let runtime = active_runtime(root).unwrap();
         assert_eq!(runtime.python, python);
         assert_eq!(runtime.variant, "cuda");
-        assert!(validate_environment(root, root, &AtomicBool::new(true))
-            .unwrap_err()
-            .contains("cancelled"));
+        let mut legacy = serde_json::to_value(runtime.environment.unwrap()).unwrap();
+        for field in ["devices", "piano_notation", "mps_available", "mps_error"] {
+            legacy.as_object_mut().unwrap().remove(field);
+        }
+        config::atomic_save(&root.join("active.json"), &legacy).unwrap();
+        let legacy = active_runtime(root).unwrap().environment.unwrap();
+        assert!(legacy.devices.is_empty());
+        assert_eq!(legacy.piano_notation, None);
+        assert!(
+            validate_environment(root, root, &[], &AtomicBool::new(true))
+                .unwrap_err()
+                .contains("cancelled")
+        );
         fs::remove_file(&python).unwrap();
         assert!(active_runtime(root).unwrap_err().contains("missing"));
         fs::create_dir_all(root.join("runtimes/cpu")).unwrap();
@@ -1437,7 +1622,8 @@ mod tests {
                 .expect("Set LAZYMIDI_TEST_EXISTING_ENVIRONMENT"),
         );
         let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter");
-        let environment = validate_environment(&path, &source, &AtomicBool::new(false)).unwrap();
+        let environment =
+            validate_environment(&path, &source, &[], &AtomicBool::new(false)).unwrap();
         assert!(environment.python_version.starts_with("3."));
         assert!(environment.ffmpeg.is_file());
         assert!(environment.ffprobe.is_file());
@@ -1458,7 +1644,7 @@ mod tests {
             signal.store(true, Ordering::Release);
         });
         let started = Instant::now();
-        assert!(validate_environment(&path, &source, &cancel)
+        assert!(validate_environment(&path, &source, &[], &cancel)
             .unwrap_err()
             .contains("cancelled"));
         trigger.join().unwrap();
@@ -1537,8 +1723,11 @@ mod tests {
         let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
         let mut installed = 0;
         for (name, bytes) in entries {
-            zip.start_file(*name, zip::write::SimpleFileOptions::default())
-                .unwrap();
+            zip.start_file(
+                *name,
+                zip::write::SimpleFileOptions::default().unix_permissions(0o755),
+            )
+            .unwrap();
             zip.write_all(bytes).unwrap();
             installed += bytes.len() as u64;
         }
@@ -1547,7 +1736,7 @@ mod tests {
         let pack = Pack {
             version: "test".into(),
             variant: "cpu".into(),
-            platform: "windows-x86_64".into(),
+            platform: host_platform(),
             bytes: bytes.len() as u64,
             installed_bytes: installed,
             sha256: format!("{:x}", Sha256::digest(&bytes)),
@@ -1556,6 +1745,50 @@ mod tests {
             parts: vec![],
         };
         (path, pack)
+    }
+    #[test]
+    fn local_parts_verify_sizes_hashes_and_cancellation_before_activation() {
+        let root = tempfile::tempdir().unwrap();
+        let (archive, mut pack) = fixture(root.path(), &[("data", b"synthetic runtime payload")]);
+        let bytes = fs::read(&archive).unwrap();
+        for (index, data) in bytes.chunks(bytes.len().div_ceil(2)).enumerate() {
+            let name = format!("pack.zip.part{}", index + 1);
+            fs::write(root.path().join(&name), data).unwrap();
+            pack.parts.push(PackPart {
+                file: name,
+                bytes: data.len() as u64,
+                sha256: format!("{:x}", Sha256::digest(data)),
+                url: None,
+            });
+        }
+        let cancel = AtomicBool::new(false);
+        let status = Mutex::new(Status::default());
+        config::atomic_save(&root.path().join("active.json"), &"previous").unwrap();
+        let joined = download_pack(root.path(), &pack, Some(&archive), &cancel, &status).unwrap();
+        assert_eq!(fs::read(joined.path()).unwrap(), bytes);
+        assert_eq!(status.lock().unwrap().received, pack.bytes);
+        pack.parts[0].sha256 = "0".repeat(64);
+        assert!(
+            download_pack(root.path(), &pack, Some(&archive), &cancel, &status)
+                .unwrap_err()
+                .contains("checksum")
+        );
+        cancel.store(true, Ordering::Release);
+        assert!(
+            download_pack(root.path(), &pack, Some(&archive), &cancel, &status)
+                .unwrap_err()
+                .contains("cancelled")
+        );
+        cancel.store(false, Ordering::Release);
+        pack.parts.clear();
+        pack.url = Some("https://example.com/untrusted.zip".into());
+        assert!(download_pack(root.path(), &pack, None, &cancel, &status)
+            .unwrap_err()
+            .contains("Untrusted"));
+        assert_eq!(
+            config::read_json::<String>(&root.path().join("active.json")).unwrap(),
+            "previous"
+        );
     }
     #[test]
     fn failed_install_preserves_working_pack_and_cleans_staging() {
@@ -1572,9 +1805,9 @@ mod tests {
         ] {
             let (archive, mut pack) =
                 fixture(root, &[("python/python.exe", b"test"), (bad, b"bad")]);
-            assert!(install_pack(root, &archive, &pack, &cancel, &status).is_err());
+            assert!(extract_pack(root, &archive, &pack, &cancel, &status).is_err());
             pack.sha256 = "wrong".into();
-            assert!(install_pack(root, &archive, &pack, &cancel, &status)
+            assert!(extract_pack(root, &archive, &pack, &cancel, &status)
                 .unwrap_err()
                 .contains("checksum"));
             assert_eq!(
@@ -1585,34 +1818,74 @@ mod tests {
                 assert_eq!(fs::read_dir(root.join("runtimes")).unwrap().count(), 0);
             }
         }
-        let (archive, pack) = fixture(
+        let metadata = serde_json::to_vec(
+            &serde_json::json!({"version":"test","variant":"cpu","platform":host_platform()}),
+        )
+        .unwrap();
+        let python = if cfg!(windows) {
+            "python/python.exe"
+        } else {
+            "python/bin/python3"
+        };
+        let ffmpeg = if cfg!(windows) {
+            "ffmpeg/ffmpeg.exe"
+        } else {
+            "ffmpeg/ffmpeg"
+        };
+        let ffprobe = if cfg!(windows) {
+            "ffmpeg/ffprobe.exe"
+        } else {
+            "ffmpeg/ffprobe"
+        };
+        let (archive, mut pack) = fixture(
             root,
             &[
-                ("pack.json", br#"{"version":"test","variant":"cpu"}"#),
-                ("python/python.exe", b"test"),
-                ("ffmpeg/ffmpeg.exe", b"test"),
+                ("pack.json", &metadata),
+                (python, b"test"),
+                (ffmpeg, b"test"),
+                (ffprobe, b"test"),
             ],
         );
         cancel.store(true, Ordering::Release);
-        assert!(install_pack(root, &archive, &pack, &cancel, &status)
+        assert!(extract_pack(root, &archive, &pack, &cancel, &status)
             .unwrap_err()
             .contains("cancelled"));
         cancel.store(false, Ordering::Release);
-        install_pack(root, &archive, &pack, &cancel, &status).unwrap();
-        assert!(active_pack(root)
-            .unwrap()
-            .join("python/python.exe")
-            .exists());
-        assert!(root.join("active.backup").exists());
+        let staged = extract_pack(root, &archive, &pack, &cancel, &status).unwrap();
+        assert!(pack_python(staged.path()).is_file());
+        assert_eq!(
+            config::read_json::<String>(&root.join("active.json")).unwrap(),
+            "previous"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(pack_python(staged.path()))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o755
+            );
+        }
+        drop(staged);
+        assert_eq!(fs::read_dir(root.join("runtimes")).unwrap().count(), 0);
+        pack.platform = "another-platform".into();
+        assert!(extract_pack(root, &archive, &pack, &cancel, &status)
+            .unwrap_err()
+            .contains("Unsupported"));
     }
     #[test]
-    #[ignore = "Extracts the locally built CPU runtime into an isolated temporary directory"]
-    fn built_cpu_pack_installs_and_runs() {
-        let manifest =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/converter-packs/cpu.json");
+    #[ignore = "Installs a built runtime and checks real conversion and Piano in isolation"]
+    fn built_runtime_installs_and_runs() {
+        let manifest = PathBuf::from(
+            std::env::var_os("LAZYMIDI_TEST_PACK_MANIFEST")
+                .expect("Set LAZYMIDI_TEST_PACK_MANIFEST"),
+        );
         let pack: Pack = config::read_json(&manifest).unwrap();
         let root = tempfile::tempdir().unwrap();
-        install_pack(
+        let staged = extract_pack(
             root.path(),
             &manifest.parent().unwrap().join(&pack.file),
             &pack,
@@ -1620,8 +1893,25 @@ mod tests {
             &Mutex::new(Status::default()),
         )
         .unwrap();
-        let active = active_pack(root.path()).unwrap();
-        let mut cmd = std::process::Command::new(active.join("python/python.exe"));
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../converter");
+        let environment = validate_environment(
+            &pack_python(staged.path()),
+            &source,
+            &[staged.path().join("ffmpeg")],
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert_eq!(environment.piano_notation, Some(true));
+        assert!(environment.devices.iter().any(|d| d == "cpu"));
+        config::atomic_save(&staged.path().join("runtime.json"), &environment).unwrap();
+        config::atomic_save(
+            &root.path().join("active.json"),
+            &staged.path().file_name().unwrap().to_str().unwrap(),
+        )
+        .unwrap();
+        let active = active_runtime(root.path()).unwrap();
+        assert_eq!(active.environment.unwrap().piano_notation, Some(true));
+        let mut cmd = std::process::Command::new(active.python);
         cmd.args([
             "-X",
             "utf8",
@@ -1639,5 +1929,10 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        if let Some(output) = std::env::var_os("LAZYMIDI_TEST_ENVIRONMENT_OUTPUT") {
+            config::atomic_save(&PathBuf::from(output), &environment).unwrap();
+            let _ = staged.keep();
+            let _ = root.keep();
+        }
     }
 }

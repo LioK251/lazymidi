@@ -264,18 +264,24 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
       if(image.naturalWidth!==8||image.naturalHeight!==8)throw new Error("Native imported background could not decode.");
       const sheet=await invoke<{revision:number;text:string}>("generate_sheet",{midiFilename:"smoke.mid",settings:{transpose_mode:"manual",manual_transpose_points:[{chord:0,value:-3}]},expectedRevision:null});
       if(!sheet.text.includes("Transpose by: 3"))throw new Error("Native sheet generation failed.");
+      let pianoRevision=sheet.revision,playback="";
+      for(const rhythm of ["normal","fine"]){
+      const expectedRevision=pianoRevision;
       let pianoReady:(loaded:boolean)=>void=()=>{};
       const rendered=new Promise<boolean>(resolve=>{pianoReady=resolve;});
-      const stopPiano=await listen<{revision:number;loaded:boolean}>("piano-sheet-ready",e=>{if(e.payload.revision>sheet.revision)pianoReady(e.payload.loaded);});
-      const pianoTimer=setTimeout(()=>pianoReady(false),15000);
+      const stopPiano=await listen<{revision:number;loaded:boolean}>("piano-sheet-ready",e=>{if(e.payload.revision>expectedRevision)pianoReady(e.payload.loaded);});
+      const pianoTimer=setTimeout(()=>pianoReady(false),30000);
       try{
-        const piano=await invoke<{mode:string;revision:number;piano:{musicxml:string;midi_base64:string}}>("generate_sheet",{midiFilename:"smoke.mid",settings:{},pianoOptions:{},expectedRevision:sheet.revision});
+        const piano=await invoke<{mode:string;revision:number;piano:{musicxml:string;midi_base64:string}}>("generate_sheet",{midiFilename:"smoke.mid",settings:{},pianoOptions:{rhythm},expectedRevision});
         if(piano.mode!=="piano"||!piano.piano.musicxml.includes("<score-partwise")||atob(piano.piano.midi_base64).slice(0,4)!=="MThd")
           throw new Error("Native piano notation generation failed.");
         const current=await invoke<{mode:string;revision:number}>("get_sheet");
         if(current.mode!=="piano"||current.revision!==piano.revision)throw new Error("Piano did not replace the shared sheet.");
         if(!await rendered)throw new Error("Native piano notation did not render.");
+        if(playback&&playback!==piano.piano.midi_base64)throw new Error("Notation detail changed playback.");
+        playback=piano.piano.midi_base64;pianoRevision=piano.revision;
       }finally{stopPiano();clearTimeout(pianoTimer);}
+      }
       let rejected=false;try{await invoke("generate_sheet",{midiFilename:"smoke.mid",settings:{},expectedRevision:sheet.revision-1});}catch{rejected=true;}
       if(!rejected)throw new Error("Stale sheet generation was accepted.");
       const fonts=await invoke<{soundfonts:{filename:string;size:number}[]}>("converter_request",{method:"GET",path:"/api/soundfonts",body:null});

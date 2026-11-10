@@ -105,7 +105,7 @@ class ServiceTests(unittest.TestCase):
         try:
             for invalid in ("gpu",None,[],False):
                 self.assertEqual(self.client.post("/api/settings",headers=self.headers,json={"compute_device":invalid}).status_code,400)
-            for preference,capability,explicit,expected in (("cuda","cuda",None,"cuda"),("cuda","cpu",None,"cpu"),("cuda","cuda","cpu","cpu"),("cpu","cuda",None,"cpu")):
+            for preference,capability,explicit,expected in (("cuda","cpu,cuda",None,"cuda"),("cuda","cpu",None,"cpu"),("cuda","cuda","cpu","cpu"),("cpu","cuda",None,"cpu"),("mps","cpu,mps",None,"mps"),("mps","cpu",None,"cpu")):
                 self.assertEqual(self.client.post("/api/settings",headers=self.headers,json={"compute_device":preference}).status_code,200)
                 self.assertEqual(self.client.get("/api/settings",headers=self.headers).json["compute_device"],preference)
                 with patch.dict(os.environ,{"LAZYMIDI_COMPUTE_CAPABILITY":capability}), patch.object(service.upstream,"Thread") as thread:

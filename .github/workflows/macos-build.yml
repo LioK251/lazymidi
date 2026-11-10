@@ -2,9 +2,15 @@ name: macOS DMG
 
 on:
   workflow_dispatch:
+    inputs:
+      runtime_run:
+        description: Successful Converter runtimes workflow run ID
+        required: true
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
@@ -45,6 +51,17 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo test -p lazymidi-core --no-default-features --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - uses: actions/download-artifact@v4
+        with:
+          name: converter-macos-${{ matrix.arch }}-cpu
+          run-id: ${{ inputs.runtime_run }}
+          github-token: ${{ github.token }}
+          path: target/converter-packs
+      - name: Install and qualify the downloadable runtime
+        env:
+          LAZYMIDI_TEST_PACK_MANIFEST: target/converter-packs/macos-${{ matrix.arch }}-cpu.json
+          LAZYMIDI_TEST_ENVIRONMENT_OUTPUT: target/native-runtime.json
+        run: cargo test -p lazymidi --locked built_runtime_installs_and_runs -- --ignored --nocapture
       - run: cargo fetch --locked
       - name: Build ad-hoc signed app (not notarized)
         run: npm run bundle -- --bundles app --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
@@ -58,7 +75,7 @@ jobs:
           ditto target/release/bundle/macos/lazymidi.app "$RUNNER_TEMP/lazymidi-installer/lazymidi.app"
           ln -s /Applications "$RUNNER_TEMP/lazymidi-installer/Applications"
           hdiutil create -verbose -volname lazymidi -srcfolder "$RUNNER_TEMP/lazymidi-installer" -format UDZO -fs HFS+ "target/release/bundle/dmg/lazymidi_${version}_${EXPECTED_ARCH}.dmg"
-      - name: Verify packaged app and SDK-free startup
+      - name: Verify packaged Converter, Piano and floating windows
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
@@ -70,7 +87,7 @@ jobs:
           hdiutil attach "${dmg[0]}" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/lazymidi-dmg"
           trap 'hdiutil detach "$RUNNER_TEMP/lazymidi-dmg"' EXIT
           python - <<'PY'
-          import json, os, pathlib, plistlib, subprocess, tempfile
+          import json, os, pathlib, plistlib, subprocess, sys
           app = pathlib.Path(os.environ['RUNNER_TEMP']) / 'lazymidi-dmg/lazymidi.app'
           info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
           version = json.loads(pathlib.Path('package.json').read_text())['version']
@@ -84,15 +101,9 @@ jobs:
           resources = app / 'Contents/Resources/_up_'
           for name in ('converter/service.py', 'converter/check_environment.py', 'LICENSE', 'THIRD_PARTY_NOTICES'):
               assert (resources / name).is_file(), name
-          with tempfile.TemporaryDirectory() as directory:
-              receipt = pathlib.Path(directory) / 'startup.json'
-              subprocess.run([str(executable), '--smoke-test', str(receipt)], timeout=60, check=True)
-              result = json.loads(receipt.read_text())
-              assert result['native_frontend_ready'], result
-              state = result['snapshot']
-              assert not state['analog_enabled'] and not state['qwerty_enabled'], state
-              assert state['sdk_version'] is None, state
-          print(f'Verified macOS {arch} DMG, resources, signature and SDK-free frontend startup.')
+          subprocess.run([sys.executable, 'scripts/verify-native-modules.py', str(executable),
+                          '--environment', 'target/native-runtime.json'], check=True, timeout=160)
+          print(f'Verified macOS {arch} DMG, signature, Converter and Piano.')
           PY
           cd target/release/bundle/dmg
           shasum -a 256 *.dmg > SHA256SUMS.txt

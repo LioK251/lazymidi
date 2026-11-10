@@ -117,7 +117,7 @@ def piano_sheet():
         from piano_sheet import generate
         return jsonify(generate(path, body.get("track_ids"), body.get("split", 60), body.get("rhythm", "normal")))
     except ImportError:
-        return jsonify(error="Piano notation needs music21. In Convert, open Runtime setup and install an updated pack or choose an environment with music21 9.7.1."), 503
+        return jsonify(error="Piano sheets need the updated Converter. In Convert, open Runtime setup and select Update Converter."), 503
     except (OSError, ValueError, KeyError, TypeError) as error:
         return jsonify(error=str(error)), 400
     except Exception:

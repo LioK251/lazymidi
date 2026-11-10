@@ -1721,7 +1721,8 @@ def api_convert():
         device = data.get("device", None)
         if device is None:
             preference = read_json(SETTINGS_FILE, {}).get("compute_device", "cpu")
-            device = "cuda" if preference == "cuda" and os.environ.get("LAZYMIDI_COMPUTE_CAPABILITY") == "cuda" else "cpu"
+            available = os.environ.get("LAZYMIDI_COMPUTE_CAPABILITY", "cpu").split(",")
+            device = preference if preference in ("cpu", "cuda", "mps") and preference in available else "cpu"
         if device not in ["gpu", "mps", "cuda", "cpu"]:
             device = None
         

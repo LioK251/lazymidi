@@ -1,8 +1,7 @@
 # Optional modules
 
-Version 0.1.4 adds Discord presence, a game-control transposer and
-the optional converter. The supplied analog preset is unchanged.
-The hidden sequencer stays hidden. Musical input runs independently of these modules.
+Discord presence, Transposer and Converter can be enabled independently in
+Settings. Musical input runs independently of these modules.
 
 ## Discord
 
@@ -65,305 +64,123 @@ Global shortcuts use the Windows/macOS/X11 backend; native Wayland is unsupporte
 
 ## Converter
 
-Enable Converter tab in Settings; it defaults off. Opening Convert starts the
-private service only after an optional runtime is installed. PyTorch and the
-model load in a worker when a conversion begins. One job runs at a time, with
-two CPU threads and background priority. Cancel kills tracked FFmpeg/inference
-processes; app exit/disable kills the complete service process tree. Completed
-results remain on disk. CPU fallback is an explicit user action.
+Enable the Converter tab in Settings, then open **Convert → Runtime setup** and
+choose **Install Converter**. The download includes Python, Transkun's piano
+model, FFmpeg and music21. No terminal or separate Python installation is needed.
+
+CPU is the default. Windows x64 and Linux x64 also offer an NVIDIA CUDA pack.
+Both Mac architectures have a standard pack; Apple GPU processing is enabled
+only after a successful local model check. Installation shows download and disk
+sizes, progress, cancellation and retry. It checks a short real conversion and
+Piano support before changing the selected runtime.
+
+An unsuccessful or cancelled setup keeps the previous runtime. Runtime changes
+are rejected during an active conversion. **Check again** rechecks the selected
+runtime without a folder dialog; **Update Converter** installs the current pack.
 
 ### Reuse an existing converter environment
 
-Use existing converter environment accepts the old converter folder or its
-`.cuda-venv`/`.venv` folder. It checks 64-bit Python 3.10+, the required imports,
-Transkun's packaged 2.0 model/config, FFmpeg/FFprobe and a small CUDA allocation.
-It prefers `.cuda-venv` when choosing a converter root. An unavailable GPU leaves
-CPU conversion available with an inline explanation. No pip installation,
-library/model copy or driver installation occurs.
+Under **Advanced setup**, choose **Use existing converter environment** and
+select its folder. Supported layouts include `.venv`, `.cuda-venv`, Windows
+`Scripts/python.exe` and Unix `bin/python` or `bin/python3`. The check requires
+64-bit Python 3.10+, the conversion dependencies, Transkun's model and FFmpeg.
+Piano additionally needs music21; the distributed packs include version 9.7.1.
 
-Validation runs in a cancellable background process group. The folder dialog
-temporarily pauses generated output; validation resumes independently after the
-dialog closes. Failed/cancelled checks retain the previous runtime, and changing
-runtime is rejected while a conversion is active. The selection is saved atomically
-in converter `active.json`; old string-valued pack selections remain compatible.
-The selected Python launches lazymidi's private service with separate data and
-bytecode writes disabled. Songs/settings are not automatically imported. Keep
-the chosen environment, its base Python and FFmpeg in place; if moved or removed,
-choose it again or install a pack. A separate runtime pack remains optional.
+The check does not install or change packages in that environment. Existing
+environments without music21 can still convert audio and make QWERTY sheets.
+Keep the selected environment and FFmpeg in place. Importing an old library is
+a separate action.
 
-Windows x64 is currently qualified. The supplied old converter environment was
-checked with Python 3.10.19/PyTorch 2.9.1+cu128; an actual generated-audio CUDA
-conversion completed and produced valid MIDI without installing packages.
+**Install local pack** accepts the matching JSON manifest beside the complete
+ZIP, or beside all its numbered ZIP parts. The installer verifies each part
+and the complete archive, rejects unsafe paths, and restores Unix executable
+permissions before running the checks.
 
-Development pack manifests record these measured Windows x64 version 1 sizes.
-These packs do not include Piano notation. Packs are not distributed with the
-app; use an existing compatible environment. Developers can
-generate local packs under `target/converter-packs/`:
+### Conversion and library
 
-| Pack | Download bytes | Installed bytes | Local install manifest |
-| --- | ---: | ---: | --- |
-| CPU | 511,745,132 | 1,262,559,818 | `cpu.json` |
-| NVIDIA CUDA 12.8 | 3,343,169,690 | 5,367,919,404 | `cuda.json` |
+Use **Local file** for audio/video or **Media link** for supported YouTube,
+TikTok and Discord links. One conversion runs at a time, with two CPU threads
+when using CPU. Cancel stops its decoder and inference processes. Completed
+files remain in the library.
 
-Use Install local pack and select the JSON beside its ZIP. Do not move the
-manifest away from the archive. The installer displays sizes, verifies SHA256,
-rejects traversal/links/duplicate Windows paths and excessive expanded size,
-stages extraction, then atomically switches the active pack. Previous packs
-remain available. Download buttons stay disabled until real release URLs are
-published. CUDA downloads use four separately hashed parts below GitHub's
-asset limit; the installer concatenates them and verifies the whole ZIP too.
-Local installation uses the complete ZIP.
+The compute preference saves immediately and also applies to browser jobs.
+A GPU that is unavailable falls back to CPU without erasing that preference.
+A conversion error offers a CPU retry; it does not silently rerun the job.
 
-Convert contains local audio/video and supported YouTube, TikTok and Discord
-links; Library contains MIDI import, search, history, deletion and export.
-Sheets exposes VP formatting, quantization, automatic/multi/manual transpose,
-line-based manual points, export and floating viewing. Visualizer retains
-hand correction/filtering/MIDI exports, basic synth, user SF2s, six visual
-styles, imported image/video backgrounds, effects and WebM video rendering.
-The Library uses song cards with artwork where available and a piano preview
-fallback. The separate visualizer window offers six clickable style previews;
-selecting a style updates the player. Save appearance to retain it. Other
-appearance changes preview immediately without restarting playback or the loaded
-SoundFont; Save appearance retains them. Style previews and Keys are under the collapsed Style & appearance panel. Import .sf2 and the SoundFont dropdown sit together beside playback controls; the duplicate player title
-is removed. Drawn (Sketchbook) retains the saved `sketch` key style and animates
-idle and held-key pencil outlines, respecting pause and reduced motion. Black-key highlights
-retain their hue at a darker shade, as do falling black notes. Muted hand notes and key highlights remain visible at 20% opacity; audio remains muted. Animated hands and their rendering dependency have been removed. Note hand assignments, corrections and MIDI exports remain available. All sliders use shared compact dark styling, including the floating viewer and embedded player. Imported background paths remain canonical and are resolved only
-through scoped native assets; failed media loads retain the theme and show a temporary error. Reset background
-restores the current style without deleting imports; Save appearance persists it.
-The renderer reads both legacy background folders. Song labels hide the legacy `_transkun` suffix; MIDI/sheet export filenames replace it with `_lazymidi`. Stored IDs, history and original files remain intact. Temporary notices across the
-app expire after ten seconds; progress, setup and field validation remain visible.
-Video rendering happens in real time and requires a visible visualizer;
-hiding it pauses audio/animation and cancels rendering. No converter operation
-enables game output or sends the converted song to Roblox.
+**Import MIDI** opens an existing MIDI file. **Import history & MIDI folder**
+copies an old converter library or a folder of MIDI files. Originals remain
+untouched; name collisions keep both versions, and repeated imports skip
+identical copies. Linked files and browser cookies are excluded.
 
-The model transcribes piano, not arbitrary instrument separation. Media-site
-availability/authentication can change. Cookie files are never imported
-automatically. No bundled third-party songs or SoundFonts are included.
-
-Data lives separately under the OS local application data directory,
-`app.lazymidi.desktop/converter/data` on Windows. Copy existing converter data
-accepts an AudioConverter/AudioConverterData folder. It copies supported MIDI,
-sheets, history, settings and assets without following links or overwriting
-collisions. The original folder remains untouched. Invalid JSON is retained,
-settings/history have atomic saves and one backup. Runtime data and credentials
-are never saved in musical profiles.
-
-The service tries 127.0.0.1 ports 27653–27660, falling back to a random port
-if all are occupied, and uses a random per-launch token
-kept by Rust. The frontend receives approved JSON operations and scoped file
-IDs. Custom media protocol reads only converter storage, with canonical path
-and origin checks. The browser extension has a different, limited token.
-
-Load the repository's `extension/` directory as an unpacked Chromium extension
-if desired. With Converter enabled and a compatible environment selected,
-connection is automatic. The worker discovers the local service, receives a
-separate scoped token and reconnects after app restarts. Website origins cannot
-use discovery: its custom header requires a CORS preflight, which is denied to
-websites. The service prepares while the module is enabled; inference remains
-lazy. Page buttons appear only while the converter service is reachable, hide
-when it stops and return automatically on reconnection. Already-open supported
-tabs receive the content scripts at installation; reload an older unpacked extension.
-If all discovery ports are occupied, close obsolete lazymidi instances.
-Extension access is
-limited to submissions/import and its own jobs, not library/settings/history.
-The replacement v0.1.5 extension downloads MuseScore MIDI directly using LibreScore's dynamic MD5 authorization and legacy fallback, then uses the existing scoped MIDI import. Replace the older unpacked extension, which used a file picker. No additional page button is added. Full notices for the adapted MIT code and bundled MD5 helper are under `extension/vendor/`. Native-player token interception is not included; upstream API or CDN changes and website verification can still prevent downloading.
+Library pages contain up to 24 songs. Search has its own page position;
+clearing it restores the browsing page. Deleting files clamps that page to the
+remaining results. Stored filenames stay unchanged; displayed names hide the
+legacy `_transkun` suffix, while exports use `_lazymidi`.
 
 ### Piano notation
 
-Choose **Piano** beside **QWERTY** on a MIDI song. Both use the existing sheet
-window. Piano shows treble and bass staves, with playback, seeking, zoom and a
-following cursor. Scrolling by hand turns Follow off; enable it again to follow
-playback. Closing or minimizing the viewer pauses playback.
+Choose **Piano** beside **QWERTY** on a song. Both use the same floating sheet
+window. Piano shows treble and bass staves, playback, seeking, zoom and a following
+cursor. Manual scrolling turns Follow off. Closing, minimizing or replacing the
+score pauses playback.
 
-**Settings → Modules → Show Piano button** is on by default. Turn it off and
-apply settings to hide converter Piano actions and fit more songs per row.
+**Settings → Modules → Show Piano button** defaults on. Turn it off and apply
+settings to hide Piano in Convert and the floating viewer, with more library
+cards per row. An already loaded score stays open.
 
-Piano uses `music21==9.7.1` in the selected Python environment and the bundled
-OpenSheetMusicDisplay renderer. It needs no notation program or online service.
-Older environments can still convert audio and generate QWERTY sheets. If Piano
-reports a missing dependency, select an environment with music21 or install a
-version 2 local runtime pack through **Convert → Runtime setup**. lazymidi does
-not install packages into an existing environment.
+Use **Tracks & rhythm** to select tracks, change the staff split or choose finer
+rhythm detail. Named left/right tracks determine the staff; other tracks split
+at C4 by default. Playback retains the selected tracks' original timing,
+velocities and pedals. QWERTY retains Auto, Multi, Manual and Original transpose
+modes, editable transpose headings and Send to Transposer.
 
-Piano tracks are selected first; use **Tracks & rhythm** to choose others. Named
-left/right tracks determine the staff; other tracks split at C4 by default.
-Notation quantizes timing to sixteenths and triplets, with finer detail available.
-Playback preserves the selected tracks' original timing, velocities and pedals.
-The score is an automatic transcription: dense or freely timed MIDI may need
-manual editing in a notation program. It supports beat-based MIDI types 0 and 1,
-up to 8 MiB, 20,000 selected notes, 8,000 beats and 2,000 measures.
+Notation is automatic; freely timed performances and dense arrangements may
+need editing in a notation program. Supported inputs are beat-based MIDI types
+0 and 1, up to 8 MiB, 20,000 selected notes, 8,000 beats and 2,000 measures.
+Source MIDI files remain unchanged.
 
-Library search has its own page position. Clearing the search restores the last
-browsing page; deleting files clamps that position to the remaining pages.
+### Visualizer and browser extension
+
+Song previews open a reusable visualizer window with Basic synth, imported SF2
+fonts, styles, backgrounds, hand assignment and MIDI/video export. Closing the
+window stops playback and keeps its loaded font cached until the app exits.
+Save appearance retains visual settings; Reset background preserves imported
+files. Video export requires the window to remain visible.
+
+Load `extension/` as an unpacked Chromium extension and keep Converter enabled.
+It connects automatically. Page buttons appear only when the local service is
+ready and return after reconnection. Reload the extension and refresh supported
+pages after an update. See [extension setup](../extension/README.md).
+Media-site changes or verification requirements can prevent downloads.
+
+Data is stored in the platform's application data directory, separately from
+the selected Python environment. The local service exposes approved operations
+and scoped media paths. The browser extension has its own limited token and
+cannot read library settings or history.
 
 ## Build and qualification
 
-`python scripts/build-converter-pack.py cpu` (or `cuda`) builds a versioned
-embedded Python directory, pinned packages/model and FFmpeg. It requires a
-trusted local FFmpeg distribution (`--ffmpeg C:/ffmpeg` by default).
-The version 2 recipe includes music21. Do not commit generated multi-gigabyte
-packs. `converter/packs.json` still records the measured version 1 sizes and
-hashes; generate new manifests when building version 2 packs. Release URLs are
-deliberately null in this build.
+Run the **Converter runtimes** workflow to produce all supported packs. It builds
+FFmpeg 8.1.3, OpenSSL 3.5.9 and LAME 3.100 from pinned source archives, with GPL
+and nonfree components disabled. Matching sources, build instructions and
+licenses ship inside each pack.
 
-The local Gyan FFmpeg build is GPLv3. Packs retain its license, exact FFmpeg
-source archive and build configuration. Before public redistribution, obtain
-and verify corresponding source/build material for every statically linked
-external library, or replace it with an audited build. Runtime publication is
-gated on that audit. Python/package/model notices are retained inside packs;
-FluidSynth's LGPL source, license and rebuild instructions ship with the frontend.
+The runtime builder uses standalone Python 3.11.18, music21 9.7.1, Transkun 2.0.1
+and PyTorch 2.9.1. Intel Mac uses PyTorch 2.2.2, the last supported Intel Mac wheel.
+Any compiled Python dependencies are built in CI. Runtimes are relocated before
+qualification, so users need neither a compiler nor the build machine's paths.
 
-Windows CPU and CUDA inference were exercised on this host (RTX 5080 for CUDA).
-Linux/macOS/MPS packs are not supplied or qualified. Native MIDI/keyboard
-permissions and the Wooting SDK remain the existing platform prerequisites.
-This build is unsigned. Live Discord restart/clear, game acceptance of transpose
-pulses, overlays across DPI/fullscreen/compositors, long conversions and online
-site workflows remain manual qualification gates.
+Manifests in `converter/packs.json` record release URLs, exact sizes and SHA-256
+hashes. Native installer tests exercise extraction, permissions, real conversion,
+Piano support and cancellation. Packaged app checks cover QWERTY, normal/fine
+Piano rendering, scoped assets and floating windows.
 
-### Checks performed
+For a local packaged check with a validated environment:
 
-- Rust workspace and SDK-free tests, TypeScript build and 64 UI/renderer tests.
-- Default settings/profile round trips, shortcut/output conflicts, sequence
-  wrap/delta/repeated targets and partial-send recovery.
-- Keyboard pulse completion/cancellation and existing stuck-key/navigation tests.
-- Pack checksum/traversal/case-collision/cancellation and previous-active recovery.
-- Actual CPU pack extraction into an isolated folder and import of Torch/Transkun.
-- Private-service tests: authentication/origin/scope, MIDI→sheet, automatic
-  extension scope, single-job cleanup, copy import and invalid-settings recovery.
-- Real CPU and CUDA transcription of generated test audio and cancellation.
-- Browser visualizer loading/playback/styles/hand controls and WebM export state.
-- Simulated MIDI/analog input→writer p99 approximately 42–59 µs, versus the
-  previous documented 33–61 µs range. This excludes hardware, native insertion,
-  game/audio and sustained load; it is not a claim of improved audible latency.
-- During a real CPU conversion, an eight-note burst through the actual engine,
-  output queue and Windows SendInput measured batched MIDI p50/p99 4.09/7.02 ms
-  and analog-source 4.60/6.81 ms. These calibration sends use harmless F24
-  releases, not game notes. The previous documented batched p99 was about
-  14 ms on a differently loaded session; this is not a controlled audible
-  latency comparison. The short generated-audio CPU job completed in 16.28 s.
+```sh
+python scripts/verify-native-modules.py path/to/lazymidi --environment target/native-runtime.json
+```
 
-### Navigation and converter fixes preview
-
-Floating windows are created through an asynchronous Tauri command. The old
-synchronous Windows command reproducibly hung while creating WebView2; the
-native regression now opens both windows and exits normally. The current
-Transposer tab opens; Settings has a visible Apply settings action and an
-Open Transposer shortcut. A hidden tab must be enabled and applied there.
-
-Converter setup, source selection and next steps are separated from advanced
-controls. Startup failures have a Retry action. Switching MIDI discards the
-previous sheet/export and loads the new song in the retained player; late MIDI loads
-cannot restart hidden animation. Initial sheet loading cannot overwrite a newer
-floating-sheet update. Media reads and exports share canonical storage checks,
-including a Windows junction-escape regression. Copy import retains artwork
-without overwriting the source or existing files.
-
-`scripts/verify-native-modules.ps1 -Executable target/release/lazymidi.exe -Converter`
-exercises the actual packaged frontend, both overlay commands, private Python
-service and scoped MIDI fetch. It uses isolated test storage and a junction to
-the locally built CPU runtime; SDK and generated musical output remain off.
-The ordinary startup smoke flag remains available without optional packs.
-Pass `-EnvironmentManifest target/environment-preview/validated-environment.json`
-to the native verifier to exercise an explicitly validated existing environment
-instead of the local CPU pack. The ignored Rust environment check creates this
-manifest when `LAZYMIDI_TEST_ENVIRONMENT_OUTPUT` is set, and also verifies process
-cancellation. `converter/test_environment.py` covers missing dependencies/model/
-FFmpeg and unavailable CUDA; the service tests cover safe runtime switching.
-
-### Converter library and sheet preview
-
-Convert separates local files from media links, with direct sheet/preview actions
-when a job completes. Import MIDI and **Import history & MIDI folder** are visible
-in Convert and Library. Choose the old converter installation, AudioConverterData,
-its converted folder, or a standalone MIDI folder. Import copies MIDI, text sheets,
-artwork, supported user assets and matching history without changing originals.
-Library previews are paged in groups of 24; search covers the full library.
-Name collisions keep both versions; repeat imports skip identical copies and
-history entries. Existing lazymidi settings win. Invalid history is rejected before
-copying, browser cookies are excluded, and linked files/folders are skipped.
-Both legacy visualizer_backgrounds and visualizer-backgrounds are recognized.
-
-Embedded and floating sheets share tempo colors, underlined Ctrl notes, comments,
-transpose headings, zoom, centering and plain-text/transpose copying. Export and
-Copy sheet preserve the original text. The floating viewer has **Stay on top**,
-opacity controls and remains available with Converter enabled
-when Transposer is hidden. Image sheets retain image zoom. Viewer controls do not
-send musical input. Original tempo/color reference: local mp3converter
-static/js/sheets-utils.js, SHA256
-`a204938ca1ebde905e94522b1e75b981e2adcdfd363c93b9a6b0b531a13452dc`.
-
-Regression checks cover colored/plain rendering without HTML execution, copy
-content, floating window options, late sheet replies, library refresh, collision
-and repeat imports, history ordering, UTF-8 BOM, malformed history, original-file
-preservation, settings and legacy background paths. Windows release, native
-service/overlays and layouts at 900×620 and 1120×760 are checked separately;
-foreground behavior over Roblox fullscreen remains a manual qualification gate.
-
-### Sheet transpose and tempo controls
-
-Sheets exposes **Auto**, **Multi**, **Manual** and **Original** modes. Auto chooses
-one shift for the song; Multi chooses shifts by beat-based regions; Manual edits
-game transpose values at zero-based chord positions; Original preserves pitches.
-The editor converts game values to the opposite signed pitch shifts stored by
-mp3converter, so existing saved points retain their meaning. Legacy auto/multi
-preferences still load when no explicit mode is saved.
-
-**Show BPM & tempo changes** and **Show timing markers** work independently and
-refresh an existing sheet, as do mode changes. BPM comes from the MIDI tempo map;
-there is no manual tempo override. Chord grouping is in milliseconds, line length
-is in beats, and Multi uses the configured beat count for transpose regions.
-Other formatting and manual point edits apply with Generate. Save settings keeps
-these preferences across launches without altering source MIDI or game output.
-
-### Generated sheets and visualizer windows
-
-Sheet buttons in Convert, Library and conversion results generate immediately.
-When the floating sheet is visible, these actions update it without switching
-the main converter to Sheets. A minimized viewer is restored before generation,
-also without switching sections. Otherwise, they open Sheets as before.
-Enable **Always open Float** in Sheets to open the floating viewer first and
-keep the current converter section on every Sheet action, even if the viewer
-was closed. This preference saves immediately and defaults off.
-Library search accepts the active profile's MIDI → QWERTY output, including
-analog-generated notes, so it remains usable with normal typing disabled in
-Wootility. Other editors and file dialogs still pause generated piano keys.
-The main and floating views share source MIDI, effective settings, line/chord
-positions and transient revisions. Both use the native generate_sheet command;
-stale requests cannot publish or replace saved output. Failed regeneration keeps
-the last valid sheet. Save settings explicitly persists the current sheet draft.
-
-The floating toolbar places the unlabeled, accessible mode selector beside Send to
-Transposer and hides the Tempo colors legend while retaining coloring. Sending
-replaces the active profile sequence with displayed headings in order (including
-signs and duplicates), selects the first entry and automatically resumes when the module is enabled and Up/Down bindings are configured. The first target is applied immediately.
-It validates 1–512 whole values from −50 to +50 and preserves other settings.
-Manual mode
-edits game values directly in headings; Enter or blur commits, + adds a point
-using its inherited value, and − beside an explicit heading removes the point.
-Source-free text/image sheets cannot regenerate.
-Click-through has been removed; Stay on top, opacity, colors and zoom remain.
-The floating viewer groups opacity, Stay on top, colors, centering and zoom under
-View. Open sheet, Copy sheet, Send to Transposer and the mode selector stay visible.
-Editable headings and point controls keep the same line spacing as the notes.
-The viewer saves zoom, opacity, Colors, Center and Stay on top immediately and
-restores them after closing the window or restarting the app. These are viewer
-preferences, independent of converter formatting and profile settings.
-Floating-window position, normal size and maximized state save on close and
-periodically while open. Restore adjusts sizes for DPI, recovers off-screen
-positions and reads the geometry backup if its primary file is invalid.
-
-Converter navigation is Convert, Library, Sheets. Each library card's Preview piano
-image opens the same reusable native window. A new song loads
-in the retained player without autoplay. The window retains styles, backgrounds, hand editing,
-MIDI/video exports and SF2 selection/import. Appearance saves merge only appearance
-fields, preserving sheet preferences. Geometry is recoverable, Stay on top defaults
-Off, with the toggle after its label. Closing the visualizer or disabling Converter
-hides its window and stops playback/rendering while preserving the player and loaded
-SoundFont in memory. Reopening reuses that player without autoplay or reloading the
-same font. Changing the selected font replaces it; exiting lazymidi frees the cache.
-The converter remains optional and musical input is independent of these windows.
-
-SoundFonts use bounded byte-range transfers rather than buffering a whole file in
-the native webview response. Basic synth is selected when no valid saved font is
-available. Saved font choices are retained; decoding/allocation errors remain in
-the player instead of requiring an application restart.
+The check uses isolated storage and keeps the SDK and generated musical output
+off. `--midi path/to/song.mid` additionally tests a specific song without changing
+its source. Further measurements and hardware limits are in [testing](testing.md).

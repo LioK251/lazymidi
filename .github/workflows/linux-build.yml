@@ -2,9 +2,15 @@ name: Linux packages
 
 on:
   workflow_dispatch:
+    inputs:
+      runtime_run:
+        description: Successful Converter runtimes workflow run ID
+        required: true
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
@@ -28,7 +34,7 @@ jobs:
           cache: pip
           cache-dependency-path: converter/requirements-test.txt
       - name: Linux prerequisites
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 xvfb dbus-x11
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 xvfb dbus-x11 openbox
       - run: npm ci
       - run: npm test
       - run: python -m pip install -r converter/requirements-test.txt
@@ -39,10 +45,21 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo test -p lazymidi-core --no-default-features --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - uses: actions/download-artifact@v4
+        with:
+          name: converter-linux-x86_64-cpu
+          run-id: ${{ inputs.runtime_run }}
+          github-token: ${{ github.token }}
+          path: target/converter-packs
+      - name: Install and qualify the downloadable runtime
+        env:
+          LAZYMIDI_TEST_PACK_MANIFEST: target/converter-packs/linux-x86_64-cpu.json
+          LAZYMIDI_TEST_ENVIRONMENT_OUTPUT: target/native-runtime.json
+        run: cargo test -p lazymidi --locked built_runtime_installs_and_runs -- --ignored --nocapture
       - run: cargo fetch --locked
       - name: Build Debian and AppImage packages
         run: npm run bundle -- --bundles deb,appimage --config '{"bundle":{"linux":{"deb":{"depends":["libasound2"]}}}}'
-      - name: Verify packages and SDK-free startup
+      - name: Verify packaged Converter, Piano and floating windows
         env:
           GDK_BACKEND: x11
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
@@ -60,8 +77,9 @@ jobs:
           chmod +x "${image[0]}"
           (cd "$RUNNER_TEMP/lazymidi-appimage" && "$GITHUB_WORKSPACE/${image[0]}" --appimage-extract > /dev/null)
           dbus-run-session -- xvfb-run -a python - <<'PY'
-          import json, os, pathlib, subprocess, tempfile
+          import os, pathlib, subprocess, sys
           temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          subprocess.Popen(['openbox', '--sm-disable'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
           for folder, executable in (
               (temp / 'lazymidi-deb', 'usr/bin/lazymidi'),
               (temp / 'lazymidi-appimage/squashfs-root', 'AppRun'),
@@ -69,15 +87,9 @@ jobs:
               assert (folder / executable).is_file(), executable
               for name in ('service.py', 'check_environment.py', 'THIRD_PARTY_NOTICES'):
                   assert list(folder.rglob(name)), name
-              with tempfile.TemporaryDirectory() as directory:
-                  receipt = pathlib.Path(directory) / 'startup.json'
-                  subprocess.run([str(folder / executable), '--smoke-test', str(receipt)], timeout=90, check=True)
-                  result = json.loads(receipt.read_text())
-                  assert result['native_frontend_ready'], result
-                  state = result['snapshot']
-                  assert not state['analog_enabled'] and not state['qwerty_enabled'], state
-                  assert state['sdk_version'] is None, state
-              print(f'Verified {folder.name} packaged frontend and SDK-free startup.')
+              subprocess.run([sys.executable, 'scripts/verify-native-modules.py', str(folder / executable),
+                              '--environment', 'target/native-runtime.json'], check=True, timeout=160)
+              print(f'Verified {folder.name} packaged frontend, Converter and Piano.')
           PY
           cp "${deb[0]}" "target/release/assets/lazymidi_${version}_amd64.deb"
           cp "${image[0]}" "target/release/assets/lazymidi_${version}_amd64.AppImage"

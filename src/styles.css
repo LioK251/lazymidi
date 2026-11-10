@@ -71,11 +71,12 @@
 .converter-panel {padding:20px;overflow:auto;height:100%;}
 .converter-intro {color:var(--muted);margin:12px 0 20px;line-height:1.5;}
 .converter-setup {padding:16px;border:1px solid var(--border);background:#191919;margin-bottom:20px;}
-.runtime-choices {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0;}
-.runtime-choice {padding:12px;border:1px solid var(--border);}
-.runtime-choice h3 {font-size:13px;margin:0 0 8px;}
-.runtime-choice p,.runtime-choice small {color:var(--muted);line-height:1.5;}
-.runtime-choice button {display:block;margin-top:12px;}
+.converter-setup>summary {font-weight:600;cursor:pointer;}
+.converter-setup>.field {max-width:340px;}
+.runtime-progress {margin:16px 0;max-width:520px;}
+.runtime-progress progress {width:100%;accent-color:var(--accent);}
+.runtime-progress small {display:block;margin-top:6px;color:var(--muted);}
+.runtime-details,.converter-setup pre {white-space:pre-wrap;overflow-wrap:anywhere;}
 .converter-workflow.split {padding:0;min-height:0;}
 .converter-advanced {margin:20px 0;}
 .converter-advanced > summary {margin-bottom:12px;}
