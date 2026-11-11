@@ -4,6 +4,16 @@ import { invoke } from "@tauri-apps/api/core";
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true, invoke: vi.fn() }));
 beforeEach(() => { vi.resetModules(); vi.mocked(invoke).mockReset(); });
 
+it("reports native smoke failures to the runner without changing normal startup",async()=>{
+  const api=await import("./backend");
+  await api.nativeSmokeReady(false);
+  expect(invoke).not.toHaveBeenCalled();
+  const failure=new Error("Monitor did not pause");
+  vi.mocked(invoke).mockRejectedValueOnce(failure).mockResolvedValueOnce(undefined);
+  await expect(api.nativeSmokeReady(true)).rejects.toBe(failure);
+  expect(invoke).toHaveBeenLastCalledWith("native_smoke_ready",{error:"Monitor did not pause"});
+});
+
 it("saves sheet transposes without changing bindings or musical switches",async()=>{
   const api=await import("./backend");const state=api.initialState();state.analog_enabled=true;state.qwerty_enabled=true;
   const profile=state.settings.profiles.find(p=>p.id===state.settings.selected_profile)!;

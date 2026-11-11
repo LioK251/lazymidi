@@ -5,7 +5,7 @@
 User feedback drove the toolbar and export fixes. On 2026-11-11 the user
 explicitly approved GitHub publication with the final PDF filename correction.
 
-185 frontend/extension tests, 59 Rust workspace tests, 45 SDK-free core tests,
+186 frontend/extension tests, 59 Rust workspace tests, 45 SDK-free core tests,
 21 notation tests, six environment tests, three installer-script tests and
 21 private-service tests pass. Formatting, Clippy with warnings denied,
 TypeScript/Vite production builds, NSIS packaging and archive integrity pass.
@@ -70,6 +70,10 @@ stays paused. It sends no keyboard pulses. The shortcut predicate and binding
 validation have regression coverage; actual hotkey registration conflicts and
 physical key dispatch remain for hands-on testing.
 The refreshed final portable passed the same native checks with Glimpse.
+Visibility polling also pauses minimized monitors on macOS, where minimizing
+does not emit the resize event used by other platforms. Native smoke failures
+write their error to the receipt and exit unsuccessfully instead of waiting
+for the runner timeout.
 
 Real Fantaisie SoundFont playback generated 95 non-silent PCM blocks with output
 muted. Its 1,598 cursor samples had no clock rewinds or backward movement.

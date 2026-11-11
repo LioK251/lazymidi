@@ -232,6 +232,7 @@ export async function getState(): Promise<Snapshot> {
 }
 export async function nativeSmokeReady(enabled: boolean, overlays = false, converter = false): Promise<void> {
   if (desktop && enabled) {
+    try {
     if (overlays) {
       await openOverlay("monitor");
       const {WebviewWindow}=await import("@tauri-apps/api/webviewWindow");
@@ -337,6 +338,10 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
       }finally{stop();clearTimeout(timer);}
     }
     await invoke("native_smoke_ready");
+    } catch (error) {
+      await invoke("native_smoke_ready", {error:errorText(error)}).catch(()=>{});
+      throw error;
+    }
   }
 }
 export async function subscribe(

@@ -71,10 +71,11 @@ def main():
                            input=FIXTURES, text=True, check=True, timeout=60,
                            creationflags=0x08000000 if os.name == 'nt' else 0)
             command.append('--converter')
-        subprocess.run(command, check=True, timeout=120,
-                       creationflags=0x08000000 if os.name == 'nt' else 0)
+        completed = subprocess.run(command, timeout=120,
+                                   creationflags=0x08000000 if os.name == 'nt' else 0)
         result = json.loads(receipt.read_text(encoding='utf-8'))
         assert result['native_frontend_ready'] and len(result['overlays']) == 2, result
+        completed.check_returncode()
         if args.environment:
             assert result['converter'], result
         snapshot = result['snapshot']

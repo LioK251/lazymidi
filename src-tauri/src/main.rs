@@ -88,7 +88,26 @@ fn main() {
                         overlays::save_all(&handle);
                         geometry_saved = std::time::Instant::now();
                     }
-                    let snapshot = state.runtime.snapshot();
+                    let mut snapshot = state.runtime.snapshot();
+                    let monitor_visible = crate::shortcuts::monitor_visible(&handle);
+                    // macOS does not emit a resize event when a window is minimized.
+                    if snapshot.transpose.armed
+                        && !monitor_visible
+                        && handle.get_webview_window("monitor").is_some()
+                    {
+                        match state
+                            .runtime
+                            .command(lazymidi_core::runtime::Command::Transpose {
+                                action: "pause".into(),
+                                value: None,
+                                index: None,
+                            }) {
+                            Ok(paused) => snapshot = paused,
+                            Err(error) => {
+                                let _ = handle.emit("module-error", error);
+                            }
+                        }
+                    }
                     if !snapshot.settings.show_converter && !state.smoke_converter {
                         state.converter_control.stop();
                         state
@@ -120,7 +139,7 @@ fn main() {
                     let desired = (
                         snapshot.settings.show_transposer,
                         snapshot.transpose.editing,
-                        crate::shortcuts::monitor_visible(&handle),
+                        monitor_visible,
                         crate::shortcuts::MONITOR_REVISION
                             .load(std::sync::atomic::Ordering::SeqCst),
                         snapshot.settings.profile().transpose.clone(),

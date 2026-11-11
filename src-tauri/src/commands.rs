@@ -43,7 +43,7 @@ pub fn get_state(app: State<App>) -> serde_json::Value {
     value
 }
 #[tauri::command]
-pub async fn native_smoke_ready(app: tauri::AppHandle) -> Result<(), Error> {
+pub async fn native_smoke_ready(app: tauri::AppHandle, error: Option<String>) -> Result<(), Error> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<App>();
         let path = state
@@ -52,6 +52,7 @@ pub async fn native_smoke_ready(app: tauri::AppHandle) -> Result<(), Error> {
             .ok_or_else(|| "Native smoke mode is not enabled.".to_string())?;
         let snapshot = state.runtime.snapshot();
         let mut overlays = Vec::new();
+        if error.is_none() {
         if state.smoke_overlays {
             for name in ["monitor", "sheet"] {
                 let window = app.get_webview_window(name)
@@ -77,10 +78,14 @@ pub async fn native_smoke_ready(app: tauri::AppHandle) -> Result<(), Error> {
             if !visualizer.is_visible().map_err(|e|e.to_string())?||visualizer.is_always_on_top().map_err(|e|e.to_string())? {return Err("Visualizer window options failed.".into());}
             if visualizer.is_decorated().map_err(|e|e.to_string())? {return Err("Visualizer still has native window chrome.".into());}
         }
+        }
         config::atomic_save(
             path,
-            &serde_json::json!({"native_frontend_ready":true,"overlays":overlays,"converter":state.smoke_converter,"snapshot":snapshot}),
+            &serde_json::json!({"native_frontend_ready":error.is_none(),"error":error,"overlays":overlays,"converter":state.smoke_converter,"snapshot":snapshot}),
         )?;
+        if let Some(message) = &error {
+            eprintln!("Native smoke check failed: {message}");
+        }
         state.converter_control.stop();
         state
             .converter_cancel
@@ -91,7 +96,7 @@ pub async fn native_smoke_ready(app: tauri::AppHandle) -> Result<(), Error> {
             .unwrap_or_else(|e| e.into_inner())
             .stop();
         state.runtime.stop();
-        app.exit(0);
+        app.exit(i32::from(error.is_some()));
         Ok::<_, String>(())
     })
     .await
