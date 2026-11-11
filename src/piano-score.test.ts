@@ -38,6 +38,8 @@ it('follows time columns through centred rests, simultaneous voices, gaps and li
   }
   const first=system(0,[[0,100,240],[1,150,0],[1,150,20],[3.75,410,0]],40);
   const second=system(4,[[5,180,0],[6,220,0]],32);
+  first.GraphicalMeasures[0].unshift(undefined as any);
+  first.GraphicalMeasures.push([undefined as any]);
   const layout=scoreLayout({MusicPages:[{MusicSystems:[first,second]}]} as unknown as GraphicalMusicSheet);
   expect(layout.lines[0].beats).toEqual([0,1,3.75,4]);
   expect(scoreCursor(layout,0)?.x).toBeCloseTo(10.6);

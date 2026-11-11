@@ -12,7 +12,7 @@ it("tracks game state without manual sync or resume controls on the main page",(
   expect(screen.queryByRole("button",{name:"Sync current value"})).toBeNull();
   expect(screen.queryByRole("button",{name:"Resume"})).toBeNull();
   expect(screen.queryByLabelText("Current game value")).toBeNull();
-  expect(screen.getByText("Automatically tracks from 0. Use shortcuts or the floating monitor while playing.")).toBeTruthy();
+  expect(screen.getByText(/Shortcuts work only while the monitor is visible/)).toBeTruthy();
   expect(screen.getByRole("button",{name:"Float monitor"})).toBeTruthy();
   expect(send).not.toHaveBeenCalled();
 });

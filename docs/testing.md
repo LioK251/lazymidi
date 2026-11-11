@@ -1,5 +1,99 @@
 # Verification and release qualification
 
+## Version 0.1.9 release qualification — 2026-11-11
+
+User feedback drove the toolbar and export fixes. On 2026-11-11 the user
+explicitly approved GitHub publication with the final PDF filename correction.
+
+185 frontend/extension tests, 59 Rust workspace tests, 45 SDK-free core tests,
+21 notation tests, six environment tests, three installer-script tests and
+21 private-service tests pass. Formatting, Clippy with warnings denied,
+TypeScript/Vite production builds, NSIS packaging and archive integrity pass.
+Six specialized Rust checks and one service inference check remain opt-in;
+runtime installation and full model inference were not repeated.
+
+The toolbar/export follow-up reran all 184 frontend/extension tests. Regressions
+verify that both export actions wait for audio suspension, stop existing notes,
+retain the playback position and recover from a pause failure. Title-bar tests
+cover Piano/QWERTY switching, conversion suffix removal and opening a sheet
+without a MIDI source. The earlier Rust/Python checks above cover unchanged code.
+
+The final PDF filename fix sets the parent document's title while printing;
+Chromium uses that title for the suggested filename even when printing an
+iframe. Regression tests verify restoration after completion and print errors.
+The real Edge Save as PDF flow opened a native Windows Save As dialog with
+`Glimpse of Us - Joji (Piano Cover).pdf` prefilled. Cancelling restored the app
+title to `lazymidi`. The test selected the PDF destination explicitly and sent
+no job to the physical printer.
+
+Real Edge checks confirm exclusive toolbar menus by mouse and keyboard, the
+requested button order, removal of the score heading and explanation, and title
+bar fit at 400 px. Both MusicXML and PDF exports ran during Glimpse playback with
+Basic synth and the 380 MB SoundFont. AudioContext was suspended before export
+entry, its clock stayed stopped during simulated blocking dialog work, and Play
+resumed from the saved position after cancellation. PDF preparation still
+generated seven pages with the clean title and lazymidi credit. These checks use
+the real audio player and PDF renderer, with dialog completion simulated; they
+do not replace native dialog acceptance. The SoundFont loaded in 46 bounded reads.
+
+The original Glimpse Transkun file reproduced six missing graphical measures
+after OSMD combined silent bars. Width calculation then threw
+`minimumStaffEntriesWidth`, while the presence of partial SVG incorrectly
+reported a successful load. Regressions cover missing measures, failed readiness
+and recovery after redraw. The alternate Glimpse cover exposed an additional
+Detailed-mode export failure: splitting a mixed straight/triplet chord left a
+complex remainder. A failing minimal chord test now verifies exact tied
+durations, offsets and pitches. Clef tests also verify returning from an octave
+clef when the register drops.
+
+Fresh scores from all three Glimpse files, Fantaisie-Impromptu, Chicago, Queen,
+Kawaki, Abyss and Verity passed browser rendering in both Standard and Detailed
+modes. Checks cover every score's duration columns and system Follow behavior,
+manual scrolling, click-to-seek, widths from 420 to 1120 px and saved zoom from
+1 to 3. Original MIDI hashes remain unchanged. These songs are local checks,
+not distributed fixtures.
+
+All nine Standard scores and Detailed Chicago passed print-layout checks for
+page bounds and forward note positions. Nine actual PDFs have A4 page sizes and
+no empty pages. Representative first/last pages were rasterized and inspected.
+Tests include a mixed English/Japanese/Thai title and a 175-character unbroken
+Japanese title, centered credit, wrapping, page margins, unchanged live score
+layout and cleanup after print completion or preparation failure. MusicXML
+export tests check exact score content, filename, current revision and mode.
+MusicXML appearance in MuseScore remains a separate manual check.
+
+The packaged Windows/WebView2 app passed real Glimpse generation in both detail
+modes, shared-sheet revisions, scoped MIDI/background assets, retained viewers
+and large SoundFont range checks. A zero-only Transposer sequence verifies
+that opening does not arm, minimizing/closing pauses, and restoring/reopening
+stays paused. It sends no keyboard pulses. The shortcut predicate and binding
+validation have regression coverage; actual hotkey registration conflicts and
+physical key dispatch remain for hands-on testing.
+The refreshed final portable passed the same native checks with Glimpse.
+
+Real Fantaisie SoundFont playback generated 95 non-silent PCM blocks with output
+muted. Its 1,598 cursor samples had no clock rewinds or backward movement.
+The 380 MB font used 46 bounded reads; three playing seeks and three score
+replacements added none. Shared SoundFont selection with Visualizer passed.
+
+The earlier interactive desktop helper could not connect to its native pipe or
+browser host. The final PDF check instead used an isolated Edge profile and the
+native dialog's filename control. Interactive installation, physical shortcuts,
+audio listening, MIDI/analog devices and game input are not marked hand-tested
+by the agent. Live media downloads have not been requalified for 0.1.9.
+Linux/macOS packages use the native packaging workflows, which run their own
+tests, in-app runtime setup and packaged-app checks before producing artifacts.
+Windows builds are unsigned; Mac apps are ad-hoc signed and not notarized.
+
+Packages, checksums and local evidence are kept under
+`artifacts/0.1.9/`, outside disposable build directories. For isolated manual
+testing, launch the executable
+with `--smoke-test "C:\path\to\test-folder\session.json" --manual`, using an
+absolute path in a writable test folder. This uses separate settings and
+Converter data and keeps the normal UI and shortcuts active without running
+the automatic smoke sequence. The regular `--smoke-test ... --overlays` flow
+continues to disable global shortcut registration and exits after its checks.
+
 ## Version 0.1.8 release qualification — 2026-11-11
 
 The Windows app passed user testing and was approved for release.

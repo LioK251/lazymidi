@@ -47,6 +47,48 @@ def fixture(path):
 
 
 class PianoSheetTests(unittest.TestCase):
+    def test_mixed_chord_split_finishes_complex_remainders(self):
+        from fractions import Fraction
+        from music21 import chord, stream
+        from piano_sheet import _split_mixed_durations
+        voice = stream.Voice()
+        voice.insert(Fraction(23, 12), chord.Chord(['C4', 'C5'], quarterLength=Fraction(17, 24)))
+        _split_mixed_durations(voice, 192)
+        self.assertEqual([n.quarterLength for n in voice.notes], [Fraction(1, 12), .5, .125])
+        self.assertEqual([n.offset for n in voice.notes], [Fraction(23, 12), 2, 2.5])
+        self.assertEqual([n.tie.type for n in voice.notes], ['start', 'continue', 'stop'])
+        self.assertTrue(all(n.duration.type != 'complex' for n in voice.notes))
+        self.assertTrue(all([p.nameWithOctave for p in n.pitches] == ['C4', 'C5'] for n in voice.notes))
+
+    def test_export_title_and_author_are_xml_safe_without_renaming_the_midi(self):
+        path = self.path.with_name('A & B _transkun.mid')
+        self.midi.save(path)
+        original = path.read_bytes()
+        xml = ET.fromstring(generate(path)['musicxml'])
+        self.assertEqual(xml.findtext('work/work-title'), 'A & B')
+        self.assertEqual(xml.findtext('identification/creator[@type="arranger"]'), 'lazymidi')
+        self.assertEqual(path.read_bytes(), original)
+
+    def test_clef_changes_require_sustained_register_and_keep_the_same_pitches(self):
+        midi = mido.MidiFile(ticks_per_beat=480)
+        track = mido.MidiTrack([mido.MetaMessage('track_name', name='Right hand'),
+                               mido.MetaMessage('key_signature', key='C')])
+        pitches = [72, 100, 72, 100, 100, 48, 72]
+        for pitch in pitches:
+            track.append(mido.Message('note_on', note=pitch, velocity=80))
+            track.append(mido.Message('note_off', note=pitch, time=1920))
+        midi.tracks.append(track); midi.save(self.path)
+        original = self.path.read_bytes()
+        result = generate(self.path)
+        xml = ET.fromstring(result['musicxml'])
+        changes = [(m.get('number'), c.findtext('sign'), c.findtext('clef-octave-change', '0'))
+                   for m in xml.findall('part/measure') for c in m.findall('attributes/clef')
+                   if c.get('number', '1') == '1']
+        self.assertEqual(changes, [('1', 'G', '0'), ('4', 'G', '1'), ('6', 'G', '0')])
+        values = xml.findall('.//note[pitch]')
+        self.assertEqual([int(n.findtext('pitch/octave')) for n in values], [5, 7, 5, 7, 7, 3, 5])
+        self.assertEqual(base64.b64decode(result['midi_base64']), original)
+
     def test_authored_sixteenths_keep_rests_beams_and_chromatic_neighbors(self):
         midi = mido.MidiFile(ticks_per_beat=480)
         track = mido.MidiTrack([mido.MetaMessage('track_name', name='Right hand'),
@@ -125,6 +167,9 @@ class PianoSheetTests(unittest.TestCase):
                 group = value.find('notations/tuplet[@type="start"]')
                 self.assertEqual(group.get('bracket'), 'no')
                 self.assertEqual(group.get('placement'), 'below' if value.findtext('stem') == 'down' else 'above')
+            left = [n for n in second.findall('note[pitch]') if n.findtext('staff') == '2']
+            self.assertEqual([n.findtext('beam[@number="1"]') for n in left],
+                             ['begin', 'continue', 'continue', 'continue', 'continue', 'end'] * 2)
 
     def test_nearly_simultaneous_chord_releases_do_not_create_extra_voices(self):
         midi = mido.MidiFile(ticks_per_beat=1000)

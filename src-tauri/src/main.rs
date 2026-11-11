@@ -20,6 +20,7 @@ fn main() {
     }
     .expect("Cannot create application worker threads");
     let smoke_flags: Vec<_> = arguments.collect();
+    let smoke_manual = smoke_path.is_some() && smoke_flags.iter().any(|a| a == "--manual");
     let smoke_overlays = smoke_path.is_some() && smoke_flags.iter().any(|a| a == "--overlays");
     let smoke_converter = smoke_path.is_some() && smoke_flags.iter().any(|a| a == "--converter");
     let converter = converter::Converter::default();
@@ -36,6 +37,7 @@ fn main() {
             runtime,
             operations: std::sync::Mutex::new(()),
             smoke_path,
+            smoke_manual,
             smoke_overlays,
             smoke_converter,
             sheet: std::sync::Mutex::new(serde_json::json!({"text":""})),
@@ -58,6 +60,7 @@ fn main() {
             overlays::overlay_options,
             overlays::overlay_sheet,
             overlays::get_sheet,
+            overlays::export_piano_sheet,
             overlays::generate_sheet,
             overlays::open_visualizer,
             overlays::get_visualizer,
@@ -117,20 +120,30 @@ fn main() {
                     let desired = (
                         snapshot.settings.show_transposer,
                         snapshot.transpose.editing,
+                        crate::shortcuts::monitor_visible(&handle),
+                        crate::shortcuts::MONITOR_REVISION
+                            .load(std::sync::atomic::Ordering::SeqCst),
                         snapshot.settings.profile().transpose.clone(),
                     );
-                    if shortcuts.as_ref() != Some(&desired) && state.smoke_path.is_none() {
-                        if let Err(error) = crate::shortcuts::install(&handle, &snapshot) {
-                            let _ = handle.emit("module-error", error);
-                            let _ =
-                                state
-                                    .runtime
-                                    .command(lazymidi_core::runtime::Command::Transpose {
+                    if shortcuts.as_ref() != Some(&desired)
+                        && (state.smoke_path.is_none() || state.smoke_manual)
+                    {
+                        let installer = handle.clone();
+                        let _ = handle.run_on_main_thread(move || {
+                            let state = installer.state::<commands::App>();
+                            if let Err(error) =
+                                crate::shortcuts::install(&installer, &state.runtime.snapshot())
+                            {
+                                let _ = installer.emit("module-error", error);
+                                let _ = state.runtime.command(
+                                    lazymidi_core::runtime::Command::Transpose {
                                         action: "pause".into(),
                                         value: None,
                                         index: None,
-                                    });
-                        }
+                                    },
+                                );
+                            }
+                        });
                         shortcuts = Some(desired);
                     }
                     let _ = handle.emit("state", snapshot);
@@ -140,6 +153,18 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if window.label() != "main" {
+                if window.label() == "monitor"
+                    && (matches!(
+                        event,
+                        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+                    ) || matches!(event, tauri::WindowEvent::Resized(_))
+                        && window.is_minimized().unwrap_or(true))
+                {
+                    if let Err(error) = shortcuts::suspend(window.app_handle()) {
+                        use tauri::Emitter;
+                        let _ = window.app_handle().emit("module-error", error);
+                    }
+                }
                 if window.label() == "sheet" {
                     use tauri::Emitter;
                     if matches!(

@@ -239,6 +239,24 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
       if(!monitor)throw new Error("Transpose monitor did not open.");
       const size=(await monitor.innerSize()).toLogical(await monitor.scaleFactor());
       if(size.width>261||size.height>131)throw new Error("Transpose monitor did not restore compact geometry.");
+      if((await getState()).transpose.armed)throw new Error("Opening the monitor unexpectedly resumed Transposer.");
+      const state=await getState(),settings=clone(state.settings);
+      const profile=settings.profiles.find(p=>p.id===settings.selected_profile)!;
+      profile.transpose={...defaultTranspose(),up:68,down:69};
+      await command({type:"settings",settings,expected_revision:state.revision});
+      // A zero-only sequence tests pause/resume without sending any keyboard output.
+      await command({type:"transpose",action:"arm"});
+      await monitor.minimize();
+      for(let wait=0;wait<40&&(await getState()).transpose.armed;wait++)await new Promise(resolve=>setTimeout(resolve,25));
+      if((await getState()).transpose.armed||!await monitor.isMinimized())throw new Error("Minimizing the monitor did not pause Transposer.");
+      await openOverlay("monitor");
+      if((await getState()).transpose.armed)throw new Error("Restoring the monitor unexpectedly resumed Transposer.");
+      await command({type:"transpose",action:"arm"});
+      await monitor.close();
+      for(let wait=0;wait<40&&(await WebviewWindow.getByLabel("monitor")||(await getState()).transpose.armed);wait++)await new Promise(resolve=>setTimeout(resolve,25));
+      if((await getState()).transpose.armed)throw new Error("Closing the monitor did not pause Transposer.");
+      await openOverlay("monitor");
+      if((await getState()).transpose.armed)throw new Error("Reopening the monitor unexpectedly resumed Transposer.");
       await openOverlay("sheet");
       const sheet=await WebviewWindow.getByLabel("sheet");
       if(!sheet)throw new Error("Sheet window did not open.");
@@ -461,11 +479,6 @@ export async function closeApp(dirty: boolean): Promise<void> {
 export async function openOverlay(kind: "monitor" | "sheet"): Promise<void> {
   if(!desktop)return;
   await invoke("open_overlay",{kind});
-  if(kind==="monitor"){
-    const state=await getState();const config=state.settings.profiles.find(p=>p.id===state.settings.selected_profile)!.transpose;
-    if(!state.transpose.armed&&config.up!==null&&config.down!==null)
-      await command({type:"transpose",action:"arm"});
-  }
 }
 
 export async function sendTransposeSequence(sequence:number[]):Promise<Snapshot> {

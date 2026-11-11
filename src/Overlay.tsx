@@ -6,7 +6,7 @@ import {open} from "@tauri-apps/plugin-dialog";
 import * as api from "./backend";
 import {SheetText,SheetTools} from "./SheetText";
 import TitleBar from "./TitleBar";
-import {defaults,gamePoints,transposeModes} from "./converter-api";
+import {defaults,displayName,gamePoints,transposeModes} from "./converter-api";
 import type {PianoContent,PianoOptions,Point,SheetContent,Values} from "./converter-api";
 
 const PianoSheet=lazy(()=>import("./PianoSheet"));
@@ -92,6 +92,7 @@ export default function Overlay({kind}:{kind:string}) {
   const piano=sheet.mode==="piano"?sheet.piano:undefined;
   if(piano)retainedPiano.current={content:piano,revision:sheet.revision??0};
   const midiFilename=sheet.source?.midi_filename??piano?.midi_filename;
+  const title=[piano?"Piano":"QWERTY",midiFilename&&displayName(midiFilename.replace(/\.(mid|midi)$/i,"")).trim()].filter(Boolean).join(" · ");
   async function changeMode(mode:"piano"|"qwerty",pianoOptions:PianoOptions={},filename=midiFilename){
     if(busy)return;
     if(!filename){if(mode==="piano")await openMidi();return;}
@@ -124,7 +125,7 @@ export default function Overlay({kind}:{kind:string}) {
     <label>Opacity<input aria-label="Sheet opacity" type="range" min="0.2" max="1" step="0.05" value={opacity} onChange={e=>changeView({opacity:+e.target.value})}/></label>
     <label><input type="checkbox" checked={top} onChange={e=>options(e.target.checked)}/> Stay on top</label>
   </>;
-  return <div className={`aux-window ${kind==="monitor"?"monitor-window":""}`}><TitleBar label={kind==="monitor"?"Monitor":piano?"Piano":"QWERTY"} onError={setError}/><div className="overlay" style={{opacity}}>{kind==="monitor"?<>
+  return <div className={`aux-window ${kind==="monitor"?"monitor-window":""}`}><TitleBar label={kind==="monitor"?"Monitor":title} onError={setError}/><div className="overlay" style={{opacity}}>{kind==="monitor"?<>
     <div className="monitor-values"><span>{sequence[(status.selected+sequence.length-1)%sequence.length]}</span><strong>{status.target??status.current??"—"}</strong><span>{sequence[(status.selected+1)%sequence.length]}</span></div>
     <div className="button-row monitor-controls"><button disabled={busy||!status.armed||status.busy||status.editing} onClick={()=>void command("previous")}>Previous</button><button title={!bindingsReady?"Assign Up/Down in Transposer.":undefined} disabled={busy||(!status.armed&&(!bindingsReady||status.editing))} onClick={()=>void command("toggle")}>{status.armed?"Pause":"Resume"}</button><button disabled={busy||!status.armed||status.busy||status.editing} onClick={()=>void command("next")}>Next</button></div>
   </>:<>

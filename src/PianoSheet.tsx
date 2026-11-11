@@ -9,6 +9,7 @@ import {converterRequest,defaults,displayName,visualizerSetting} from "./convert
 import type {PianoContent,PianoOptions,Values} from "./converter-api";
 import {scoreCursor,scoreLayout,scorePosition} from "./piano-score";
 import type {ScoreLayout} from "./piano-score";
+import {printPiano} from "./piano-print";
 
 export default function PianoSheet({content,revision,zoom,busy,active=true,onZoom,onGenerate,onOpen,onError,viewOptions}:{
   content:PianoContent;revision:number;zoom:number;busy:boolean;active?:boolean;onZoom:(zoom:number)=>void;
@@ -17,9 +18,12 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
   const container=useRef<HTMLDivElement>(null),paper=useRef<HTMLDivElement>(null),frame=useRef<HTMLIFrameElement>(null);
   const renderer=useRef<OpenSheetMusicDisplay|null>(null);
   const layout=useRef<ScoreLayout>({starts:[],lines:[],notes:new WeakMap()});
+  const ready=useRef<{revision:number;loaded:boolean}|null>(null);
   const clock=useRef(0);
   const [follow,setFollow]=useState(true),[renderError,setRenderError]=useState(""),[loading,setLoading]=useState(true);
   const [playerHeight,setPlayerHeight]=useState(96);
+  const [exporting,setExporting]=useState(false);
+  const title=displayName(content.midi_filename.replace(/\.(mid|midi)$/i,"")).trim();
   const followRef=useRef(follow);followRef.current=follow;
   const zoomRef=useRef(zoom);zoomRef.current=zoom;
   const requestRef=useRef({content,revision,active,busy});requestRef.current={content,revision,active,busy};
@@ -62,26 +66,35 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
     }
   }
 
+  function reportReady(loaded:boolean){
+    const value={revision:requestRef.current.revision,loaded};
+    if(ready.current?.revision===value.revision&&ready.current.loaded===loaded)return;
+    ready.current=value;
+    void emit("piano-sheet-ready",value).catch(e=>onError(api.errorText(e)));
+  }
+
   function redraw(){
     const osmd=renderer.current,node=paper.current;
     if(!osmd?.IsReadyToRender()||!node||!requestRef.current.active)return;
     try{
       node.style.minWidth="280px";osmd.Zoom=zoomRef.current*.8;osmd.render();
-      const measures=osmd.GraphicSheet.MeasureList.flat(),rules=osmd.EngravingRules;
+      const measures=osmd.GraphicSheet.MeasureList.flat().filter(Boolean),rules=osmd.EngravingRules;
       const minimum=Math.max(0,...measures.map(m=>m.minimumStaffEntriesWidth+m.endInstructionsWidth))+Math.max(0,...measures.map(m=>m.beginInstructionsWidth));
       const width=Math.ceil((minimum+rules.PageLeftMargin+rules.PageRightMargin+rules.SystemLeftMargin+rules.SystemRightMargin)*10*osmd.Zoom);
       // Overcompressing a measure can reverse the engraver's note positions.
       if(width>node.clientWidth){node.style.minWidth=`${Math.max(280,width)}px`;osmd.render();}
       layout.current=scoreLayout(osmd.GraphicSheet);
+      if(!layout.current.lines.length)throw new Error("No measures could be laid out.");
       osmd.cursor.show();
       osmd.cursor.cursorElement.classList.add("piano-score-cursor");osmd.cursor.cursorElement.alt="";
       updateCursor(clock.current);
-    }catch(e){setRenderError(api.errorText(e));}
+      setRenderError("");reportReady(true);
+    }catch(e){layout.current={starts:[],lines:[],notes:new WeakMap()};setRenderError(api.errorText(e));reportReady(false);}
   }
 
   function seekScore(x:number,y:number,target:EventTarget){
     const osmd=renderer.current;
-    if(!osmd?.IsReadyToRender()||busy||!active)return;
+    if(!osmd?.IsReadyToRender()||busy||!active||renderError)return;
     let node=target instanceof Element?target:null,beat:number|undefined;
     while(node&&beat===undefined){beat=layout.current.notes.get(node);node=node.parentElement;}
     if(beat===undefined){
@@ -105,19 +118,19 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
 
   useEffect(()=>{
     let disposed=false,resizeFrame=0;
-    setLoading(true);setRenderError("");clock.current=0;
+    setLoading(true);setRenderError("");clock.current=0;ready.current=null;
     layout.current={starts:[],lines:[],notes:new WeakMap()};
     const osmd=new OpenSheetMusicDisplay(paper.current!,{backend:"svg",autoResize:false,drawingParameters:"compact",drawCredits:false,
       drawPartNames:false,drawMeasureNumbers:true,drawMetronomeMarks:true,followCursor:false,
       cursorsOptions:[{type:1,color:"#397c63",alpha:0.18,follow:false}]});
     osmd.EngravingRules.TupletNumberLimitConsecutiveRepetitions=false;
+    osmd.EngravingRules.AutoGenerateMultipleRestMeasuresFromRestMeasures=false;
     renderer.current=osmd;
     void osmd.load(content.musicxml).then(()=>{
       if(disposed)return;
       redraw();
       setLoading(false);
-      void emit("piano-sheet-ready",{revision,loaded:!!paper.current?.querySelector("svg")});
-    }).catch(e=>{if(!disposed){setLoading(false);setRenderError(api.errorText(e));}});
+    }).catch(e=>{if(!disposed){setLoading(false);setRenderError(api.errorText(e));reportReady(false);}});
     let width=0;
     const observer=new ResizeObserver(entries=>{
       const next=entries[0]?.contentRect.width??0;
@@ -174,11 +187,25 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
     return()=>{disposed=true;stop();stopVisibility();window.removeEventListener("message",handle);document.removeEventListener("visibilitychange",visibility);window.removeEventListener("beforeunload",stop);};
   },[]);
 
+  async function exportScore(print:boolean){
+    if(exporting||busy||loading||renderError)return;
+    setExporting(true);
+    try{
+      const player=frame.current?.contentWindow as (Window&{pausePianoPlayback?:()=>Promise<void>})|null;
+      await player?.pausePianoPlayback?.();
+      await api.whilePaused(async()=>{
+        if(print)await printPiano(content.musicxml,title);
+        else await invoke("export_piano_sheet",{expectedRevision:revision});
+      });
+    }catch(error){onError(api.errorText(error));}
+    finally{setExporting(false);sendVisibility();}
+  }
+
   return <section className="piano-sheet" hidden={!active}>
     <div className="sheet-tools sheet-toolbar">
       <button disabled={busy} onClick={onOpen}>Open MIDI</button>
-      <details className="piano-score-options"><summary>Tracks & rhythm</summary><div className="piano-score-panel">
-        <fieldset><legend>Tracks</legend>{content.tracks.map(track=><label className="toggle" key={track.id}>
+      <details name="piano-tools" className="piano-score-options"><summary>Tracks & rhythm</summary><div className="piano-score-panel">
+        <fieldset><legend>MIDI source tracks</legend>{content.tracks.map(track=><label className="toggle" key={track.id}>
           <input type="checkbox" checked={tracks.includes(track.id)} onChange={e=>setTracks(v=>e.target.checked?[...v,track.id]:v.filter(t=>t!==track.id))}/>{track.name}
         </label>)}</fieldset>
         <label>Staff split (C4 = 60)<input aria-label="Staff split" type="number" min="21" max="108" value={split} onChange={e=>setSplit(e.target.value)}/></label>
@@ -186,12 +213,16 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
         {content.estimated_tempo&&<p className="help">Score rhythm estimated at {content.estimated_tempo} BPM. Playback keeps the original performance.</p>}
         <button disabled={busy||!tracks.length||!split.trim()||!Number.isInteger(+split)||+split<21||+split>108} onClick={e=>{onGenerate({track_ids:tracks,split:+split,rhythm});e.currentTarget.closest("details")!.open=false;}}>Apply to score</button>
       </div></details>
+      <details name="piano-tools" className="piano-score-options"><summary>Export</summary><div className="piano-score-panel">
+        <button disabled={exporting||busy||loading||!!renderError} onClick={()=>void exportScore(false)}>Export MusicXML</button>
+        <button disabled={exporting||busy||loading||!!renderError} onClick={()=>void exportScore(true)}>Print / Save PDF</button>
+        {exporting&&<p role="status">Preparing export…</p>}
+      </div></details>
       <label><input type="checkbox" checked={follow} onChange={e=>setFollow(e.target.checked)}/>Follow</label>
-      <details className="sheet-view-options"><summary>View</summary><div className="sheet-view-panel">
+      <details name="piano-tools" className="sheet-view-options"><summary>View</summary><div className="sheet-view-panel">
         <label>Zoom<input aria-label="Sheet zoom" type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={e=>onZoom(+e.target.value)}/></label>{viewOptions}
       </div></details>
     </div>
-    <p className="piano-score-title">{displayName(content.midi_filename.replace(/\.(mid|midi)$/i,""))}</p>
     {loading&&<p role="status">Drawing score…</p>}
     {renderError&&<p role="alert">Could not draw this score: {renderError}</p>}
     <div className="piano-score-scroll" ref={container} tabIndex={0} aria-label="Piano notation" onWheel={()=>setFollow(false)} onTouchMove={()=>setFollow(false)}

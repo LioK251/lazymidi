@@ -54,7 +54,7 @@ export default function Transposer({state,profile,edit,send,apply,discard,dirty,
       <div className="button-row"><button className="primary" disabled={!dirty||busy||!!error||!!capture} onClick={apply}>Apply</button><button disabled={!dirty} onClick={()=>{discard();setSequence(null);setError("");}}>Discard draft</button></div>
     </section>
     <aside className="secondary-panel"><h2>Game state</h2><div className="transpose-current">{status.target??status.current??"—"}</div><p role="status">{status.busy?`Changing… ${status.completed} / ${status.total}` : status.armed?"Ready":"Paused"}</p>
-      <p className="help">Automatically tracks from 0. Use shortcuts or the floating monitor while playing.</p>
+      <p className="help">Tracks from 0. Open Float monitor and Resume to play. Shortcuts work only while the monitor is visible; closing or minimizing pauses Transposer.</p>
       {statusError&&<p className="notice error" role="alert">{statusError}</p>}
       <div className="button-row"><button onClick={()=>void api.openOverlay("monitor").catch(e=>setError(api.errorText(e)))}>Float monitor</button><button onClick={()=>void api.openOverlay("sheet").catch(e=>setError(api.errorText(e)))}>Float sheet</button></div>
     </aside>

@@ -25,21 +25,21 @@ it("saves sheet transposes without changing bindings or musical switches",async(
   expect(invoke).toHaveBeenCalledTimes(5);
 });
 
-it("resumes on monitor open or reopen only with bindings and while paused",async()=>{
+it("opens and restores the monitor without automatically resuming transpose output",async()=>{
   const api=await import("./backend");const state=api.initialState();
   const profile=state.settings.profiles.find(p=>p.id===state.settings.selected_profile)!;
-  vi.mocked(invoke).mockImplementation(async(name,args)=>{
-    if(name==="app_command"){expect((args as {command:unknown}).command).toEqual({type:"transpose",action:"arm"});state.transpose.armed=true;}
+  vi.mocked(invoke).mockImplementation(async(name)=>{
+    expect(name).toBe('open_overlay');
     return api.clone(state);
   });
   await api.openOverlay("monitor");
   expect(state.transpose.armed).toBe(false);
   profile.transpose.up=82;profile.transpose.down=81;
-  await api.openOverlay("monitor");expect(state.transpose.armed).toBe(true);
+  await api.openOverlay("monitor");expect(state.transpose.armed).toBe(false);
   const sent=vi.mocked(invoke).mock.calls.filter(([name])=>name==="app_command").length;
   await api.openOverlay("monitor");await api.openOverlay("sheet");
   expect(vi.mocked(invoke).mock.calls.filter(([name])=>name==="app_command")).toHaveLength(sent);
-  state.transpose.armed=false;await api.openOverlay("monitor");expect(state.transpose.armed).toBe(true);
+  state.transpose.armed=false;await api.openOverlay("monitor");expect(state.transpose.armed).toBe(false);
 });
 
 it("saves sheet transposes without resuming when bindings are missing",async()=>{

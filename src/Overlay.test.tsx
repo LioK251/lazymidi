@@ -21,6 +21,7 @@ it("honors the Piano preference on open and during live settings updates without
   vi.mocked(invoke).mockImplementation(async command=>command==="get_sheet"?{mode:"piano",revision:1,piano:{midi_filename:"Song.mid"}}:{});
   await act(async()=>{render(<Overlay kind="sheet"/>);});
   expect(await screen.findByText("Piano score Song.mid")).toBeTruthy();
+  expect(document.querySelector('.window-label')?.textContent).toBe('Piano · Song');
   expect(screen.queryByRole("button",{name:"Piano"})).toBeNull();
   await act(async()=>{state.settings.show_piano_button=true;state.state_sequence++;update(api.clone(state));});
   expect(screen.getByRole("button",{name:"Piano"})).toBeTruthy();
@@ -32,24 +33,29 @@ it("honors the Piano preference on open and during live settings updates without
 it("switches formats in the same viewer and rejects an older QWERTY reply",async()=>{
   const state=api.initialState();state.settings.show_converter=true;
   vi.spyOn(api,"getState").mockResolvedValue(state);
-  const source={midi_filename:"Song.mid",settings:{transpose_mode:"manual"},line_chord_map:[0]};
+  const source={midi_filename:"Song_transkun.mid",settings:{transpose_mode:"manual"},line_chord_map:[0]};
   const qwerty={text:"[etu]",source,revision:10};
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
     if(command==="get_sheet")return qwerty;
     if(command==="generate_sheet")return (args as {pianoOptions?:object}).pianoOptions?
-      {mode:"piano",revision:11,piano:{midi_filename:"Song.mid",qwerty_settings:source.settings}}:{...qwerty,revision:12};
+      {mode:"piano",revision:11,piano:{midi_filename:source.midi_filename,qwerty_settings:source.settings}}:{...qwerty,revision:12};
   });
   await act(async()=>{render(<Overlay kind="sheet"/>);});
+  expect(document.querySelector('.window-label')?.textContent).toBe('QWERTY · Song');
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Piano"}));});
-  const pianoNode=await screen.findByText("Piano score Song.mid");
+  const pianoNode=await screen.findByText("Piano score Song_transkun.mid");
+  expect(document.querySelector('.window-label')?.textContent).toBe('Piano · Song');
   await act(async()=>{sheetEvent({payload:qwerty});});
-  expect(screen.getByText("Piano score Song.mid")).toBeTruthy();
+  expect(screen.getByText("Piano score Song_transkun.mid")).toBeTruthy();
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"QWERTY"}));});
-  expect(invoke).toHaveBeenLastCalledWith("generate_sheet",{midiFilename:"Song.mid",settings:source.settings,expectedRevision:11});
+  expect(invoke).toHaveBeenLastCalledWith("generate_sheet",{midiFilename:source.midi_filename,settings:source.settings,expectedRevision:11});
+  expect(document.querySelector('.window-label')?.textContent).toBe('QWERTY · Song');
   expect(screen.getByLabelText("Piano sheet").textContent).toContain("[etu]");
   expect(pianoNode.isConnected).toBe(true);
   expect(pianoNode.hidden).toBe(true);
   expect(invoke).not.toHaveBeenCalledWith("open_overlay",expect.anything());
+  await act(async()=>{sheetEvent({payload:{text:'Imported sheet',revision:13}});});
+  expect(document.querySelector('.window-label')?.textContent).toBe('QWERTY');
 });
 
 it("restores sheet appearance and native Stay on top after closing and reopening",async()=>{

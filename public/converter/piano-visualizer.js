@@ -1515,4 +1515,9 @@
       if (animFrameId) {cancelAnimationFrame(animFrameId);animFrameId=null;}
     } else if (!modal.classList.contains('hidden')) startRenderLoop();
   };
+  window.pausePianoPlayback = async () => {
+    window.setVisualizerActive(false);
+    // Native dialogs and score engraving can block the next audio callback.
+    if (audioCtx?.state === 'running') await audioCtx.suspend();
+  };
 })();

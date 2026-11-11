@@ -2,13 +2,16 @@ import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {act,cleanup,fireEvent,render,screen} from "@testing-library/react";
 import {Midi} from "@tonejs/midi";
 import {emit} from "@tauri-apps/api/event";
+import {invoke} from "@tauri-apps/api/core";
+import {printPiano} from "./piano-print";
 import PianoSheet from "./PianoSheet";
 import {scorePosition} from "./piano-score";
 import type {PianoContent} from "./converter-api";
 
-const {instances}=vi.hoisted(()=>({instances:[] as any[]}));
+const {instances,fault}=vi.hoisted(()=>({instances:[] as any[],fault:{render:false,sparse:false}}));
 vi.mock("@tauri-apps/api/core",()=>({invoke:vi.fn(async()=>({})),convertFileSrc:()=>"http://converter.localhost/",isTauri:()=>false}));
 vi.mock("@tauri-apps/api/event",()=>({listen:vi.fn(async()=>()=>{}),emit:vi.fn(async()=>{})}));
+vi.mock("./piano-print",()=>({printPiano:vi.fn(async()=>{})}));
 vi.mock("opensheetmusicdisplay",()=>{
   class Fraction {
     constructor(public numerator:number,public denominator:number){}
@@ -40,7 +43,9 @@ vi.mock("opensheetmusicdisplay",()=>{
       domToSvg:vi.fn(point=>point),svgToOsmd:vi.fn(point=>point),
       GetNearestNote:vi.fn(),tryGetTimeStampFromPosition:vi.fn(()=>new Fraction(3,8)),GetNearestObject:vi.fn()};
     render=vi.fn();clear=vi.fn();
-    constructor(element:HTMLElement){instances.push(this);this.render.mockImplementation(()=>{
+    constructor(element:HTMLElement){instances.push(this);
+      if(fault.sparse)this.GraphicSheet.MeasureList.push([undefined as any,undefined as any]);
+      this.render.mockImplementation(()=>{
       this.cursor.cursorElement=document.createElement("img");
       this.cursor.cursorElement.width=30*this.Zoom;
       const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
@@ -48,6 +53,7 @@ vi.mock("opensheetmusicdisplay",()=>{
         svg.append(entry.graphicalVoiceEntries[0].notes[0].getSVGGElement());
       }
       element.replaceChildren(svg,this.cursor.cursorElement);
+      if(fault.render)throw new Error('Layout failed');
     });}
     async load(){this.ready=true;}
     IsReadyToRender(){return this.ready;}
@@ -55,6 +61,7 @@ vi.mock("opensheetmusicdisplay",()=>{
 });
 beforeEach(()=>{
   instances.length=0;
+  fault.render=false;fault.sparse=false;vi.mocked(emit).mockClear();
   vi.stubGlobal("ResizeObserver",class{observe(){}disconnect(){}});
 });
 afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.restoreAllMocks();});
@@ -69,6 +76,73 @@ function content():PianoContent {
 const callbacks=()=>({onOpen:vi.fn(),onZoom:vi.fn(),onGenerate:vi.fn(),onError:vi.fn()});
 const cursorBeat=(osmd:any)=>(parseFloat(osmd.cursor.cursorElement.style.transform.slice(12))+6)/(100*osmd.Zoom)-1;
 const scorePaper=()=>screen.getByLabelText('Piano notation').querySelector('.piano-score-paper')!;
+
+it('renders scores with missing measure slots and keeps silent piano bars expanded',async()=>{
+  fault.sparse=true;
+  await act(async()=>{render(<PianoSheet content={content()} revision={1} zoom={1} busy={false} viewOptions={null} {...callbacks()}/>);});
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(instances[0].EngravingRules.AutoGenerateMultipleRestMeasuresFromRestMeasures).toBe(false);
+  expect(emit).toHaveBeenCalledWith('piano-sheet-ready',{revision:1,loaded:true});
+});
+
+it('reports a failed layout even with partial SVG and clears the error after a successful redraw',async()=>{
+  fault.render=true;
+  const props={content:content(),revision:1,zoom:1,busy:false,viewOptions:null,...callbacks()};
+  const view=render(<PianoSheet {...props}/>);await act(async()=>{});
+  expect(scorePaper().querySelector('svg')).toBeTruthy();
+  expect(screen.getByRole('alert').textContent).toContain('Layout failed');
+  expect(emit).toHaveBeenCalledWith('piano-sheet-ready',{revision:1,loaded:false});
+  expect(emit).not.toHaveBeenCalledWith('piano-sheet-ready',{revision:1,loaded:true});
+  fault.render=false;
+  view.rerender(<PianoSheet {...props} zoom={1.2}/>);await act(async()=>{});
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(emit).toHaveBeenLastCalledWith('piano-sheet-ready',{revision:1,loaded:true});
+});
+
+it('exports the displayed revision and prints its score with the clean song title',async()=>{
+  const score={...content(),midi_filename:'A & B_transkun.mid'};
+  await act(async()=>{render(<PianoSheet content={score} revision={9} zoom={1} busy={false} viewOptions={null} {...callbacks()}/>);});
+  expect(document.querySelector('.piano-score-title')).toBeNull();
+  fireEvent.click(screen.getByText('Export'));
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Export MusicXML'}));});
+  expect(invoke).toHaveBeenCalledWith('export_piano_sheet',{expectedRevision:9});
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Print / Save PDF'}));});
+  expect(printPiano).toHaveBeenCalledWith(score.musicxml,'A & B');
+});
+
+it.each([false,true])('waits for playback to become silent before exporting (print=%s)',async print=>{
+  await act(async()=>{render(<PianoSheet content={content()} revision={9} zoom={1} busy={false} viewOptions={null} {...callbacks()}/>);});
+  const player=(screen.getByTitle('Piano playback') as HTMLIFrameElement).contentWindow!;
+  let silence:()=>void=()=>{};
+  const paused=new Promise<void>(resolve=>{silence=resolve;});
+  const pause=vi.fn(()=>paused);
+  Object.assign(player,{pausePianoPlayback:pause});
+  vi.mocked(invoke).mockClear();vi.mocked(printPiano).mockClear();
+  fireEvent.click(screen.getByText('Export'));
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:print?'Print / Save PDF':'Export MusicXML'}));});
+  expect(pause).toHaveBeenCalledOnce();
+  expect(invoke).not.toHaveBeenCalledWith('export_piano_sheet',expect.anything());
+  expect(printPiano).not.toHaveBeenCalled();
+  await act(async()=>{silence();});
+  if(print)expect(printPiano).toHaveBeenCalledOnce();
+  else expect(invoke).toHaveBeenCalledWith('export_piano_sheet',{expectedRevision:9});
+});
+
+it('reports an audio pause failure before exporting and allows a retry',async()=>{
+  const cb=callbacks();
+  await act(async()=>{render(<PianoSheet content={content()} revision={9} zoom={1} busy={false} viewOptions={null} {...cb}/>);});
+  const player=(screen.getByTitle('Piano playback') as HTMLIFrameElement).contentWindow!;
+  const pause=vi.fn().mockRejectedValueOnce(new Error('Audio could not pause')).mockResolvedValue(undefined);
+  Object.assign(player,{pausePianoPlayback:pause});
+  vi.mocked(invoke).mockClear();
+  fireEvent.click(screen.getByText('Export'));
+  const button=screen.getByRole('button',{name:'Export MusicXML'});
+  await act(async()=>{fireEvent.click(button);});
+  expect(cb.onError).toHaveBeenCalledWith('Audio could not pause');
+  expect(invoke).not.toHaveBeenCalledWith('export_piano_sheet',expect.anything());
+  await act(async()=>{fireEvent.click(button);});
+  expect(invoke).toHaveBeenCalledWith('export_piano_sheet',{expectedRevision:9});
+});
 
 it("uses MIDI tempo changes for the cursor and handles backward seeks without redrawing the score",async()=>{
   await act(async()=>{render(<PianoSheet content={content()} revision={7} zoom={1} busy={false} viewOptions={null} {...callbacks()}/>);});

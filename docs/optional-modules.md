@@ -21,11 +21,15 @@ transpose Up/Down keys. Those keys must differ from generated notes, pedals,
 velocity commands and global shortcut keys. Global Next, Previous and
 Pause/Resume bindings use Tauri shortcut syntax, for example `Ctrl+Shift+F9`.
 Bindings are initially unassigned; registration conflicts appear as errors.
+Shortcuts are registered only while Float monitor is visible and not minimized.
+Closing, minimizing or disabling the monitor pauses Transposer and cancels
+pending transpose output. Reopening or restoring it leaves Transposer paused.
 
 Game tracking starts automatically at 0, without a manual Sync control. Start the
 game at transpose 0, then use the monitor or Pause/Resume shortcut. The compact
 260 × 130 monitor keeps the values and centered Previous / Pause / Next
-controls, without a scrollbar, status line or current-value editor. Opening or reopening the monitor automatically resumes when bindings are configured. Resume applies
+controls, without a scrollbar, status line or current-value editor. Press Resume
+after opening or restoring the monitor. Resume applies
 the selected sequence entry before Next/Previous advance. Selecting a
 sequence button only selects an editor position. Perform changes using global
 shortcuts or Float monitor while the game is foreground. Next/Previous wrap,
@@ -138,10 +142,13 @@ settings to hide Piano in Convert and the floating viewer. Library cards keep
 the same compact Sheet, Export and × row either way. An already loaded score stays open.
 
 Use **Tracks & rhythm** to select tracks, change the staff split or choose finer
-rhythm detail. Named left/right tracks determine the staff. At the default C4
+rhythm detail. The selector lists MIDI source tracks, not hands; one track can
+contain notes for both staves. Named left/right tracks determine the staff. At the default C4
 split, two piano tracks with distinct registers stay together as hands, and
 mixed-track accompaniment can rise above middle C. A custom split applies to
 unnamed tracks. Each staff keeps its own straight or triplet rhythm.
+Sustained register changes choose a suitable clef. Eighth-note triplets in 4/4
+use six-note beams across each half-bar when the passage is continuous.
 Notation groups chords, simplifies short releases into staccato
 notes and estimates a key when none was stored. For regular transcriptions with
 a placeholder MIDI clock, it estimates the written rhythm and tempo as well.
@@ -154,6 +161,14 @@ need editing in a notation program. MIDI does not preserve the published score's
 layout, fingerings or phrasing marks. Supported inputs are beat-based MIDI types
 0 and 1, up to 8 MiB, 20,000 selected notes, 8,000 beats and 2,000 measures.
 Source MIDI files remain unchanged.
+
+In Piano, **Export → Export MusicXML** saves the currently displayed score,
+including track, split and rhythm choices. Open it in MuseScore or another
+notation editor for further editing. **Export → Print / Save PDF** prepares
+A4 pages and opens the system print dialog; choose a PDF destination there.
+The song title is centered, long titles wrap, and **lazymidi** appears beneath.
+MusicXML records lazymidi as the arranger. Printing pauses playback and leaves
+the live viewer's zoom and layout unchanged. MusicXML import is not supported.
 
 ### Visualizer and browser extension
 

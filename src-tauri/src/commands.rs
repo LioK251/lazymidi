@@ -11,6 +11,7 @@ pub struct App {
     pub runtime: Runtime,
     pub operations: Mutex<()>,
     pub smoke_path: Option<PathBuf>,
+    pub smoke_manual: bool,
     pub smoke_overlays: bool,
     pub smoke_converter: bool,
     pub sheet: Mutex<serde_json::Value>,
@@ -36,7 +37,7 @@ impl From<String> for Error {
 #[tauri::command]
 pub fn get_state(app: State<App>) -> serde_json::Value {
     let mut value = serde_json::to_value(app.runtime.snapshot()).expect("Snapshot serializes");
-    value["native_smoke"] = serde_json::Value::Bool(app.smoke_path.is_some());
+    value["native_smoke"] = serde_json::Value::Bool(app.smoke_path.is_some() && !app.smoke_manual);
     value["native_smoke_overlays"] = serde_json::Value::Bool(app.smoke_overlays);
     value["native_smoke_converter"] = serde_json::Value::Bool(app.smoke_converter);
     value

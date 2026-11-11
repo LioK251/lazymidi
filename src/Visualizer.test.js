@@ -5,7 +5,7 @@ import {resolve} from "node:path";
 import {JSDOM} from "jsdom";
 import {Midi} from "@tonejs/midi";
 
-it("updates the score each frame, stops the previous player and releases audio on pagehide",async()=>{
+it("updates the score, waits for export silence, resumes and releases audio on pagehide",async()=>{
   const channels=new Set(),windows=[];
   const midi=new Midi();midi.addTrack().addNote({midi:60,time:0,duration:2,velocity:0.7});
   function viewer(){
@@ -24,14 +24,17 @@ it("updates the score each frame, stops the previous player and releases audio o
       postMessage(data){for(const peer of channels)if(peer!==this&&peer.name===this.name)peer.onmessage?.({data});}
       close(){channels.delete(this);}
     };
-    const stops=[];let audioTime=0;
+    const stops=[];let audioTime=0,finishSuspend;
+    const suspend=vi.fn(function(){return new Promise(resolve=>{finishSuspend=()=>{this.state="suspended";resolve();};});});
+    const resume=vi.fn(async function(){this.state="running";});
     w.AudioContext=class {
       get currentTime(){return audioTime;}state="running";
+      suspend=suspend;resume=resume;
       createGain(){return {connect(){},disconnect(){},gain:{value:1,setValueAtTime(){},linearRampToValueAtTime(){},exponentialRampToValueAtTime(){},setTargetAtTime(){}}};}
       createOscillator(){const stop=vi.fn();stops.push(stop);return {frequency:{value:0},connect(){},disconnect(){},start(){},stop};}
     };
     for(const file of ["piano-styles.js","piano-enhancements.js","piano-visualizer.js"])w.eval(readFileSync(resolve("public/converter",file),"utf8"));
-    return {w,stops,play:()=>w.document.getElementById("pv-play"),tick:time=>{audioTime=time;w.requestAnimationFrame.mock.lastCall[0]();}};
+    return {w,stops,suspend,resume,silence:()=>finishSuspend(),play:()=>w.document.getElementById("pv-play"),tick:time=>{audioTime=time;w.requestAnimationFrame.mock.lastCall[0]();}};
   }
   try{
     const first=viewer();await first.w.openPianoVisualizer("first.mid");first.play().click();await Promise.resolve();
@@ -57,6 +60,21 @@ it("updates the score each frame, stops the previous player and releases audio o
     expect(first.stops[0]).toHaveBeenLastCalledWith();
     second.play().click();await Promise.resolve();first.play().click();await Promise.resolve();
     expect(second.play().getAttribute("aria-label")).toBe("Play");
+    first.tick(.5);
+    const position=first.w.onPianoPlayback.mock.lastCall[0].time;
+    let silent=false;
+    const paused=first.w.pausePianoPlayback().then(()=>{silent=true;});
+    expect(first.play().getAttribute("aria-label")).toBe("Play");
+    expect(first.stops.at(-1)).toHaveBeenLastCalledWith();
+    expect(first.suspend).toHaveBeenCalledOnce();
+    await Promise.resolve();expect(silent).toBe(false);
+    first.silence();await paused;expect(silent).toBe(true);
+    first.w.setVisualizerActive(true);
+    expect(first.play().getAttribute("aria-label")).toBe("Play");
+    first.play().click();await new Promise(resolve=>setTimeout(resolve,0));
+    expect(first.resume).toHaveBeenCalledOnce();
+    expect(first.play().getAttribute("aria-label")).toBe("Pause");
+    first.tick(.6);expect(first.w.onPianoPlayback.mock.lastCall[0].time).toBeCloseTo(position+.1);
     first.w.dispatchEvent(new first.w.Event("pagehide"));
     expect(first.play().getAttribute("aria-label")).toBe("Play");
     expect(first.stops.at(-1)).toHaveBeenLastCalledWith();

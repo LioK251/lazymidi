@@ -283,6 +283,7 @@ small {
   display: flex;
   align-items: center;
   flex: 1;
+  min-width: 0;
   align-self: stretch;
   padding-left: 20px;
   gap: 18px;
@@ -907,7 +908,6 @@ main {
 .sheet-mode-switch button {min-width:76px;}
 .piano-sheet {display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;}
 .piano-sheet[hidden] {display:none;}
-.piano-score-title {padding:8px 0;font-size:13px;overflow-wrap:anywhere;}
 .piano-score-scroll {flex:1;min-height:160px;overflow:auto;background:#fffefa;color:#171717;scrollbar-gutter:stable;}
 .piano-score-paper {padding:12px 8px;min-width:280px;position:relative;cursor:pointer;}
 .piano-score-cursor {border-left:2px solid #397c63;pointer-events:none;}

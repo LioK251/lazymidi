@@ -3,12 +3,44 @@ use lazymidi_core::runtime::{Command, Snapshot};
 use std::{
     collections::HashSet,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
 };
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+pub static MONITOR_REVISION: AtomicU64 = AtomicU64::new(0);
+
+pub fn monitor_visible(app: &tauri::AppHandle) -> bool {
+    app.get_webview_window("monitor").is_some_and(|window| {
+        window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)
+    })
+}
+
+fn enabled(state: &Snapshot, visible: bool) -> bool {
+    visible && state.settings.show_transposer && !state.transpose.editing
+}
+
+fn unregister(app: &tauri::AppHandle) -> Result<u64, String> {
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    app.global_shortcut()
+        .unregister_all()
+        .map_err(|e| e.to_string())?;
+    Ok(generation)
+}
+
+pub fn suspend(app: &tauri::AppHandle) -> Result<(), String> {
+    MONITOR_REVISION.fetch_add(1, Ordering::SeqCst);
+    let removed = unregister(app);
+    let paused = app.state::<App>().runtime.command(Command::Transpose {
+        action: "pause".into(),
+        value: None,
+        index: None,
+    });
+    removed.map(|_| ()).and(paused.map(|_| ()))
+}
 
 pub fn validate(profile: &lazymidi_core::config::Profile) -> Result<(), String> {
     let config = &profile.transpose;
@@ -57,10 +89,8 @@ pub fn validate(profile: &lazymidi_core::config::Profile) -> Result<(), String> 
     Ok(())
 }
 pub fn install(app: &tauri::AppHandle, state: &Snapshot) -> Result<(), String> {
-    app.global_shortcut()
-        .unregister_all()
-        .map_err(|e| e.to_string())?;
-    if !state.settings.show_transposer || state.transpose.editing {
+    let generation = unregister(app)?;
+    if !enabled(state, monitor_visible(app)) {
         return Ok(());
     }
     let config = &state.settings.profile().transpose;
@@ -84,9 +114,12 @@ pub fn install(app: &tauri::AppHandle, state: &Snapshot) -> Result<(), String> {
                         return;
                     }
                     let handle = app.clone();
-                    std::thread::spawn(move || {
+                    // Serialize the final check and dispatch with native close/minimize events.
+                    let _ = app.run_on_main_thread(move || {
                         let state = handle.state::<App>();
-                        if !state.runtime.snapshot().transpose.editing {
+                        if generation == GENERATION.load(Ordering::SeqCst)
+                            && enabled(&state.runtime.snapshot(), monitor_visible(&handle))
+                        {
                             let _ = state.runtime.command(Command::Transpose {
                                 action: action.into(),
                                 value: None,
@@ -96,7 +129,7 @@ pub fn install(app: &tauri::AppHandle, state: &Snapshot) -> Result<(), String> {
                     });
                 })
             {
-                let _ = app.global_shortcut().unregister_all();
+                let _ = unregister(app);
                 return Err(format!("Shortcut unavailable ({text}): {error}"));
             }
         }
@@ -162,6 +195,19 @@ fn hid_code(hid: u16) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shortcuts_require_a_visible_monitor_and_stop_while_editing() {
+        let mut state = Snapshot::new(lazymidi_core::config::Settings::default(), None);
+        state.settings.show_transposer = true;
+        assert!(enabled(&state, true));
+        assert!(!enabled(&state, false));
+        let mut editing = state.clone();
+        editing.transpose.editing = true;
+        assert!(!enabled(&editing, true));
+        editing.transpose.editing = false;
+        editing.settings.show_transposer = false;
+        assert!(!enabled(&editing, true));
+    }
     #[test]
     fn shortcuts_cannot_retrigger_generated_output() {
         let mut p = lazymidi_core::config::Settings::default().profile().clone();

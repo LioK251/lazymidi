@@ -1211,7 +1211,7 @@ pub async fn converter_pick(
     .map_err(|e| e.to_string())?
     .map_err(Error::from)
 }
-fn export_name(name: &str) -> String {
+pub(crate) fn export_name(name: &str) -> String {
     let (stem, extension) = name.rsplit_once('.').unwrap_or((name, ""));
     if let Some((base, tail)) = stem.to_ascii_lowercase().rsplit_once("_transkun") {
         let number = tail

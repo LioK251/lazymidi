@@ -260,6 +260,63 @@ pub fn get_sheet(app: tauri::State<App>) -> serde_json::Value {
     app.sheet.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
+fn piano_export(sheet: &serde_json::Value, revision: u64) -> Result<(String, String), String> {
+    if sheet["revision"].as_u64() != Some(revision) || sheet["mode"] != "piano" {
+        return Err("Sheet changed. Export the current piano score.".into());
+    }
+    let piano = &sheet["piano"];
+    let xml = piano["musicxml"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or("No piano score to export.")?;
+    let name = piano["midi_filename"]
+        .as_str()
+        .ok_or("Missing score filename.")?;
+    let name = PathBuf::from(crate::converter::export_name(name)).with_extension("musicxml");
+    Ok((
+        name.file_name()
+            .ok_or("Invalid score filename.")?
+            .to_string_lossy()
+            .into_owned(),
+        xml.into(),
+    ))
+}
+
+#[tauri::command]
+pub async fn export_piano_sheet(
+    app: tauri::AppHandle,
+    expected_revision: u64,
+) -> Result<bool, Error> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+        use std::io::Write;
+        use tauri_plugin_dialog::DialogExt;
+        let (name, xml) = {
+            let state = app.state::<App>();
+            let sheet = state.sheet.lock().map_err(|_| "Sheet unavailable.")?;
+            piano_export(&sheet, expected_revision)?
+        };
+        let Some(path) = app
+            .dialog()
+            .file()
+            .add_filter("MusicXML score", &["musicxml"])
+            .set_file_name(name)
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = path.into_path().map_err(|e| e.to_string())?;
+        let parent = path.parent().ok_or("Invalid export directory.")?;
+        let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+        temp.write_all(xml.as_bytes()).map_err(|e| e.to_string())?;
+        temp.as_file().sync_all().map_err(|e| e.to_string())?;
+        temp.persist(path).map_err(|e| e.to_string())?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(Error::from)
+}
+
 #[tauri::command]
 pub async fn generate_sheet(
     app: tauri::AppHandle,
@@ -373,6 +430,23 @@ pub fn get_visualizer(app: tauri::State<App>) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn piano_export_uses_the_displayed_revision_and_musicxml() {
+        let mut sheet = serde_json::json!({"revision":7,"mode":"piano","piano":{
+            "midi_filename":"A & B_transkun.mid", "musicxml":"<score-partwise/>"
+        }});
+        assert_eq!(
+            piano_export(&sheet, 7).unwrap(),
+            ("A & B_lazymidi.musicxml".into(), "<score-partwise/>".into())
+        );
+        assert!(piano_export(&sheet, 6).is_err());
+        sheet["mode"] = "qwerty".into();
+        assert!(piano_export(&sheet, 7).is_err());
+        sheet["mode"] = "piano".into();
+        sheet["piano"]["musicxml"] = "".into();
+        assert!(piano_export(&sheet, 7).is_err());
+    }
 
     #[test]
     fn geometry_restores_legacy_sizes_large_screens_and_changed_dpi() {

@@ -77,6 +77,8 @@ def _split_mixed_durations(voice, origin):
                     length = Fraction(2) ** (math.ceil(math.log2(piece.quarterLength)) - 1)
                 first, second = piece.splitAtQuarterLength(length)
                 pending.extendleft((second, first))
+            elif piece.duration.type == 'complex':
+                pending.extendleft(reversed(piece.splitAtDurations()))
             else:
                 voice.insert(offset, piece)
                 offset += Fraction(piece.quarterLength)
@@ -201,7 +203,9 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
     notes, signatures, performance = _performance_grid(notes, signatures, midi.ticks_per_beat, subdivision)
     score_end = max(n[3] for n in notes) / midi.ticks_per_beat
     score = stream.Score()
-    score.metadata = metadata.Metadata(title="Piano")
+    title = re.sub(r"_transkun(?=(?:_\d+)?(?:_sheets|_hands)?$)", "", path.stem, flags=re.I).strip()
+    score.metadata = metadata.Metadata(title=title)
+    score.metadata.add("arranger", "lazymidi")
     staves = [stream.PartStaff(id="right"), stream.PartStaff(id="left")]
     for staff, staff_clef in zip(staves, (clef.TrebleClef(), clef.BassClef())):
         staff.insert(0, instrument.Piano())
@@ -362,6 +366,18 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
     score.makeNotation(inPlace=True)
     score.splitAtDurations(recurse=True)
     for staff in score.parts:
+        sounding = [(measure, clef.bestClef(measure, recurse=True))
+                    for measure in staff.getElementsByClass(stream.Measure) if any(measure.recurse().notes)]
+        current_clef = staff.measure(1).clef
+        for index, (measure, preferred) in enumerate(sounding):
+            following = sounding[index + 1][1] if index + 1 < len(sounding) else current_clef
+            # Leave octave clefs promptly when the register drops, including the last bar.
+            if current_clef.octaveChange and preferred.octaveChange != current_clef.octaveChange:
+                preferred = clef.TrebleClef() if current_clef.sign == 'G' else clef.BassClef()
+                following = preferred
+            if type(preferred) is type(following) and type(preferred) is not type(current_clef):
+                measure.clef = preferred
+                current_clef = preferred
         for measure in staff.getElementsByClass(stream.Measure):
             for voice in measure.voices or [measure]:
                 _split_mixed_durations(voice, measure.offset)
@@ -370,11 +386,22 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
                 signature.beamSequence.partition([1] * signature.numerator)
             measure.makeBeams(inPlace=True)
             for voice in measure.voices or [measure]:
+                if signature and signature.ratioString == '4/4':
+                    for start in (0, 2):
+                        group = [n for n in voice.notesAndRests if start <= n.offset < start + 2]
+                        if (len(group) == 6 and all(not n.isRest and n.duration.type == 'eighth'
+                                and n.quarterLength == Fraction(1, 3)
+                                and n.offset == start + Fraction(i, 3) and n.beams
+                                for i, n in enumerate(group))):
+                            for i, value in enumerate(group):
+                                value.beams.setByNumber(1, 'start' if i == 0 else 'stop' if i == 5 else 'continue')
+                stream.makeNotation.setStemDirectionForBeamGroups(voice)
                 stream.makeNotation.makeTupletBrackets(voice, inPlace=True)
                 for group in duration.TupletFixer(voice).findTupletGroups(incorporateGroupings=True):
                     if (len(group) < 2 or any(n.isRest or not n.beams for n in group) or
-                            [n.beams.getTypeByNumber(1) for n in group] !=
-                            ['start', *(['continue'] * (len(group) - 2)), 'stop']):
+                            group[0].beams.getTypeByNumber(1) not in ('start', 'continue') or
+                            group[-1].beams.getTypeByNumber(1) not in ('continue', 'stop') or
+                            any(n.beams.getTypeByNumber(1) != 'continue' for n in group[1:-1])):
                         continue
                     for value in group:
                         for tuplet in value.duration.tuplets:

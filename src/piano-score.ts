@@ -29,13 +29,14 @@ export type ScoreLayout={starts:number[];lines:{system:MusicSystem;beats:number[
 export function scoreLayout(sheet:GraphicalMusicSheet):ScoreLayout {
   const lines:ScoreLayout["lines"]=[],notes=new WeakMap<Element,number>();
   for(const page of sheet.MusicPages)for(const system of page.MusicSystems){
-    const first=system.GraphicalMeasures[0]?.[0],last=system.GraphicalMeasures.at(-1)?.[0];
+    const measures=system.GraphicalMeasures.flat().filter(Boolean);
+    const first=measures[0],last=measures.at(-1);
     if(!first||!last)continue;
     const start=first.parentSourceMeasure.AbsoluteTimestamp.RealValue*4;
     const end=(last.parentSourceMeasure.AbsoluteTimestamp.RealValue+last.parentSourceMeasure.Duration.RealValue)*4;
     const columns=new Map<number,number>();
     let startX=first.PositionAndShape.AbsolutePosition.x+first.beginInstructionsWidth;
-    for(const measures of system.GraphicalMeasures)for(const measure of measures)for(const entry of measure.staffEntries){
+    for(const measure of measures)for(const entry of measure.staffEntries){
       const beat=entry.getAbsoluteTimestamp().RealValue*4;
       for(const voice of entry.graphicalVoiceEntries){
         const node=(voice.notes[0] as VexFlowGraphicalNote|undefined)?.getSVGGElement();
