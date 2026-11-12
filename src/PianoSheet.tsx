@@ -147,7 +147,8 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
   useEffect(()=>{if(follow)updateCursor(clock.current);},[follow]);
   useEffect(()=>{setTracks(content.track_ids);setSplit(String(content.split));setRhythm(content.rhythm);},[content]);
 
-  const send=(value:object)=>frame.current?.contentWindow?.postMessage(value,location.origin);
+  // WebKit tail calls can give postMessage the wrong sender; keep statement bodies.
+  const send=(value:object)=>{frame.current?.contentWindow?.postMessage(value,location.origin);};
   const sendVisibility=()=>send({type:"converter-visibility",visible:requestRef.current.active&&!requestRef.current.busy&&windowVisible.current&&!document.hidden});
   function loadPlayer(){
     const current=requestRef.current;
@@ -168,8 +169,8 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
       if(data?.type==="converter-player-size"&&Number.isFinite(data.height))setPlayerHeight(Math.max(64,Math.min(220,data.height)));
       if(data?.type==="converter-fetch"){
         const target=event.source as Window;
-        void converterRequest(data.path,data.body).then(value=>target.postMessage({type:"converter-fetch-result",id:data.id,value},location.origin))
-          .catch(e=>target.postMessage({type:"converter-fetch-result",id:data.id,error:api.errorText(e)},location.origin));
+        void converterRequest(data.path,data.body).then(value=>{target.postMessage({type:"converter-fetch-result",id:data.id,value},location.origin);})
+          .catch(e=>{target.postMessage({type:"converter-fetch-result",id:data.id,error:api.errorText(e)},location.origin);});
       }
       if(data?.type==="converter-import-soundfont")void api.whilePaused(()=>invoke<{filename:string}|null>("converter_pick",{kind:"soundfont",device:null}))
         .then(value=>{if(value)send({type:"converter-soundfonts",filename:value.filename});}).catch(e=>onError(api.errorText(e)))

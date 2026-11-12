@@ -326,7 +326,7 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
         for(let attempt=0;attempt<3;attempt++){
           const loaded=new Promise<boolean>(resolve=>{finish=resolve;timer=setTimeout(()=>resolve(false),15000);});
           await invoke("open_visualizer",{midiFilename:"smoke.mid"});
-          if(!await loaded)throw new Error("Native piano preview did not finish loading.");
+          if(!await loaded)throw new Error(`Native piano preview ${attempt+1} did not finish loading.`);
           clearTimeout(timer);
           if(attempt===1){
             const cached=await WebviewWindow.getByLabel("visualizer");

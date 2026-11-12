@@ -18,23 +18,24 @@ export default function Visualizer(){
   useEffect(()=>{let disposed=false,stop=()=>{},stopVisibility=()=>{};let revision=-1;
     function accept(value:Content){if(disposed||value.revision<=revision)return;revision=value.revision;setContent(value);setSettings({...defaults,...value.settings});}
     void listen<Content>("visualizer-content",e=>accept(e.payload)).then(async f=>{if(disposed){f();return;}stop=f;accept(await invoke<Content>("get_visualizer"));}).catch(e=>setError(api.errorText(e)));
-    void listen<boolean>("visualizer-visibility",e=>frame.current?.contentWindow?.postMessage({type:"converter-visibility",visible:e.payload},location.origin)).then(f=>{if(disposed)f();else stopVisibility=f;}).catch(e=>setError(api.errorText(e)));
+    void listen<boolean>("visualizer-visibility",e=>{frame.current?.contentWindow?.postMessage({type:"converter-visibility",visible:e.payload},location.origin);}).then(f=>{if(disposed)f();else stopVisibility=f;}).catch(e=>setError(api.errorText(e)));
     return()=>{disposed=true;stop();stopVisibility();};
   },[]);
   async function persistAppearance(value:Values){const latest=await converterRequest<Values>("/api/settings");await converterRequest("/api/settings",{...latest,...Object.fromEntries(Object.entries(value).filter(([key])=>visualizerSetting(key)))});}
   useLayoutEffect(()=>{const handler=(event:MessageEvent)=>{
     if(event.source!==frame.current?.contentWindow||event.origin!==location.origin)return;
     if(event.data?.type==="converter-visualizer-ready")void emit("visualizer-ready",{filename:event.data.filename,loaded:event.data.loaded});
-    if(event.data?.type==="converter-import-soundfont")void importSoundFont().finally(()=>frame.current?.contentWindow?.postMessage({type:"converter-import-complete"},location.origin));
+    if(event.data?.type==="converter-import-soundfont")void importSoundFont().finally(()=>{frame.current?.contentWindow?.postMessage({type:"converter-import-complete"},location.origin);});
     if(event.data?.type==="converter-settings-save"){const changed=Object.fromEntries(Object.entries(event.data.settings??{}).filter(([key])=>visualizerSetting(key)));setSettings(s=>({...s,...changed}));void persistAppearance(changed).catch(e=>setError(api.errorText(e)));}
-    if(event.data?.type==="converter-fetch"){const {id,path,body}=event.data;const target=event.source as Window;void converterRequest(path,body).then(value=>target.postMessage({type:"converter-fetch-result",id,value},location.origin)).catch(e=>target.postMessage({type:"converter-fetch-result",id,error:api.errorText(e)},location.origin));}
+    // WebKit tail calls can give postMessage the wrong sender; keep statement bodies.
+    if(event.data?.type==="converter-fetch"){const {id,path,body}=event.data;const target=event.source as Window;void converterRequest(path,body).then(value=>{target.postMessage({type:"converter-fetch-result",id,value},location.origin);}).catch(e=>{target.postMessage({type:"converter-fetch-result",id,error:api.errorText(e)},location.origin);});}
   };window.addEventListener("message",handler);
-    const visibility=()=>frame.current?.contentWindow?.postMessage({type:"converter-visibility",visible:!document.hidden},location.origin);
+    const visibility=()=>{frame.current?.contentWindow?.postMessage({type:"converter-visibility",visible:!document.hidden},location.origin);};
     const stop=()=>{player.current?.setVisualizerActive?.(false);player.current?.postMessage({type:"converter-visibility",visible:false},location.origin);};
     document.addEventListener("visibilitychange",visibility);window.addEventListener("beforeunload",stop);
     return()=>{stop();window.removeEventListener("message",handler);document.removeEventListener("visibilitychange",visibility);window.removeEventListener("beforeunload",stop);};
   },[]);
-  const sendVisualizer=()=>frame.current?.contentWindow?.postMessage({type:"converter-visualize",filename:selected,settings:settingsRef.current,assetRoot:convertFileSrc("/","converter")},location.origin);
+  const sendVisualizer=()=>{frame.current?.contentWindow?.postMessage({type:"converter-visualize",filename:selected,settings:settingsRef.current,assetRoot:convertFileSrc("/","converter")},location.origin);};
   useEffect(()=>{if(player.current)sendVisualizer();},[content.revision]);
   useEffect(()=>{if(player.current)frame.current?.contentWindow?.postMessage({type:"converter-appearance",settings:Object.fromEntries(Object.entries(settings).filter(([key])=>visualizerSetting(key)))},location.origin);},[settings]);
   function setting(key:string,value:unknown){setSettings(s=>({...s,[key]:value}));}
