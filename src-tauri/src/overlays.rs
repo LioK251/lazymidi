@@ -92,7 +92,7 @@ pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Err
         WebviewUrl::App(format!("index.html?overlay={kind}").into()),
     )
     .title(format!("lazymidi · {kind}"))
-    .decorations(false)
+    .decorations(cfg!(target_os = "macos"))
     .inner_size(
         if kind == "monitor" {
             260.
@@ -130,6 +130,10 @@ pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Err
     .skip_taskbar(false)
     .focused(false)
     .focusable(kind != "monitor");
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
     let window = builder.build().map_err(|e| e.to_string())?;
     if let Some(g) = saved.get(&kind) {
         let scale = window.scale_factor().map_err(|e| e.to_string())?;

@@ -60,8 +60,11 @@ pub async fn native_smoke_ready(app: tauri::AppHandle, error: Option<String>) ->
                 if !window.is_visible().map_err(|e| e.to_string())? {
                     return Err(format!("{name} is not visible"));
                 }
-                if window.is_decorated().map_err(|e| e.to_string())? {
-                    return Err(format!("{name} still has native window chrome"));
+                if window.is_decorated().map_err(|e| e.to_string())? != cfg!(target_os = "macos")
+                    || cfg!(target_os = "macos") && (!window.is_closable().map_err(|e| e.to_string())?
+                        || !window.is_minimizable().map_err(|e| e.to_string())?
+                        || !window.is_maximizable().map_err(|e| e.to_string())?) {
+                    return Err(format!("{name} has incorrect platform window controls"));
                 }
                 overlays.push(name);
             }
@@ -76,7 +79,10 @@ pub async fn native_smoke_ready(app: tauri::AppHandle, error: Option<String>) ->
         if state.smoke_converter {
             let visualizer=app.get_webview_window("visualizer").ok_or("Visualizer did not open.")?;
             if !visualizer.is_visible().map_err(|e|e.to_string())?||visualizer.is_always_on_top().map_err(|e|e.to_string())? {return Err("Visualizer window options failed.".into());}
-            if visualizer.is_decorated().map_err(|e|e.to_string())? {return Err("Visualizer still has native window chrome.".into());}
+            if visualizer.is_decorated().map_err(|e|e.to_string())? != cfg!(target_os = "macos")
+                || cfg!(target_os = "macos") && (!visualizer.is_closable().map_err(|e|e.to_string())?
+                    || !visualizer.is_minimizable().map_err(|e|e.to_string())?
+                    || !visualizer.is_maximizable().map_err(|e|e.to_string())?) {return Err("Visualizer has incorrect platform window controls.".into());}
         }
         }
         config::atomic_save(
