@@ -9,8 +9,8 @@ the published 0.1.9 notes were also shortened without changing its 13 assets.
 197 frontend/extension tests, 22 notation tests and 21 service tests pass. The
 service inference check remains skipped. TypeScript/Vite, optimized Windows
 builds, NSIS integrity and portable ZIP integrity pass. Rust workspace tests,
-SDK-free core tests, formatting and Clippy passed earlier in this implementation;
-Rust code remains unchanged after those checks.
+SDK-free core tests, formatting and Clippy pass in native macOS CI. Local
+application tests, formatting and Clippy also pass after the window-controls fix.
 
 The real Last Christmas score passes eight width/zoom combinations in both
 Standard and Detailed modes, including repeated resizing. Glimpse of Us and
@@ -80,6 +80,17 @@ tools copied by that packaged installer launch successfully from quarantined
 source files; their bytes and signatures remain intact. The tested DMG is saved
 in the Mac's Downloads folder. Local Windows and Mac package hashes are recorded
 in the preview's `SHA256SUMS.txt`; version 0.2.0 remains unpublished.
+
+The macOS floating-window follow-up enables native decorations with the same
+overlay title-bar style and hidden caption as the main Mac window. Monitor,
+Piano/QWERTY and Visualizer now have native close, minimize and zoom controls.
+The native check requires platform-appropriate decorations and enabled controls
+for all three windows, and retains its minimize/close/reopen checks. Both jobs
+passed in [macOS build 43206280204](https://github.com/LioK251/lazymidi/actions/runs/43206280204)
+at `529c936`. The complete packaged check also passes on the M5/macOS 27.2.
+Button enablement and window actions were verified through native APIs; mouse
+clicks were not automated. The updated Apple Silicon DMG replaces the earlier
+preview in the Mac's Downloads folder, and local Mac packages/hashes are refreshed.
 
 ## Version 0.1.9 release qualification — 2026-11-11
 
