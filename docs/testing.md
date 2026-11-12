@@ -1,5 +1,48 @@
 # Verification and release qualification
 
+## Version 0.2.0 local preview qualification — 2026-11-12
+
+The Windows installer and portable ZIP are prepared for user testing. No 0.2.0
+tag or GitHub release has been published. Release notes contain only app changes;
+the published 0.1.9 notes were also shortened without changing its 13 assets.
+
+197 frontend/extension tests, 22 notation tests and 21 service tests pass. The
+service inference check remains skipped. TypeScript/Vite, optimized Windows
+builds, NSIS integrity and portable ZIP integrity pass. Rust workspace tests,
+SDK-free core tests, formatting and Clippy passed earlier in this implementation;
+subsequent changes affect frontend rendering and Python notation only.
+
+The real Last Christmas score passes eight width/zoom combinations in both
+Standard and Detailed modes, including repeated resizing. Glimpse of Us and
+Fantaisie-impromptu provide additional full-score checks. Across 24 screen/print
+layouts, SVG ink checks detect no notehead/notehead, notehead/flag or
+notehead/beam intersections. Cursor columns always move forward, and original
+MIDI SHA-256 hashes stay unchanged. Regression tests cover simultaneous voices,
+touching whole notes, resized beam slopes, stem direction on every chord note
+and the existing tuplet timing workaround.
+
+Four generated PDFs contain 7, 12, 11 and 20 A4 pages respectively. Every page has
+content within its SVG page bounds; representative first, dense and last pages
+were rasterized with Poppler and inspected. PDF preparation preserves the live
+sheet, hides app controls for print and restores the document afterward. Titles
+use the clean song name followed by `_lazymidi`; tests cover Unicode, invalid
+filename characters, duplicate suffixes, cancellation and errors. The combined
+Print / Save PDF action remains. The native Windows Save As suggestion remains
+unverified because Computer Use rejected access to lazymidi.
+
+The final portable executable passes native frontend, floating-window,
+Converter and scoped-media checks, including rendering Last Christmas in both
+notation modes. SDK initialization and generated keyboard output stay off.
+All 47 portable files match their build/source inputs, and installer/ZIP hashes
+are recorded in the local preview's `SHA256SUMS.txt`. User MIDI, environments,
+settings, verification captures and website source are excluded from packages.
+
+The private website update was deployed independently to lazymidi.vercel.app.
+All 42 website checks pass, including future-release lookup and failure fallback.
+Live verification confirms all six platform downloads resolve to the latest
+stable release, currently 0.1.9. Website source remains ignored and untracked;
+publishing a future stable release updates download links without redeployment.
+
 ## Version 0.1.9 release qualification — 2026-11-11
 
 User feedback drove the toolbar and export fixes. On 2026-11-11 the user

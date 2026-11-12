@@ -1,5 +1,71 @@
 import {VexFlowMeasure} from "opensheetmusicdisplay";
+import type Vex from "vexflow";
 import type {GraphicalMusicSheet,MusicSystem,VexFlowGraphicalNote,VexFlowVoiceEntry} from "opensheetmusicdisplay";
+
+type EngravedBeam=Vex.Flow.Beam&{postFormatted:boolean;slope:number;y_shift:number;render_options:{beam_width:number;partial_beam_length:number}};
+type EngravedNote=Vex.Flow.StaveNote&{hasFlag():boolean;beam:EngravedBeam|null};
+const spacedConstructors=new WeakSet<Function>();
+function fixVoiceSpacing(value:Vex.Flow.StemmableNote){
+  const ctor=value.constructor as typeof Vex.Flow.StaveNote;
+  if(!ctor.format||spacedConstructors.has(ctor))return;
+  spacedConstructors.add(ctor);
+  const format=ctor.format;
+  // shortcut: OSMD 1.9.3 omits flag clearance between voices; recheck on an engraver upgrade.
+  ctor.format=function(notes,state){
+    for(const note of (notes??[]) as EngravedNote[]){
+      note.setXShift(0);
+      // VexFlow caches beam slopes and extended stems across OSMD resizes.
+      if(note.beam){note.getStem().setExtension(note.getStemExtension());note.beam.postFormatted=false;}
+    }
+    const result=format.call(this,notes,state);
+    const placed:{stave:Vex.Flow.Stave;low:number;high:number;width:number;x:number}[]=[];
+    let extra=0;
+    for(const note of ([...notes??[]] as EngravedNote[]).sort((a,b)=>a.x_shift-b.x_shift)){
+      if(note.isRest())continue;
+      const lines=note.getKeyProps().map(p=>p.line),stem=note.hasStem()?note.getStemLength()/10:0;
+      const low=Math.min(...lines)-(note.getStemDirection()===-1?stem:0)-.6;
+      const high=Math.max(...lines)+(note.getStemDirection()===1?stem:0)+.6;
+      const width=note.getVoiceShiftWidth()+(note.hasFlag()&&!note.beam?note.flag.getMetrics().width:0)+3;
+      const previous=note.x_shift,stave=note.getStave();
+      let x=previous;
+      for(const other of placed){
+        if(other.stave!==stave||high<=other.low||low>=other.high)continue;
+        if(x<other.x+other.width&&x+width>other.x)x=other.x+other.width;
+      }
+      note.setXShift(x);extra=Math.max(extra,x-previous);
+      placed.push({stave,low,high,width,x});
+    }
+    state.right_shift+=extra;
+    return result;
+  };
+}
+
+const spacedBeams=new WeakSet<Vex.Flow.Beam>();
+function fixBeamSpacing(notes:EngravedNote[]){
+  for(const beam of new Set(notes.map(note=>note.beam))){
+    if(!beam||spacedBeams.has(beam))continue;
+    spacedBeams.add(beam);
+    const calculate=beam.calculateSlope;
+    // VexFlow only checks a beam's own notes when choosing its height.
+    beam.calculateSlope=()=>{
+      calculate.call(beam);
+      const group=beam.getNotes(),first=group[0],direction=first.getStemDirection();
+      const x=first.getStemX(),y=first.getStemExtents().topY;
+      const left=Math.min(...group.map(note=>note.getStemX()))-beam.render_options.partial_beam_length;
+      const right=Math.max(...group.map(note=>note.getStemX()))+beam.render_options.partial_beam_length;
+      const thickness=(beam.getBeamCount()*1.5-.5)*beam.render_options.beam_width;
+      for(const note of notes){
+        if(note.beam===beam)continue;
+        const a=note.getNoteHeadBeginX()-note.getExtraLeftPx(),b=note.getNoteHeadEndX()+note.getExtraRightPx();
+        if(b<left||a>right)continue;
+        const target=direction===1?Math.min(...note.getYs())-8:Math.max(...note.getYs())+8;
+        const edge=beam.slope*direction>0?Math.min(b,right):Math.max(a,left);
+        const inner=y+beam.y_shift+(edge-x)*beam.slope+thickness*direction;
+        beam.y_shift-=Math.max(0,(inner-target)*direction)*direction;
+      }
+    };
+  }
+}
 
 const finalizeTuplets=VexFlowMeasure.prototype.finalizeTuplets;
 VexFlowMeasure.prototype.finalizeTuplets=function(){
@@ -8,6 +74,7 @@ VexFlowMeasure.prototype.finalizeTuplets=function(){
   for(const entry of this.staffEntries)for(const voice of entry.graphicalVoiceEntries){
     const value=(voice as VexFlowVoiceEntry).vfStaveNote,length=voice.notes[0]?.sourceNote.Length;
     if(!value||!length||voice.parentVoiceEntry.IsGrace)continue;
+    fixVoiceSpacing(value);
     const written=value.getIntrinsicTicks(),exact=value.getTicks().clone().set(length.GetExpandedNumerator(),length.Denominator);
     value.getTickMultiplier().set(1,1);
     value.setDuration(exact);
@@ -16,6 +83,14 @@ VexFlowMeasure.prototype.finalizeTuplets=function(){
     value.getTickMultiplier().set(ticks.numerator,ticks.denominator*Number(written));
     value.setIntrinsicTicks(written);
   }
+};
+
+const finalizeBeams=VexFlowMeasure.prototype.finalizeBeams;
+VexFlowMeasure.prototype.finalizeBeams=function(){
+  finalizeBeams.call(this);
+  const notes=this.staffEntries.flatMap(entry=>entry.graphicalVoiceEntries.map(voice=>(voice as VexFlowVoiceEntry).vfStaveNote))
+    .filter(note=>note&&!note.isRest()) as EngravedNote[];
+  fixBeamSpacing(notes);
 };
 
 export function scorePosition(times:number[],time:number):number {

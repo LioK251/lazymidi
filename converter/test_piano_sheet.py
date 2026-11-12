@@ -122,6 +122,31 @@ class PianoSheetTests(unittest.TestCase):
             self.assertEqual(base64.b64decode(result['midi_base64']), original)
         self.assertEqual(self.path.read_bytes(), original)
 
+    def test_crossing_voice_groups_keep_their_stems_apart(self):
+        midi = mido.MidiFile(ticks_per_beat=480)
+        track = mido.MidiTrack([mido.MetaMessage('track_name', name='Right hand')])
+        events = []
+        for start, pitch, length in [(0, 79, 120), (0, 83, 120), (0, 64, 240), (120, 71, 120),
+                                      (240, 77, 240), (240, 81, 240)]:
+            events.extend([(start, mido.Message('note_on', note=pitch, velocity=80)),
+                           (start + length, mido.Message('note_off', note=pitch))])
+        last = 0
+        for tick, message in sorted(events, key=lambda event: event[0]):
+            track.append(message.copy(time=tick-last)); last = tick
+        midi.tracks.append(track); midi.save(self.path)
+        original = self.path.read_bytes()
+        for rhythm in ('normal', 'fine'):
+            result = generate(self.path, rhythm=rhythm)
+            pitched = ET.fromstring(result['musicxml']).findall('.//note[pitch]')
+            high = next(n for n in pitched if n.findtext('pitch/step') == 'G')
+            low = next(n for n in pitched if n.findtext('pitch/step') == 'E')
+            self.assertEqual(high.findtext('stem'), 'up')
+            chord_head = next(n for n in pitched if n.findtext('pitch/step') == 'B' and n.findtext('pitch/octave') == '5')
+            self.assertEqual(chord_head.findtext('stem'), 'up')
+            self.assertEqual(low.findtext('stem'), 'down')
+            self.assertEqual(base64.b64decode(result['midi_base64']), original)
+        self.assertEqual(self.path.read_bytes(), original)
+
     def test_legato_releases_use_the_quantized_attack_when_filling_the_next_beat(self):
         midi = mido.MidiFile(ticks_per_beat=1000)
         midi.tracks.append(mido.MidiTrack([

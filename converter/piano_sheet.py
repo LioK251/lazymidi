@@ -396,6 +396,25 @@ def generate(path, track_ids=None, split=60, rhythm="normal"):
                             for i, value in enumerate(group):
                                 value.beams.setByNumber(1, 'start' if i == 0 else 'stop' if i == 5 else 'continue')
                 stream.makeNotation.setStemDirectionForBeamGroups(voice)
+            note_groups = [group for voice in measure.voices or [measure]
+                           for group in stream.makeNotation.iterateBeamGroups(voice, skipNoBeams=False, recurse=False) if group]
+            grouped = {id(n) for group in note_groups for n in group}
+            # Music21 can omit isolated beam endings from its groups.
+            note_groups.extend([n] for voice in measure.voices or [measure] for n in voice.notes if id(n) not in grouped)
+            groups = [(group, min(n.offset for n in group), max(n.offset + n.quarterLength for n in group),
+                       [p.diatonicNoteNum for n in group for p in n.pitches]) for group in note_groups]
+            # Point overlapping groups apart without weighting repeated tied notes more heavily.
+            for group, start, end, pitches in groups:
+                others = [p for notes, a, b, values in groups if notes is not group and a < end and b > start
+                          for p in values]
+                if others:
+                    direction = 'up' if min(pitches) + max(pitches) >= min(others) + max(others) else 'down'
+                    for value in group:
+                        value.stemDirection = direction
+                        if value.isChord:
+                            for chord_note in value.notes:
+                                chord_note.stemDirection = direction
+            for voice in measure.voices or [measure]:
                 stream.makeNotation.makeTupletBrackets(voice, inPlace=True)
                 for group in duration.TupletFixer(voice).findTupletGroups(incorporateGroupings=True):
                     if (len(group) < 2 or any(n.isRest or not n.beams for n in group) or

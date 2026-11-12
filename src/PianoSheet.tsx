@@ -125,6 +125,7 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
       cursorsOptions:[{type:1,color:"#397c63",alpha:0.18,follow:false}]});
     osmd.EngravingRules.TupletNumberLimitConsecutiveRepetitions=false;
     osmd.EngravingRules.AutoGenerateMultipleRestMeasuresFromRestMeasures=false;
+    osmd.EngravingRules.VoiceSpacingMultiplierVexflow=1;
     renderer.current=osmd;
     void osmd.load(content.musicxml).then(()=>{
       if(disposed)return;

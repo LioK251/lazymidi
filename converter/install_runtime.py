@@ -66,7 +66,9 @@ def install(stage, tools, variant):
         ffmpeg.mkdir()
         for name in ("ffmpeg", "ffprobe"):
             name += ".exe" if sys.platform == "win32" else ""
-            shutil.copy2(tools / name, ffmpeg / name)
+            # macOS fast copies also transfer download quarantine into each new runtime.
+            with (tools / name).open("rb") as source, (ffmpeg / name).open("wb") as target:
+                shutil.copyfileobj(source, target)
             if sys.platform != "win32":
                 (ffmpeg / name).chmod(0o755)
         shutil.copytree(tools / "licenses", stage / "licenses")

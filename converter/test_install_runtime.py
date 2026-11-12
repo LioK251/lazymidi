@@ -1,6 +1,8 @@
 """Checks the in-app installer boundary, dependency sources and cleanup without downloads."""
 import importlib.util
 import pathlib
+import stat
+import subprocess
 import sys
 import tempfile
 import types
@@ -45,6 +47,32 @@ class RuntimeInstallTests(unittest.TestCase):
                 self.assertFalse((stage / "setup-temp").exists())
                 self.assertTrue((stage / "ffmpeg/ffmpeg.exe").is_file())
                 self.assertEqual((stage / "requirements-lock.txt").read_text(), fake.stdout)
+
+    @unittest.skipUnless(sys.platform == "darwin", "requires macOS download quarantine")
+    def test_bundled_tools_do_not_inherit_download_quarantine(self):
+        with tempfile.TemporaryDirectory() as folder:
+            stage = pathlib.Path(folder)
+            tools = stage / "bundled"
+            tools.mkdir()
+            (tools / "ncls-0.0.71-test.whl").touch()
+            (tools / "licenses").mkdir()
+            quarantine = "0083;00000000;Safari;00000000-0000-0000-0000-000000000000"
+            for name in ("ffmpeg", "ffprobe"):
+                (tools / name).write_bytes(b"bundled executable")
+                subprocess.run(["/usr/bin/xattr", "-w", "com.apple.quarantine", quarantine,
+                                str(tools / name)], check=True)
+            with patch.object(sys, "executable", str(stage / "python/bin/python3")), patch.object(sys, "version_info", (3, 11)), patch.object(installer.subprocess, "run", return_value=types.SimpleNamespace(stdout="")):
+                installer.install(stage, tools, "cpu")
+            for name in ("ffmpeg", "ffprobe"):
+                with self.subTest(tool=name):
+                    installed = stage / "ffmpeg" / name
+                    attributes = subprocess.check_output(["/usr/bin/xattr", str(installed)], text=True)
+                    self.assertNotIn("com.apple.quarantine", attributes.splitlines())
+                    self.assertEqual(installed.read_bytes(), (tools / name).read_bytes())
+                    self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o755)
+                    self.assertEqual(subprocess.check_output(
+                        ["/usr/bin/xattr", "-p", "com.apple.quarantine", str(tools / name)],
+                        text=True).strip(), quarantine)
 
     def test_dependency_failure_removes_build_directory(self):
         with tempfile.TemporaryDirectory() as folder:
