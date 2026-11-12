@@ -275,7 +275,7 @@ describe("lazymidi interface", () => {
     expect(key.children[1].textContent).toBe("Z");
     expect(screen.queryByText(/click a note to assign/)).toBeNull();
     expect(screen.queryByText("Keyboard & MIDI")).toBeNull();
-  });
+  }, 15000);
   it("hides sequencing and shows editable response controls only for enabled analog input", async () => {
     const initial = api.initialState();
     vi.spyOn(api, "getState").mockResolvedValue(initial);

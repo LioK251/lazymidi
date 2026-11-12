@@ -10,7 +10,7 @@ the published 0.1.9 notes were also shortened without changing its 13 assets.
 service inference check remains skipped. TypeScript/Vite, optimized Windows
 builds, NSIS integrity and portable ZIP integrity pass. Rust workspace tests,
 SDK-free core tests, formatting and Clippy passed earlier in this implementation;
-subsequent changes affect frontend rendering and Python notation only.
+Rust code remains unchanged after those checks.
 
 The real Last Christmas score passes eight width/zoom combinations in both
 Standard and Detailed modes, including repeated resizing. Glimpse of Us and
@@ -42,6 +42,26 @@ All 42 website checks pass, including future-release lookup and failure fallback
 Live verification confirms all six platform downloads resolve to the latest
 stable release, currently 0.1.9. Website source remains ignored and untracked;
 publishing a future stable release updates download links without redeployment.
+
+On a MacBook Air M5 running macOS 27.2, the released 0.1.9 installer reproduced
+Gatekeeper prompts and launch timeouts for both FFmpeg and FFprobe. The bundled
+tools matched the release hashes and passed signature verification. Python's
+macOS fast copy carried their download quarantine into every new runtime.
+Copying only file contents fixes the launch while preserving the executable
+bytes and signatures. A native regression fails with the original installer
+and passes after the fix, checking both tools, executable permissions and
+unchanged source metadata. All four installer tests pass on this Mac; Windows
+passes the three portable installer checks and six environment tests, with
+the Mac-specific metadata test skipped.
+
+The fixed installer completed a fresh private Python 3.11.18/PyTorch 2.9.1 setup
+on the M5. Actual transcription passes on both CPU and MPS, and Piano notation
+is available. The validated runtime is selected in the installed app. The two
+hash-verified bundled tools were also repaired locally for 0.1.9 setup retries;
+the app signature still verifies and Gatekeeper remains enabled. The packaged
+0.1.9 smoke check passes Converter, scoped assets and both notation modes, but
+times out waiting for the animated Visualizer preview. This is separate from
+the verified runtime setup and notation rendering.
 
 ## Version 0.1.9 release qualification — 2026-11-11
 
