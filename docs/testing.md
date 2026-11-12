@@ -92,6 +92,17 @@ Button enablement and window actions were verified through native APIs; mouse
 clicks were not automated. The updated Apple Silicon DMG replaces the earlier
 preview in the Mac's Downloads folder, and local Mac packages/hashes are refreshed.
 
+Release packaging rebuilt Windows from the approved source. The refreshed
+executable reports 0.2.0 and passes the packaged frontend, floating-window,
+Converter and Piano checks. NSIS integrity and all 47 portable file comparisons
+pass. Both Linux packages passed [Linux build 43212550971](https://github.com/LioK251/lazymidi/actions/runs/43212550971)
+at `e8cdfdc`, including frontend/Python/Rust checks, runtime setup and native
+checks of the extracted Debian and AppImage packages. Downloaded Linux and Mac
+packages match their verified SHA-256 hashes. The 13 release assets include the
+versioned extension, executable, all platform packages and license notices;
+`SHA256SUMS.txt` covers the other 12 assets. Website source and local verification
+data remain excluded.
+
 ## Version 0.1.9 release qualification — 2026-11-11
 
 User feedback drove the toolbar and export fixes. On 2026-11-11 the user
