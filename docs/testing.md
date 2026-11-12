@@ -1,10 +1,10 @@
 # Verification and release qualification
 
-## Version 0.2.0 local preview qualification — 2026-11-12
+## Version 0.2.0 release qualification — 2026-11-12
 
-Windows and macOS preview packages are prepared for user testing. No 0.2.0
-tag or GitHub release has been published. Release notes contain only app changes;
-the published 0.1.9 notes were also shortened without changing its 13 assets.
+On 2026-11-12 the user confirmed the fixes and explicitly approved GitHub
+publication as 0.2.0. Release notes contain only app changes; the published
+0.1.9 notes were also shortened without changing its 13 assets.
 
 197 frontend/extension tests, 22 notation tests and 21 service tests pass. The
 service inference check remains skipped. TypeScript/Vite, optimized Windows
@@ -40,8 +40,8 @@ settings, verification captures and website source are excluded from packages.
 
 The private website update was deployed independently to lazymidi.vercel.app.
 All 42 website checks pass, including future-release lookup and failure fallback.
-Live verification confirms all six platform downloads resolve to the latest
-stable release, currently 0.1.9. Website source remains ignored and untracked;
+Preview verification confirmed all six platform downloads resolved to the latest
+stable release, then 0.1.9. Website source remains ignored and untracked;
 publishing a future stable release updates download links without redeployment.
 
 On a MacBook Air M5 running macOS 27.2, the released 0.1.9 installer reproduced
@@ -79,7 +79,7 @@ including notation rendering and all three animated-preview loads. Both media
 tools copied by that packaged installer launch successfully from quarantined
 source files; their bytes and signatures remain intact. The tested DMG is saved
 in the Mac's Downloads folder. Local Windows and Mac package hashes are recorded
-in the preview's `SHA256SUMS.txt`; version 0.2.0 remains unpublished.
+in the preview's `SHA256SUMS.txt`.
 
 The macOS floating-window follow-up enables native decorations with the same
 overlay title-bar style and hidden caption as the main Mac window. Monitor,
