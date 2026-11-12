@@ -2,7 +2,7 @@
 
 ## Version 0.2.0 local preview qualification — 2026-11-12
 
-The Windows installer and portable ZIP are prepared for user testing. No 0.2.0
+Windows and macOS preview packages are prepared for user testing. No 0.2.0
 tag or GitHub release has been published. Release notes contain only app changes;
 the published 0.1.9 notes were also shortened without changing its 13 assets.
 
@@ -31,8 +31,9 @@ Print / Save PDF action remains. The native Windows Save As suggestion remains
 unverified because Computer Use rejected access to lazymidi.
 
 The final portable executable passes native frontend, floating-window,
-Converter and scoped-media checks, including rendering Last Christmas in both
-notation modes. SDK initialization and generated keyboard output stay off.
+Converter, scoped-media and both notation-mode checks. Earlier native testing
+also rendered Last Christmas with the same engraving code. SDK initialization
+and generated keyboard output stay off.
 All 47 portable files match their build/source inputs, and installer/ZIP hashes
 are recorded in the local preview's `SHA256SUMS.txt`. User MIDI, environments,
 settings, verification captures and website source are excluded from packages.
@@ -58,10 +59,27 @@ The fixed installer completed a fresh private Python 3.11.18/PyTorch 2.9.1 setup
 on the M5. Actual transcription passes on both CPU and MPS, and Piano notation
 is available. The validated runtime is selected in the installed app. The two
 hash-verified bundled tools were also repaired locally for 0.1.9 setup retries;
-the app signature still verifies and Gatekeeper remains enabled. The packaged
-0.1.9 smoke check passes Converter, scoped assets and both notation modes, but
-times out waiting for the animated Visualizer preview. This is separate from
-the verified runtime setup and notation rendering.
+the app signature still verifies and Gatekeeper remains enabled.
+
+The original 0.1.9 and first 0.2.0 packages exposed a separate animated-preview
+timeout on macOS 27.2 after Converter, scoped assets and notation checks passed.
+A native WKWebView probe using the built frontend reproduced the failure:
+WebKit's tail-call optimization changed the sender of asynchronous service
+replies, so the iframe correctly rejected them. Statement-bodied callbacks in
+Visualizer and the sheet player preserve the sender without weakening origin
+or source checks. The rebuilt frontend passes initial load, reload and hidden
+reopen, plus recovery after an API error. The existing packaged native test
+covers the three preview loads; a JSDOM test cannot exercise this WebKit behavior.
+
+Both Apple Silicon and Intel jobs passed in [macOS build 43195601946](https://github.com/LioK251/lazymidi/actions/runs/43195601946)
+at `affd6da`, including frontend/Python/Rust checks, Clippy, runtime installation,
+DMG/signature verification and packaged native checks on macOS 15. The final
+Apple Silicon DMG also passes the complete native check on the M5/macOS 27.2,
+including notation rendering and all three animated-preview loads. Both media
+tools copied by that packaged installer launch successfully from quarantined
+source files; their bytes and signatures remain intact. The tested DMG is saved
+in the Mac's Downloads folder. Local Windows and Mac package hashes are recorded
+in the preview's `SHA256SUMS.txt`; version 0.2.0 remains unpublished.
 
 ## Version 0.1.9 release qualification — 2026-11-11
 
