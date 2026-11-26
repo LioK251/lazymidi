@@ -116,6 +116,10 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
     updateCursor(time);
   }
 
+  useLayoutEffect(()=>{
+    const scroller=container.current;
+    if(scroller){scroller.scrollTop=0;scroller.scrollLeft=0;}
+  },[content.midi_filename]);
   useEffect(()=>{
     let disposed=false,resizeFrame=0;
     setLoading(true);setRenderError("");clock.current=0;ready.current=null;
@@ -173,8 +177,8 @@ export default function PianoSheet({content,revision,zoom,busy,active=true,onZoo
           .catch(e=>{target.postMessage({type:"converter-fetch-result",id:data.id,error:api.errorText(e)},location.origin);});
       }
       if(data?.type==="converter-import-soundfont")void api.whilePaused(()=>invoke<{filename:string}|null>("converter_pick",{kind:"soundfont",device:null}))
-        .then(value=>{if(value)send({type:"converter-soundfonts",filename:value.filename});}).catch(e=>onError(api.errorText(e)))
-        .finally(()=>send({type:"converter-import-complete"}));
+        .catch(e=>{onError(api.errorText(e));return null;})
+        .then(value=>send({type:"converter-import-complete",filename:value?.filename}));
       if(data?.type==="converter-settings-save"){
         const changed=Object.fromEntries(Object.entries(data.settings??{}).filter(([key])=>visualizerSetting(key)));
         settings.current={...settings.current,...changed};

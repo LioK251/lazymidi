@@ -38,8 +38,7 @@ export default function Transposer({state,profile,edit,send,apply,discard,dirty,
   const transpose=(action:string,extra={})=>send("transpose",{action,...extra});
   return <div className="split transposer">
     <section className="primary-panel">
-      <div className="section-heading"><h1>Transposer</h1><span className="muted">Game controls</span></div>
-      <p className="help">Set the game’s Up/Down keys and your sequence, then Apply.</p>
+      <div className="section-heading"><h1>Transposer</h1></div>
       <label className="field">Sequence<input value={sequence??config.sequence.join(" ")} onChange={e=>{
         const text=e.target.value;setSequence(text);
         if(!/^\s*-?\d+(?:[\s,]+-?\d+)*\s*$/.test(text)) {setError("Enter whole numbers separated by spaces.");return;}
@@ -48,12 +47,12 @@ export default function Transposer({state,profile,edit,send,apply,discard,dirty,
         setError("");edit(p=>{p.transpose.sequence=values;});
       }}/></label>
       <div className="transpose-sequence">{config.sequence.map((n,i)=><button key={i} className={status.selected===i?"active":""} disabled={dirty||status.busy} onClick={()=>transpose("select",{index:i})}>{n>0?"+":""}{n}</button>)}</div>
-      <div className="control-block"><h2>1. Game bindings</h2><div className="button-row">{(["down","up"] as const).map(key=><button key={key} onClick={()=>{setCapture(key);void api.pauseOutput(captureReason.current,true);}} onBlur={stopCapture} onKeyDown={e=>captureKey(e,key)}>{capture===key?"Press a key…":`${key==="up"?"Up":"Down"}: ${config[key]===null?"Unassigned":keyLabel(config[key]!)}`}</button>)}</div></div>
-      <div className="control-block"><h2>2. Performance shortcuts</h2>{([['next_shortcut','Next'],['previous_shortcut','Previous'],['pause_shortcut','Pause / Resume']] as const).map(([key,label])=><div className="shortcut-binding" key={key}><label className="field">{label}<input placeholder="Unassigned" value={config[key]??""} onChange={e=>edit(p=>{p.transpose[key]=e.target.value||null;})}/></label><button aria-label={`Record ${label} shortcut`} onClick={()=>{setCapture(key);void api.pauseOutput(captureReason.current,true);}} onBlur={stopCapture} onKeyDown={e=>captureKey(e,key)}>{capture===key?"Press shortcut…":"Record"}</button><button aria-label={`Clear ${label} shortcut`} disabled={!config[key]} onClick={()=>edit(p=>{p.transpose[key]=null;})}>×</button></div>)}</div>
+      <div className="control-block"><h2>Game bindings</h2><div className="button-row">{(["down","up"] as const).map(key=><button key={key} onClick={()=>{setCapture(key);void api.pauseOutput(captureReason.current,true);}} onBlur={stopCapture} onKeyDown={e=>captureKey(e,key)}>{capture===key?"Press a key…":`${key==="up"?"Up":"Down"}: ${config[key]===null?"Unassigned":keyLabel(config[key]!)}`}</button>)}</div></div>
+      <div className="control-block"><h2>Performance shortcuts</h2>{([['next_shortcut','Next'],['previous_shortcut','Previous'],['pause_shortcut','Pause / Resume']] as const).map(([key,label])=><div className="shortcut-binding" key={key}><label className="field">{label}<input placeholder="Unassigned" value={config[key]??""} onChange={e=>edit(p=>{p.transpose[key]=e.target.value||null;})}/></label><button aria-label={`Record ${label} shortcut`} onClick={()=>{setCapture(key);void api.pauseOutput(captureReason.current,true);}} onBlur={stopCapture} onKeyDown={e=>captureKey(e,key)}>{capture===key?"Press shortcut…":"Record"}</button><button aria-label={`Clear ${label} shortcut`} disabled={!config[key]} onClick={()=>edit(p=>{p.transpose[key]=null;})}>×</button></div>)}</div>
       {error&&<p role="alert" className="notice error">{error}</p>}
       <div className="button-row"><button className="primary" disabled={!dirty||busy||!!error||!!capture} onClick={apply}>Apply</button><button disabled={!dirty} onClick={()=>{discard();setSequence(null);setError("");}}>Discard draft</button></div>
     </section>
-    <aside className="secondary-panel"><h2>Game state</h2><div className="transpose-current">{status.target??status.current??"—"}</div><p role="status">{status.busy?`Changing… ${status.completed} / ${status.total}` : status.armed?"Ready":"Paused"}</p>
+    <aside className="secondary-panel"><h2>Game state</h2><div className="transpose-current">{status.target??status.current??"—"}</div><p role="status">{status.busy?`Changing… ${status.completed} / ${status.total}` : status.armed?"Armed":"Paused"}</p>
       <p className="help">Tracks from 0. Open Float monitor and Resume to play. Shortcuts work only while the monitor is visible; closing or minimizing pauses Transposer.</p>
       {statusError&&<p className="notice error" role="alert">{statusError}</p>}
       <div className="button-row"><button onClick={()=>void api.openOverlay("monitor").catch(e=>setError(api.errorText(e)))}>Float monitor</button><button onClick={()=>void api.openOverlay("sheet").catch(e=>setError(api.errorText(e)))}>Float sheet</button></div>

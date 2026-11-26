@@ -92,6 +92,9 @@ Additional optional modules:
    Full license, source archive and rebuild instructions are shipped in
    converter/SOURCE-NOTICE.txt and converter/source/ inside the frontend.
    js-synthesizer BSD and @tonejs/midi MIT notices are in the frontend notices.
+   Offline WebM export uses Mediabunny 1.66.4 (MPL-2.0). License text is in the
+   frontend notices. Matching source is included in the published package at
+   https://registry.npmjs.org/mediabunny/-/mediabunny-1.66.4.tgz
 
 Runtime setup downloads Python, PyTorch and Transkun (including its pretrained
 model) directly into a private environment. Package licenses and exact installed

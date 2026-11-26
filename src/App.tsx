@@ -372,7 +372,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <TitleBar onError={setError} onClose={() => void run(() => api.closeApp(state.project_dirty))}>
+      <TitleBar label={`${version}${api.desktop ? "" : " · browser preview"}`} onError={setError} onClose={() => void run(() => api.closeApp(state.project_dirty))}>
         <button
           className="panic"
           disabled={busy}
@@ -416,11 +416,7 @@ export default function App() {
             </button>
           ))}
         </div>
-        <span className="nav-status">
-          <Status active={status}>
-            {status ? "Input connected" : "Waiting for input"}
-          </Status>
-        </span>
+        {status && <span className="nav-status"><Status active>Input connected</Status></span>}
       </nav>
       {(error || snapshotError || state.warning) && (
         <div
@@ -719,11 +715,9 @@ export default function App() {
                 ) : (
                   <div className="empty">
                     <span>No active notes</span>
-                    <small>
-                      {state.last_event
-                        ? `Last event: channel ${(state.last_event.status & 15) + 1}, value ${state.last_event.data1}`
-                        : "Input activity will appear here."}
-                    </small>
+                    {state.last_event && <small>
+                      {`Last event: channel ${(state.last_event.status & 15) + 1}, value ${state.last_event.data1}`}
+                    </small>}
                   </div>
                 )}
               </div>
@@ -1075,6 +1069,7 @@ export default function App() {
             <div className="transport">
               <button
                 className={state.playing ? "active" : "primary"}
+                aria-pressed={state.playing}
                 disabled={busy}
                 onClick={() => send("transport", { action: "play" })}
               >
@@ -1355,7 +1350,6 @@ export default function App() {
                 <Toggle label="Converter tab" checked={working.show_converter} onChange={v=>editSettings(s=>{s.show_converter=v;})} />
                 <div className="settings-dependent"><Toggle label="Show Piano button" checked={working.show_piano_button} disabled={!working.show_converter} onChange={v=>editSettings(s=>{s.show_piano_button=v;})} /></div>
                 </div>
-                <p className="help">Apply settings to save module preferences.</p>
                 {state.settings.show_transposer&&<button onClick={()=>switchTab("Transposer")}>Open Transposer</button>}
               </div>
               <div className="control-block">
@@ -1449,10 +1443,6 @@ export default function App() {
             <aside className="secondary-panel">
               <h2>Diagnostics</h2>
               <div className="details-row">
-                <span className="muted">Version</span>
-                <span>{version}</span>
-              </div>
-              <div className="details-row">
                 <span className="muted">Events received</span>
                 <span>{state.received}</span>
               </div>
@@ -1505,26 +1495,6 @@ export default function App() {
           </div>
         )}
       </main>
-      <footer className="statusbar">
-        <Status active={state.qwerty_enabled}>
-          {state.qwerty_enabled
-            ? state.paused
-              ? "Generated keys paused"
-              : "QWERTY output enabled"
-            : "QWERTY output off"}
-        </Status>
-        <span>
-          {draft
-            ? "Profile draft unsaved"
-            : state.recording
-              ? `Recording · Track ${state.armed_track + 1}`
-              : state.playing
-                ? "Playing"
-                : "Ready"}
-        </span>
-        <span className="spacer" />
-        <span>lazymidi {version} {api.desktop ? "" : "· browser preview"}</span>
-      </footer>
     </div>
   );
 }

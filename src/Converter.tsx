@@ -39,6 +39,7 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
   const [ready,setReady]=useState(false);const [loadError,setLoadError]=useState("");
   const [retry,setRetry]=useState(0);const pending=useRef(0);
   const sheetRevision=useRef(0);const generation=useRef(0);
+  const libraryScroll=useRef<HTMLDivElement>(null);
   async function run<T>(action:()=>Promise<T>):Promise<T|undefined>{pending.current++;setBusy(true);try{return await action();}catch(e){onError(api.errorText(e));}finally{setBusy(--pending.current>0);}}
   async function refresh(){const [library,h]=await Promise.all([converterRequest<{midi_files:MidiFile[]}>("/api/midi-files"),converterRequest<History[]>("/api/history?limit=10000")]);setFiles(library.midi_files);setHistory(h);}
   useEffect(()=>{let disposed=false;let timer:ReturnType<typeof setTimeout>;async function update(){try{if(api.desktop){const s=await invoke<RuntimeStatus>("converter_status");if(!disposed)setRuntime(s);}}catch(e){if(!disposed)onError(api.errorText(e));}finally{if(!disposed)timer=setTimeout(()=>void update(),1000);}}void update();return()=>{disposed=true;clearTimeout(timer);};},[]);
@@ -126,6 +127,10 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
   const matchingFiles=files.filter(f=>`${displayName(f.filename)} ${f.video_title} ${f.source_type}`.toLowerCase().includes(query));
   const pages=Math.max(1,Math.ceil(matchingFiles.length/24)),browsePages=Math.max(1,Math.ceil(files.length/24));
   const currentPage=Math.min(query?searchPage:page,pages-1),setCurrentPage=query?setSearchPage:setPage;
+  function goToPage(index:number){
+    setCurrentPage(index);
+    if(libraryScroll.current)libraryScroll.current.scrollTop=0;
+  }
   useEffect(()=>setSearchPage(0),[query]);
   useEffect(()=>setPage(p=>Math.min(p,browsePages-1)),[browsePages]);
   useEffect(()=>setSearchPage(p=>Math.min(p,pages-1)),[pages]);
@@ -133,12 +138,13 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
   try{displayedPoints=manualPoints();}catch{/* Invalid JSON remains editable and is rejected on Generate/Save. */}
   const exportFile=(id:string)=>run(()=>dialog("converter_export",{id}));
   return <div className="converter-panel" data-midi-typing>
-    <div className="section-heading"><h1>Converter</h1><span className="muted">{ready?"Ready":setupBusy?"Setting up…":loadError?"Needs attention":!api.desktop?"Desktop preview":!runtime?"Checking setup…":installed?"Starting converter…":"Setup required"}</span></div>
+    <div className="section-heading"><h1>Converter</h1></div>
     <nav className="segmented" aria-label="Converter sections">{["Convert","Library","Sheets"].map(name=><button key={name} aria-pressed={section===name} onClick={()=>setSection(name)}>{name}</button>)}</nav>
-    <p className="converter-intro">{{Convert:"Turn piano audio into MIDI, then make a sheet or preview the notes.",Library:"Your converted and imported MIDI. Choose a song to preview or make a sheet.",Sheets:"Turn MIDI notes into a Virtual Piano sheet."}[section]}</p>
     {!api.desktop&&<p className="notice">Conversion and file imports work in the desktop app.</p>}
+    {api.desktop&&!runtime&&<p className="help" role="status">Checking setup…</p>}
     {loadError&&<div className="notice error" role="alert"><strong>Could not start the converter.</strong><p>{loadError}</p><button disabled={busy} onClick={()=>setRetry(n=>n+1)}>Retry startup</button></div>}
-    {installed&&!ready&&!loadError&&!setupBusy&&<p role="status">Starting converter…</p>}
+    {installed&&!ready&&!loadError&&!setupBusy&&<p className="help" role="status">Starting converter…</p>}
+    {setupBusy&&section!=="Convert"&&<p className="help" role="status">Setting up…</p>}
     {section==="Convert"&&<details className="converter-setup" open={!installed||setupBusy||!!runtime?.status.error||runtime?.status.environment?.piano_notation===false}>
       <summary>Runtime setup</summary>
       {installed?<p className="help">{runtime?.status.environment?.piano_notation?"Piano ready":"Piano needs a setup check"} · {devices.map(d=>({cpu:"CPU",cuda:"NVIDIA CUDA",mps:"Apple GPU"})[d]??d).join(", ")}</p>:<><h2>Install Converter</h2><p className="help">Setup installs Python and the required packages automatically. Conversion runs on your computer.</p></>}
@@ -159,7 +165,7 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
         {(runtime?.status.environment?.cuda_error||runtime?.status.environment?.mps_error)&&<p className="help runtime-details">{runtime.status.environment.cuda_error||runtime.status.environment.mps_error}</p>}
       </details>
     </details>}
-    {!installed&&section!=="Convert"&&<p className="help">Install a runtime in Convert to use your MIDI files here.</p>}
+    {runtime&&!installed&&!setupBusy&&section!=="Convert"&&<p className="help">Install a runtime in Convert to use your MIDI files here.</p>}
       {section==="Convert"&&<div className="split converter-workflow"><section className="primary-panel"><h2>Convert piano audio</h2>
         <div className="segmented converter-source" role="group" aria-label="Conversion source"><button aria-pressed={source==="file"} onClick={()=>setSource("file")}>Local file</button><button aria-pressed={source==="link"} onClick={()=>setSource("link")}>Media link</button></div>
         {source==="file"?<div className="converter-drop"><button className="primary" disabled={!ready||busy||!!jobId} onClick={()=>void run(()=>upload("media"))}>Choose audio or video</button><p className="help">MP3, WAV, FLAC, MP4 and more</p></div>:<div className="converter-link"><label className="field">Media link<input value={url} onChange={e=>setUrl(e.target.value)} placeholder="YouTube, TikTok or Discord media URL"/></label>
@@ -167,21 +173,21 @@ export default function Converter({active,showPiano=true,onError}:{active:boolea
         <details className="converter-advanced"><summary>Processing options</summary><label className="field">Compute device<select value={device} disabled={!ready||busy} onChange={e=>void run(()=>savePreference("compute_device",e.target.value))}><option value="cpu">CPU · 2 threads</option><option value="cuda" disabled={!devices.includes("cuda")}>NVIDIA CUDA</option>{(runtime?.platform?.startsWith("macos")||devices.includes("mps"))&&<option value="mps" disabled={!devices.includes("mps")}>Apple GPU</option>}</select></label>{device!==settings.compute_device&&<p className="help">Using CPU until your saved GPU choice is available.</p>}</details>
         {job&&<div className="control-block" role="status"><h2>{job.status==="completed"?"MIDI ready":job.status==="error"?"Conversion failed":job.status==="cancelled"?"Conversion cancelled":"Converting…"}</h2><p>{job.error??job.progress??displayName(job.midi_name??"")}</p>{jobId&&source==="file"&&<button onClick={()=>void run(()=>converterRequest(`/api/stop/${jobId}`,{}))}>Cancel</button>}{job.status==="completed"&&<div className="button-row"><button className="primary" disabled={!ready||busy||!job.midi_name} onClick={()=>openSheet(job.midi_name!)}>QWERTY</button>{showPiano&&<button disabled={!ready||busy||!job.midi_name} onClick={()=>openPiano(job.midi_name!)}>Piano</button>}<button disabled={!ready||busy||!job.midi_name} onClick={()=>void openVisualizer(job.midi_name!)}>Preview piano</button><button onClick={()=>setSection("Library")}>Open in Library</button></div>}{job.status==="error"&&device==="cuda"&&<button onClick={()=>void run(async()=>{await savePreference("compute_device","cpu");setMessage("CPU selected. Submit the file or link again to retry.");})}>Use CPU for retry</button>}</div>}
         <p className="help">Best for solo piano. Mixed instruments may produce extra or missing notes.</p></section>
-        <aside className="secondary-panel"><h2>Your MIDI library</h2><p className="help">Already have MIDI files or an old mp3converter library?</p><div className="button-row"><button disabled={!ready||busy} onClick={()=>void run(()=>upload("midi"))}>Import MIDI</button><button disabled={!ready} onClick={()=>setSection("Library")}>Open Library ({files.length})</button></div>
-          <button disabled={!ready||busy||!!jobId} onClick={()=>void importLibrary()}>Import history & MIDI folder</button><p className="help">Choose the old converter folder or its converted folder. Files are copied; originals stay untouched.</p>
+        <aside className="secondary-panel"><h2>MIDI library</h2><div className="button-row"><button disabled={!ready||busy} onClick={()=>void run(()=>upload("midi"))}>Import MIDI</button><button disabled={!ready} onClick={()=>setSection("Library")}>Open Library ({files.length})</button></div>
+          <button disabled={!ready||busy||!!jobId} onClick={()=>void importLibrary()}>Import MIDI folder</button>
           {files.slice(0,3).map(f=><div className="details-row converter-recent" key={f.filename}><span title={displayName(f.video_title||f.filename)}>{displayName(f.video_title||f.filename)}</span><div className="song-sheet-actions"><button disabled={!ready||busy} onClick={()=>openSheet(f.filename)}>QWERTY</button>{showPiano&&<button disabled={!ready||busy} onClick={()=>openPiano(f.filename)}>Piano</button>}</div></div>)}
-          <p className="help">The browser extension connects automatically while Converter is enabled. Reload supported pages after installing it.</p>
         </aside></div>}
-      {section==="Library"&&<section className="converter-library-section"><div className="button-row converter-library-toolbar"><input aria-label="Search library" placeholder="Search library…" value={search} onChange={e=>setSearch(e.target.value)}/><button disabled={!ready||busy} onClick={()=>void run(refresh)}>Refresh</button><button disabled={!ready||busy} onClick={()=>void run(()=>upload("midi"))}>Import MIDI</button><button disabled={!ready||busy||!!jobId} onClick={()=>void importLibrary()}>Import history & MIDI folder</button></div><p className="help">Import from your old converter folder, AudioConverterData, or any folder of MIDI files. Existing files are preserved.</p>
-        <div className="converter-library">{matchingFiles.slice(currentPage*24,(currentPage+1)*24).map(f=><article className="song-card" key={f.filename} aria-label={displayName(f.video_title||f.filename)}>
+      {section==="Library"&&<section className="converter-library-section"><div className="button-row converter-library-toolbar"><input aria-label="Search library" placeholder="Search library…" value={search} onChange={e=>setSearch(e.target.value)}/><button disabled={!ready||busy} onClick={()=>void run(refresh)}>Refresh</button><button disabled={!ready||busy} onClick={()=>void run(()=>upload("midi"))}>Import MIDI</button><button disabled={!ready||busy||!!jobId} onClick={()=>void importLibrary()}>Import MIDI folder</button></div>
+        <div className="converter-library-content" ref={libraryScroll}><div className="converter-library">{matchingFiles.slice(currentPage*24,(currentPage+1)*24).map(f=><article className="song-card" key={f.filename} aria-label={displayName(f.video_title||f.filename)}>
           <SongPreview title={displayName(f.video_title||f.filename)} thumbnail={f.thumbnail_url} disabled={!ready||busy} onClick={()=>void openVisualizer(f.filename)}/>
           <div className="song-card-info"><h2 title={displayName(f.video_title||f.filename)}>{displayName(f.video_title||f.filename)}</h2><small>{f.time_str} · {size(f.file_size)} · {f.source_type||"MIDI"}</small></div>
           <div className="song-card-actions"><button disabled={!ready||busy} onClick={()=>openSheet(f.filename)}>Sheet</button><button onClick={()=>void exportFile(f.filename)}>Export</button>
             <button className="song-card-delete" disabled={!ready||busy} aria-label={`Delete ${displayName(f.filename)}`} onClick={()=>void run(async()=>{if(await api.ask(`Delete ${displayName(f.filename)} and its sheets from lazymidi?`)){await converterRequest("/api/history/delete",{midi_filename:f.filename});if(selected===f.filename)chooseMidi("");await refresh();}})}>×</button>
           </div>
         </article>)}</div>
-        {pages>1&&<div className="button-row library-pages"><span>{currentPage*24+1}–{Math.min((currentPage+1)*24,matchingFiles.length)} of {matchingFiles.length}</span><button disabled={currentPage===0} onClick={()=>setCurrentPage(p=>p-1)}>Previous page</button><button disabled={currentPage===pages-1} onClick={()=>setCurrentPage(p=>p+1)}>Next page</button></div>}
         {!matchingFiles.length&&<div className="converter-empty"><h2>{files.length?"No matching MIDI":"Your MIDI library is empty"}</h2><p>{files.length?"Try another search.":"Convert piano audio or import a MIDI to get started."}</p></div>}<details><summary>Conversion history ({history.length})</summary>{history.filter(h=>`${h.video_title} ${h.midi_name}`.toLowerCase().includes(search.toLowerCase())).map((h,i)=><div className="details-row converter-history-row" key={i}><span>{displayName(h.video_title||h.midi_name)}</span><small>{h.type} · {new Date(h.timestamp*1000).toLocaleString()}</small><button onClick={()=>void run(async()=>{if(await api.ask("Delete this history entry and associated output?")){await converterRequest("/api/history/delete",{timestamp:h.timestamp});if(selected===h.midi_name)chooseMidi("");await refresh();}})}>Delete</button></div>)}</details>
+        </div>
+        {pages>1&&<nav className="button-row library-pages" aria-label="Library pagination"><span>{currentPage*24+1}–{Math.min((currentPage+1)*24,matchingFiles.length)} of {matchingFiles.length}</span><button disabled={currentPage===0} onClick={()=>goToPage(currentPage-1)}>Previous</button><button disabled={currentPage===pages-1} onClick={()=>goToPage(currentPage+1)}>Next</button></nav>}
       </section>}
       {section==="Sheets"&&<label className="field">MIDI<select value={selected} onChange={e=>{chooseMidi(e.target.value);}}><option value="">Select MIDI</option>{files.map(f=><option key={f.filename} value={f.filename}>{displayName(f.video_title||f.filename)}</option>)}</select></label>}
       {section==="Sheets"&&<div className="split converter-workflow"><section className="primary-panel"><div className="section-heading"><h2>QWERTY sheet</h2><label className="toggle"><input type="checkbox" disabled={!ready||busy} checked={!!settings.always_open_float} onChange={e=>void run(()=>savePreference("always_open_float",e.target.checked))}/>Always open Float</label></div>

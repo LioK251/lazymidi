@@ -38,16 +38,15 @@
           <input type="range" id="pv-volume" class="pv-volume-slider" aria-label="Volume" min="0" max="1" step="0.001" value="0.8">
         </div>
         <div class="pv-soundfont-controls">
-          <button id="pv-import-soundfont" type="button" disabled>Import .sf2</button>
-          <select id="pv-soundfont-select" class="pv-soundfont-select" aria-label="SoundFont"><option value="">Loading...</option></select>
+          <select id="pv-soundfont-select" class="pv-soundfont-select" aria-label="SoundFont" disabled><option value="">Loading...</option></select>
         </div>
         <div class="pv-hand-controls" role="group" aria-label="Piano hands">
           <button id="pv-toggle-left" type="button" aria-pressed="true">Left</button>
           <button id="pv-toggle-right" type="button" aria-pressed="true">Right</button>
           <button id="pv-edit-hands" type="button" aria-pressed="false" title="Correct individual note assignments">Edit hands</button>
-          <button id="pv-export-hands" type="button">Download MIDI</button>
-          <button id="pv-render-video" type="button" title="Record the visualization and sound from the beginning">Render video</button>
+          <button id="pv-render-video" type="button" title="Export the visualization and sound from the beginning">Render video</button>
         </div>
+        <button id="pv-appearance" type="button" aria-haspopup="dialog">Appearance</button>
       </div>
     </div>
   </div>

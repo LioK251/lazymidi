@@ -5,7 +5,7 @@ import Visualizer from "./Visualizer";
 let receive:(event:{payload:{revision:number;midi_filename:string;settings:Record<string,unknown>}})=>void=()=>{};
 let visibility:(event:{payload:boolean})=>void=()=>{};
 vi.mock("@tauri-apps/api/core",()=>({invoke:vi.fn(),convertFileSrc:(path:string)=>`http://converter.localhost/${path}`,isTauri:()=>false}));
-vi.mock("@tauri-apps/api/event",()=>({emit:vi.fn(),listen:vi.fn(async(name,fn)=>{if(name==="visualizer-visibility")visibility=fn;else receive=fn;return()=>{};})}));
+vi.mock("@tauri-apps/api/event",()=>({emit:vi.fn(),listen:vi.fn(async(name,fn)=>{if(name==="visualizer-visibility")visibility=fn;else if(name==="visualizer-content")receive=fn;return()=>{};})}));
 vi.mock("./backend",async()=>({...await vi.importActual<typeof import("./backend")>("./backend"),whilePaused:async(action:()=>Promise<unknown>)=>action()}));
 beforeEach(()=>{vi.mocked(invoke).mockImplementation(async(command,args)=>{
   if(command==="get_visualizer")return {revision:1,midi_filename:"first.mid",settings:{visualizer_style:"classic"}};
@@ -14,13 +14,23 @@ beforeEach(()=>{vi.mocked(invoke).mockImplementation(async(command,args)=>{
   return {};
 });});
 afterEach(()=>{cleanup();vi.clearAllMocks();});
-it("keeps the player across songs and reloads, with appearance below it",async()=>{
+function openAppearance(frame: HTMLIFrameElement) {
+  const dialog=document.querySelector("dialog")!;
+  dialog.showModal=()=>{dialog.open=true;};
+  dialog.close=()=>{dialog.open=false;fireEvent(dialog,new Event("close"));};
+  window.dispatchEvent(new MessageEvent("message",{source:frame.contentWindow,origin:location.origin,data:{type:"converter-open-appearance"}}));
+  return dialog;
+}
+it("keeps the player across songs and opens appearance from the toolbar",async()=>{
   await act(async()=>{render(<Visualizer/>);});
   const initial=screen.getByTitle("Piano visualizer");
   const post=vi.spyOn((initial as HTMLIFrameElement).contentWindow!,"postMessage");
   fireEvent.load(initial);
+  const appearance=openAppearance(initial as HTMLIFrameElement);
   expect((screen.getByLabelText("Stay on top") as HTMLInputElement).checked).toBe(false);
-  expect(screen.getByLabelText("Stay on top").parentElement?.firstChild?.textContent).toBe("Stay on top ");
+  expect(screen.getByLabelText("Stay on top").parentElement?.parentElement).toBe(screen.getByLabelText("Keys").parentElement?.parentElement);
+  expect(screen.getByLabelText("Stay on top").closest("dialog")).toBe(appearance);
+  expect(initial.compareDocumentPosition(screen.getByLabelText("Stay on top"))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   await act(async()=>{fireEvent.click(screen.getByLabelText("Stay on top"));});
   expect(invoke).toHaveBeenCalledWith("overlay_options",{kind:"visualizer",top:true});
   expect(within(screen.getByRole("group",{name:"Piano style previews"})).getAllByRole("button")).toHaveLength(6);
@@ -29,11 +39,13 @@ it("keeps the player across songs and reloads, with appearance below it",async()
   expect(post).toHaveBeenCalledWith(expect.objectContaining({type:"converter-visualize",filename:"second.mid"}),location.origin);
   fireEvent.click(screen.getByRole("button",{name:"Reload visualization"}));
   expect(screen.getByTitle("Piano visualizer")).toBe(initial);
-  expect(initial.compareDocumentPosition(screen.getByText("Style & appearance"))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(screen.getByText("Style & appearance").closest("details")?.open).toBe(false);
-  expect(screen.getByRole("heading",{level:1}).textContent).toBe("second");
+  fireEvent.click(screen.getByRole("button",{name:"Done"}));
+  expect(appearance.open).toBe(false);
+  expect(post).toHaveBeenCalledWith({type:"converter-appearance-closed"},location.origin);
+  expect(within(screen.getByRole("banner")).getByText("Visualizer · second")).toBeTruthy();
+  expect(screen.queryByRole("heading",{level:1})).toBeNull();
   await act(async()=>{receive({payload:{revision:1,midi_filename:"old.mid",settings:{}}});});
-  expect(screen.getByRole("heading",{level:1}).textContent).toBe("second");
+  expect(within(screen.getByRole("banner")).getByText("Visualizer · second")).toBeTruthy();
 });
 it("imports SF2 into the player and saves appearance without overwriting sheet preferences",async()=>{
   await act(async()=>{render(<Visualizer/>);});
@@ -41,7 +53,8 @@ it("imports SF2 into the player and saves appearance without overwriting sheet p
   const post=vi.spyOn(frame.contentWindow!,"postMessage");
   await act(async()=>{window.dispatchEvent(new MessageEvent("message",{source:frame.contentWindow,origin:location.origin,data:{type:"converter-import-soundfont"}}));});
   expect(invoke).toHaveBeenCalledWith("converter_pick",{kind:"soundfont",device:null});
-  expect(post).toHaveBeenCalledWith({type:"converter-soundfonts",filename:"piano.sf2"},location.origin);
+  expect(post).toHaveBeenCalledWith({type:"converter-import-complete",filename:"piano.sf2"},location.origin);
+  openAppearance(frame);
   fireEvent.click(screen.getByRole("button",{name:"Neon style preview"}));
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Save appearance"}));});
   expect(invoke).toHaveBeenCalledWith("converter_request",expect.objectContaining({path:"/api/settings",body:expect.objectContaining({transpose_mode:"manual",manual_transpose_points:[{chord:0,value:-4}],visualizer_style:"neon"})}));
@@ -60,17 +73,17 @@ it("keeps the player when the native window hides and reopens, and stops it on a
   window.dispatchEvent(new Event("beforeunload"));expect(post).toHaveBeenLastCalledWith({type:"converter-visibility",visible:false},location.origin);view.unmount();
 });
 
-it("keeps appearance controls collapsed and previews keys and backgrounds without reloading",async()=>{
+it("keeps appearance closed until requested and previews keys and backgrounds without reloading",async()=>{
   const original=vi.mocked(invoke).getMockImplementation()!;
   const media="/visualizer-backgrounds/"+"a".repeat(32)+".png";
   vi.mocked(invoke).mockImplementation(async(command,args)=>command==="converter_pick"?{url:media,type:"image"}:original(command,args));
   await act(async()=>{render(<Visualizer/>);});
   const frame=screen.getByTitle("Piano visualizer") as HTMLIFrameElement;
   const post=vi.spyOn(frame.contentWindow!,"postMessage");fireEvent.load(frame);post.mockClear();
-  const appearance=screen.getByText("Style & appearance").closest("details")!;
-  expect(appearance.open).toBe(false);
-  expect(screen.getByLabelText("Keys").closest("details")).toBe(appearance);
-  expect(screen.getByRole("button",{name:"Reload visualization"}).closest("details")).toBe(appearance);
+  expect(document.querySelector("dialog")?.open).toBe(false);
+  const appearance=openAppearance(frame);
+  expect(screen.getByLabelText("Keys").closest("dialog")).toBe(appearance);
+  expect(screen.getByRole("button",{name:"Reload visualization"}).closest("dialog")).toBe(appearance);
   expect(screen.queryByRole("button",{name:"Import .sf2"})).toBeNull();
   expect(screen.queryByLabelText("Show hands")).toBeNull();
   fireEvent.change(screen.getByLabelText("Keys"),{target:{value:"sketch"}});
@@ -87,6 +100,7 @@ it('resets only the current background, previews immediately, and saves explicit
   await act(async()=>{render(<Visualizer/>);});
   const frame=screen.getByTitle('Piano visualizer') as HTMLIFrameElement;
   const post=vi.spyOn(frame.contentWindow!,'postMessage');fireEvent.load(frame);
+  openAppearance(frame);
   await act(async()=>{receive({payload:{revision:2,midi_filename:'song.mid',settings:{visualizer_style:'sketch',visualizer_hands:true,
     visualizer_scenes:{sketch:{keyboard:'sketch',mode:'image',media_type:'image',media_url:'/visualizer-backgrounds/'+'a'.repeat(32)+'.png',dim:50,effect:'stars'},classic:{mode:'solid'}}}}});});
   expect(screen.queryByLabelText('Show hands')).toBeNull();

@@ -121,7 +121,8 @@ it("adds Discord media actions and preserves signed attachment queries",async()=
   const url="https://cdn.discordapp.com/attachments/123/456/piano.mp3?ex=deadbeef&is=123&hm=signature";
   await w.click({menuItemId:"lazymidi-discord",linkUrl:url});
   expect(JSON.parse(String((w.fetch.mock.calls.find(([endpoint])=>endpoint.endsWith("/api/convert")) as unknown as [string,RequestInit])[1].body))).toEqual({media_url:url});
-  expect(w.stored.lastJobId).toBe("job-id");expect(w.badge).toHaveBeenCalledWith({text:"…"});
+  expect(w.stored.conversionJobs).toEqual([{id:"job-id",title:"piano.mp3"}]);
+  expect(w.badge).toHaveBeenCalledWith({text:"…"});
 });
 it.each(["https://cdn.discordapp.com.evil.test/attachments/123/456/a.mp3","https://cdn.discordapp.com/attachments/123/456/a.exe","http://127.0.0.1/a.mp3","https://discord.com/channels/123/456","https://user:pass@youtube.com/watch?v=a"])("rejects invalid media %s",async url=>{
   const w=worker();expect(await w.send({action:"startConvert",url})).toMatchObject({success:false});expect(w.fetch).not.toHaveBeenCalled();
@@ -190,10 +191,10 @@ it.each([false,true])("shows browser conversion status or errors in the popup (e
   const dom=new JSDOM(readFileSync(new URL("../extension/popup.html",import.meta.url),"utf8"));
   const sendMessage=vi.fn(async(request:{action:string})=>request.action==="ping"?{success:true,alive:true}:{success:true,data:{status:"completed",midi_name:"piano.mid"}});
   const badge=vi.fn();
-  const chrome={storage:{session:{get:async()=>({serverUrl:"http://127.0.0.1:1234",token:"token",lastJobId:"job-id",jobError:failed?"Converter is unavailable":""})}},runtime:{sendMessage},action:{setBadgeText:badge}};
+  const chrome={storage:{session:{get:async()=>({conversionJobs:failed?[]:[{id:"job-id",title:"Piano"}],jobError:failed?"Converter is unavailable":""})}},runtime:{sendMessage},action:{setBadgeText:badge}};
   try{
     runInNewContext(readFileSync(new URL("../extension/popup.js",import.meta.url),"utf8"),{chrome,document:dom.window.document,window:dom.window,setTimeout:vi.fn(),clearTimeout:vi.fn()});
-    await vi.waitFor(()=>expect(dom.window.document.getElementById("job")?.textContent).toBe(failed?"Converter is unavailable":"piano.mid"));
+    await vi.waitFor(()=>expect(dom.window.document.querySelector(failed?"#job-error":"#jobs li p")?.textContent).toBe(failed?"Converter is unavailable":"piano.mid"));
     expect(dom.window.document.getElementById("pair")).toBeNull();
     expect(dom.window.document.getElementById("status")?.textContent).toBe("Connected to lazymidi.");
     expect(sendMessage).toHaveBeenCalledTimes(failed?1:2);expect(badge).toHaveBeenCalledWith({text:""});

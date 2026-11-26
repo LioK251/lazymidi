@@ -108,14 +108,14 @@ class ServiceTests(unittest.TestCase):
             for preference,capability,explicit,expected in (("cuda","cpu,cuda",None,"cuda"),("cuda","cpu",None,"cpu"),("cuda","cuda","cpu","cpu"),("cpu","cuda",None,"cpu"),("mps","cpu,mps",None,"mps"),("mps","cpu",None,"cpu")):
                 self.assertEqual(self.client.post("/api/settings",headers=self.headers,json={"compute_device":preference}).status_code,200)
                 self.assertEqual(self.client.get("/api/settings",headers=self.headers).json["compute_device"],preference)
-                with patch.dict(os.environ,{"LAZYMIDI_COMPUTE_CAPABILITY":capability}), patch.object(service.upstream,"Thread") as thread:
+                with patch.dict(os.environ,{"LAZYMIDI_COMPUTE_CAPABILITY":capability}), patch.object(service.upstream,"submit_conversion") as submit:
                     body={"media_url":url}
                     if explicit:body["device"]=explicit
                     response=self.client.post("/api/convert",headers=headers,json=body)
                     self.assertEqual(response.status_code,202,response.json)
                     task=response.json["task_id"]
                     try:
-                        self.assertEqual(thread.call_args.kwargs["args"],(task,url,expected))
+                        self.assertEqual(submit.call_args.args,(service.upstream.run_conversion_task,task,url,expected))
                         self.assertEqual(self.client.get("/api/status/"+task,headers=headers).status_code,200)
                         self.assertEqual(self.client.get("/api/settings",headers=headers).status_code,403)
                         self.assertEqual(self.client.get("/api/status/not-owned",headers=headers).status_code,403)
@@ -361,9 +361,9 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/stop/"+task,headers=self.headers).status_code,200)
         service.upstream.conversion_tasks[task]={"status":"processing"}
         self.assertTrue(service.upstream._is_cancelled(task))
-        @service.tracked_job
         def late_worker(task): service.upstream.conversion_tasks[task]={"status":"completed"}
-        late_worker(task)
+        service.submit_conversion(late_worker, task)
+        service._jobs.join()
         self.assertEqual(service.upstream.conversion_tasks[task]["status"],"cancelled")
 
 def tearDownModule():

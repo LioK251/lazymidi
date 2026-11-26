@@ -1898,7 +1898,7 @@ dependencies = [
 
 [[package]]
 name = "lazymidi"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
  "lazymidi-core",
@@ -1914,12 +1914,14 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tempfile",
  "uuid 1.27.0",
+ "webview2-com",
+ "windows-core",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "lazymidi-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "core-graphics",
  "crossbeam-channel",

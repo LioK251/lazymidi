@@ -57,8 +57,8 @@ export function SheetTools({text,colored,onColored,centered,onCentered,zoom,onZo
     <label>Zoom<input aria-label="Sheet zoom" type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={e=>onZoom(+e.target.value)}/></label>
   </>;
   return <div className={`sheet-tools${onOpen?" sheet-toolbar":""}`} role="group" aria-label="Sheet view controls">
-    {onOpen?<button onClick={onOpen}>Open sheet</button>:viewControls}
-    <button disabled={!text} onClick={()=>void copy(text)}>Copy sheet</button><span className="sheet-transpose-tools"><button disabled={!transposes||busy} onClick={()=>void (onSendTransposes?send():copy(transposes))}>{onSendTransposes?"Send to Transposer":"Copy transposes"}</button>{children}</span>
+    {onOpen?<button className="sheet-file-action" onClick={onOpen}>Open</button>:viewControls}
+    <button className="sheet-file-action" disabled={!text} onClick={()=>void copy(text)}>{onOpen?"Copy":"Copy sheet"}</button><span className="sheet-transpose-tools"><button disabled={!transposes||busy} onClick={()=>void (onSendTransposes?send():copy(transposes))}>{onSendTransposes?"Send to Transposer":"Copy transposes"}</button>{children}</span>
     {onOpen&&<details className="sheet-view-options" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget))e.currentTarget.open=false;}} onKeyDown={e=>{if(e.key==="Escape"){e.currentTarget.open=false;e.currentTarget.querySelector("summary")?.focus();e.stopPropagation();}}}><summary>View</summary><div className="sheet-view-panel" role="group" aria-label="Sheet appearance">{viewControls}</div></details>}
     {!hideLegend&&<details className="sheet-legend"><summary>Tempo colors</summary><span style={{color:colors.sixteenth}}>- fast</span><span style={{color:colors.eighth}}>space</span><span style={{color:colors.quarter}}> - </span><span style={{color:colors.half}}>, </span><span style={{color:colors.whole}}>... pause</span><span style={{color:colors.long}}>| long pause</span><span><u>:key</u> Ctrl note</span></details>}
   </div>;

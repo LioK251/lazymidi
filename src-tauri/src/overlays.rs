@@ -61,6 +61,86 @@ fn valid_kind(kind: &str) -> Result<(), String> {
     }
 }
 
+#[cfg(windows)]
+fn reveal_video(path: &Path) -> std::io::Result<()> {
+    use std::{ffi::OsString, os::windows::process::CommandExt, process::Command};
+
+    let windows = std::env::var_os("SystemRoot").ok_or(std::io::ErrorKind::NotFound)?;
+    let mut selection = OsString::from("/select,\"");
+    selection.push(path);
+    selection.push("\"");
+    Command::new(PathBuf::from(windows).join("explorer.exe"))
+        .raw_arg(selection)
+        .spawn()?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn watch_video_downloads(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    use webview2_com::{
+        take_pwstr, DownloadStartingEventHandler,
+        Microsoft::Web::WebView2::Win32::{ICoreWebView2_4, COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED},
+        StateChangedEventHandler,
+    };
+    use windows_core::{Interface, PWSTR};
+
+    let app = window.app_handle().clone();
+    window.with_webview(move |webview| {
+        let starting = DownloadStartingEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            // SAFETY: WebView2 invokes both handlers on the controller's UI thread.
+            unsafe {
+                let download = args.DownloadOperation()?;
+                let mut uri = PWSTR::null();
+                download.Uri(&mut uri)?;
+                if !take_pwstr(uri).starts_with("blob:") {
+                    return Ok(());
+                }
+                let mut mime = PWSTR::null();
+                download.MimeType(&mut mime)?;
+                if take_pwstr(mime).split(';').next() != Some("video/webm") {
+                    return Ok(());
+                }
+                let app = app.clone();
+                download.add_StateChanged(
+                    &StateChangedEventHandler::create(Box::new(move |download, _| {
+                        let Some(download) = download else {
+                            return Ok(());
+                        };
+                        let mut state = Default::default();
+                        download.State(&mut state)?;
+                        if state == COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED {
+                            let mut path = PWSTR::null();
+                            download.ResultFilePath(&mut path)?;
+                            let path = PathBuf::from(take_pwstr(path));
+                            if !path.is_absolute()
+                                || !path.is_file()
+                                || reveal_video(&path).is_err()
+                            {
+                                let _ =
+                                    app.emit_to("visualizer", "visualizer-video-reveal-error", ());
+                            }
+                        }
+                        Ok(())
+                    })),
+                    &mut Default::default(),
+                )
+            }
+        }));
+        // SAFETY: with_webview runs on the controller's UI thread. Observe without changing the download destination or dialog.
+        let result = unsafe {
+            webview
+                .controller()
+                .CoreWebView2()
+                .and_then(|core| core.cast::<ICoreWebView2_4>())
+                .and_then(|core| core.add_DownloadStarting(&starting, &mut Default::default()))
+        };
+        if let Err(error) = result {
+            eprintln!("Could not watch Visualizer downloads: {error}");
+        }
+    })
+}
+
 #[tauri::command]
 // WebView2 window creation deadlocks inside synchronous Windows commands.
 pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Error> {
@@ -135,6 +215,12 @@ pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Err
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
     let window = builder.build().map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    if kind == "visualizer" {
+        if let Err(error) = watch_video_downloads(&window) {
+            eprintln!("Could not watch Visualizer downloads: {error}");
+        }
+    }
     if let Some(g) = saved.get(&kind) {
         let scale = window.scale_factor().map_err(|e| e.to_string())?;
         let monitors = window.available_monitors().map_err(|e| e.to_string())?;

@@ -174,7 +174,7 @@ it("colors floating sheets and applies the native stay-on-top control",async()=>
   const view=screen.getByText("View",{exact:true}).closest("details")!;
   expect(view.open).toBe(false);
   for(const name of ["Stay on top","Colors","Center","Sheet zoom","Sheet opacity"])expect(screen.getByLabelText(name).closest("details")).toBe(view);
-  for(const name of ["Open sheet","Copy sheet","Send to Transposer"])expect(screen.getByRole("button",{name})).toBeTruthy();
+  for(const name of ["Open","Copy","Send to Transposer"])expect(screen.getByRole("button",{name})).toBeTruthy();
   expect(screen.getByRole("combobox",{name:"Transpose mode"})).toBeTruthy();
   fireEvent.click(screen.getByText("View",{exact:true}));
   expect(view.open).toBe(true);
@@ -236,7 +236,10 @@ it("regenerates floating modes and commits inline game values with opposite pitc
     return {};
   });
   await act(async()=>{render(<Overlay kind="sheet"/>);});
+  const scroller=document.querySelector<HTMLDivElement>(".sheet-scroll")!;
+  scroller.scrollTop=420;
   await act(async()=>{fireEvent.change(screen.getByLabelText("Transpose mode"),{target:{value:"manual"}});});
+  expect(scroller.scrollTop).toBe(420);
   expect(invoke).toHaveBeenCalledWith("generate_sheet",expect.objectContaining({midiFilename:"test.mid",expectedRevision:1,settings:expect.objectContaining({transpose_mode:"manual"})}));
   const field=screen.getByLabelText("Game transpose at chord 0");
   fireEvent.change(field,{target:{value:"-5"}});
@@ -279,7 +282,7 @@ it("removes an explicit manual transpose and lets opacity reach both endpoints",
 it("keeps image-sheet zoom and native window options in View",async()=>{
   vi.mocked(invoke).mockResolvedValue({image:"data:image/png;base64,iVBORw0KGgo="});
   await act(async()=>{render(<Overlay kind="sheet"/>);});
-  expect((screen.getByRole("button",{name:"Copy sheet"}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button",{name:"Copy"}) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByRole("button",{name:"Send to Transposer"}) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByLabelText("Sheet zoom").closest("details")?.open).toBe(false);
   fireEvent.click(screen.getByText("View",{exact:true}));

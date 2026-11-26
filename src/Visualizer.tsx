@@ -8,24 +8,31 @@ import TitleBar from "./TitleBar";
 import {converterRequest,defaults,visualizerSetting,displayName} from "./converter-api";
 import type {Values} from "./converter-api";
 type Content={midi_filename?:string;settings?:Values;revision:number};
+type PlayerWindow=Window&{setVisualizerActive?:(visible:boolean)=>void;loadVideoExporter?:()=>Promise<typeof import("./visualizer-export")>};
 const dialog=<T,>(command:string,args:Record<string,unknown>)=>api.whilePaused(()=>invoke<T>(command,args));
 export default function Visualizer(){
   const [content,setContent]=useState<Content>({revision:0});const selected=content.midi_filename??"";
   const [settings,setSettings]=useState<Values>(defaults);const settingsRef=useRef(settings);settingsRef.current=settings;
-  const frame=useRef<HTMLIFrameElement>(null);const player=useRef<(Window&{setVisualizerActive?:(visible:boolean)=>void})|null>(null);
+  const frame=useRef<HTMLIFrameElement>(null);const player=useRef<PlayerWindow|null>(null);
+  const appearance=useRef<HTMLDialogElement>(null);
   const [busy,setBusy]=useState(false);const [error,setError]=useNotice();const [message,setMessage]=useNotice();const [top,setTop]=useState(false);
   async function run<T>(action:()=>Promise<T>){setBusy(true);setError("");try{return await action();}catch(e){setError(api.errorText(e));}finally{setBusy(false);}}
-  useEffect(()=>{let disposed=false,stop=()=>{},stopVisibility=()=>{};let revision=-1;
+  useEffect(()=>{let disposed=false,stop=()=>{},stopVisibility=()=>{},stopRevealError=()=>{};let revision=-1;
     function accept(value:Content){if(disposed||value.revision<=revision)return;revision=value.revision;setContent(value);setSettings({...defaults,...value.settings});}
     void listen<Content>("visualizer-content",e=>accept(e.payload)).then(async f=>{if(disposed){f();return;}stop=f;accept(await invoke<Content>("get_visualizer"));}).catch(e=>setError(api.errorText(e)));
-    void listen<boolean>("visualizer-visibility",e=>{frame.current?.contentWindow?.postMessage({type:"converter-visibility",visible:e.payload},location.origin);}).then(f=>{if(disposed)f();else stopVisibility=f;}).catch(e=>setError(api.errorText(e)));
-    return()=>{disposed=true;stop();stopVisibility();};
+    void listen<boolean>("visualizer-visibility",e=>{
+      if(!e.payload&&appearance.current?.open)appearance.current.close();
+      frame.current?.contentWindow?.postMessage({type:"converter-visibility",visible:e.payload},location.origin);
+    }).then(f=>{if(disposed)f();else stopVisibility=f;}).catch(e=>setError(api.errorText(e)));
+    void listen("visualizer-video-reveal-error",()=>setError("The video was saved, but its folder could not be opened.")).then(f=>{if(disposed)f();else stopRevealError=f;}).catch(e=>setError(api.errorText(e)));
+    return()=>{disposed=true;stop();stopVisibility();stopRevealError();};
   },[]);
   async function persistAppearance(value:Values){const latest=await converterRequest<Values>("/api/settings");await converterRequest("/api/settings",{...latest,...Object.fromEntries(Object.entries(value).filter(([key])=>visualizerSetting(key)))});}
   useLayoutEffect(()=>{const handler=(event:MessageEvent)=>{
     if(event.source!==frame.current?.contentWindow||event.origin!==location.origin)return;
     if(event.data?.type==="converter-visualizer-ready")void emit("visualizer-ready",{filename:event.data.filename,loaded:event.data.loaded});
-    if(event.data?.type==="converter-import-soundfont")void importSoundFont().finally(()=>{frame.current?.contentWindow?.postMessage({type:"converter-import-complete"},location.origin);});
+    if(event.data?.type==="converter-open-appearance"&&appearance.current&&!appearance.current.open)appearance.current.showModal();
+    if(event.data?.type==="converter-import-soundfont")void importSoundFont().then(value=>{frame.current?.contentWindow?.postMessage({type:"converter-import-complete",filename:value?.filename},location.origin);});
     if(event.data?.type==="converter-settings-save"){const changed=Object.fromEntries(Object.entries(event.data.settings??{}).filter(([key])=>visualizerSetting(key)));setSettings(s=>({...s,...changed}));void persistAppearance(changed).catch(e=>setError(api.errorText(e)));}
     // WebKit tail calls can give postMessage the wrong sender; keep statement bodies.
     if(event.data?.type==="converter-fetch"){const {id,path,body}=event.data;const target=event.source as Window;void converterRequest(path,body).then(value=>{target.postMessage({type:"converter-fetch-result",id,value},location.origin);}).catch(e=>{target.postMessage({type:"converter-fetch-result",id,error:api.errorText(e)},location.origin);});}
@@ -47,22 +54,32 @@ export default function Visualizer(){
   }
   function chooseStyle(value:string){setting("visualizer_style",value);}
   async function saveSettings(){await persistAppearance(settings);setMessage("Appearance saved.");}
-  const importSoundFont=()=>run(async()=>{const value=await dialog<{filename:string}|null>("converter_pick",{kind:"soundfont",device:null});if(value?.filename)frame.current?.contentWindow?.postMessage({type:"converter-soundfonts",filename:value.filename},location.origin);});
-  return <div className="aux-window"><TitleBar label="Visualizer" onError={setError}/><div className="visualizer-window"><div className="section-heading"><h1>{displayName(selected.replace(/\.(mid|midi)$/i,""))||"Visualizer"}</h1><label className="toggle">Stay on top <input type="checkbox" checked={top} onChange={e=>{const value=e.target.checked;void invoke("overlay_options",{kind:"visualizer",top:value}).then(()=>setTop(value)).catch(e=>setError(api.errorText(e)));}}/></label></div>
+  const importSoundFont=()=>run(()=>dialog<{filename:string}|null>("converter_pick",{kind:"soundfont",device:null}));
+  const title=displayName(selected.replace(/\.(mid|midi)$/i,"")).trim();
+  return <div className="aux-window"><TitleBar label={title?`Visualizer · ${title}`:"Visualizer"} onError={setError}/><div className="visualizer-window">
       <section className="converter-player">
-        {selected&&<iframe title="Piano visualizer" className="converter-visualizer" ref={frame} src="/converter/visualizer.html" onLoad={()=>{player.current=frame.current?.contentWindow??null;sendVisualizer();player.current?.postMessage({type:"converter-visibility",visible:!document.hidden},location.origin);}}/>}
-        <details className="visualizer-appearance"><summary>Style & appearance</summary><h2>Piano style</h2><StylePreviews value={style} onChange={chooseStyle}/>
-          <div className="converter-options"><label className="field">Keys<select value={window.PianoStyles.normalizeKeyboard(scene.keyboard)} onChange={e=>sceneSetting("keyboard",e.target.value)}>{Object.entries(window.PianoStyles.keyboardStyles).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label></div>
+        {selected&&<iframe title="Piano visualizer" className="converter-visualizer" ref={frame} src="/converter/visualizer.html" onLoad={()=>{
+          player.current=(frame.current?.contentWindow as PlayerWindow|null)??null;
+          if(player.current)player.current.loadVideoExporter=()=>import("./visualizer-export");
+          sendVisualizer();player.current?.postMessage({type:"converter-visibility",visible:!document.hidden},location.origin);
+        }}/>}
+        <dialog className="visualizer-appearance" aria-labelledby="visualizer-appearance-title" ref={appearance} onClose={()=>frame.current?.contentWindow?.postMessage({type:"converter-appearance-closed"},location.origin)}>
+          <div className="section-heading"><h2 id="visualizer-appearance-title">Appearance</h2><button onClick={()=>appearance.current?.close()}>Done</button></div>
+          <h2>Piano style</h2><StylePreviews value={style} onChange={chooseStyle}/>
+          <div className="converter-options">
+            <label className="field">Keys<select value={window.PianoStyles.normalizeKeyboard(scene.keyboard)} onChange={e=>sceneSetting("keyboard",e.target.value)}>{Object.entries(window.PianoStyles.keyboardStyles).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+            <label className="toggle"><input type="checkbox" checked={top} onChange={e=>{const value=e.target.checked;void invoke("overlay_options",{kind:"visualizer",top:value}).then(()=>setTop(value)).catch(e=>setError(api.errorText(e)));}}/>Stay on top</label>
+          </div>
           <div className="button-row"><button className="primary" disabled={busy} onClick={()=>void run(saveSettings)}>Save appearance</button><button disabled={!selected||busy} onClick={sendVisualizer}>Reload visualization</button>
 <button disabled={busy} onClick={()=>void run(async()=>{const value=await dialog<{url?:string;type?:string}|null>("converter_pick",{kind:"background",device:null});if(value?.url)setSettings(s=>({...s,visualizer_scenes:{...(s.visualizer_scenes as Values??{}),[style]:{...((s.visualizer_scenes as Record<string,Values>??{})[style]??{}),mode:value.type??"image",media_type:value.type??"image",media_url:value.url}}}));})}>Add background</button><button disabled={busy||!scene.media_url} onClick={resetBackground}>Reset background</button></div><details><summary>Appearance and rendering</summary><div className="converter-options">
           {['hand_left_color','hand_right_color'].map(key=><label className="field" key={key}>{key.replaceAll('_',' ')}<input type="color" value={String(settings[key])} onChange={e=>setting(key,e.target.value)}/></label>)}<label className="field">Falling speed<input type="number" min="50" max="800" value={Number(settings.visualizer_speed)} onChange={e=>setting("visualizer_speed",+e.target.value)}/></label>
-          {['visualizer_labels','visualizer_particles','download_hands'].map(key=><label className="toggle" key={key}><input type="checkbox" checked={!!settings[key]} onChange={e=>setting(key,e.target.checked)}/>{key.replaceAll('_',' ')}</label>)}
+          {['visualizer_labels','visualizer_particles'].map(key=><label className="toggle" key={key}><input type="checkbox" checked={!!settings[key]} onChange={e=>setting(key,e.target.checked)}/>{key.replaceAll('_',' ')}</label>)}
           <label className="field">Background<select value={String(scene.mode??"theme")} onChange={e=>sceneSetting("mode",e.target.value)}>{["theme","solid","spotlight","image","video"].map(v=><option key={v}>{v}</option>)}</select></label>
           <label className="field">Background color<input type="color" value={String(scene.color??"#172033")} onChange={e=>sceneSetting("color",e.target.value)}/></label>
           <label className="field">Effect<select value={String(scene.effect??"none")} onChange={e=>sceneSetting("effect",e.target.value)}>{["none","stars","waves","grid"].map(v=><option key={v}>{v}</option>)}</select></label>
           {([['dim','Background dim',80],['strength','Effect strength',100]] as const).map(([key,label,max])=><label className="field" key={key}>{label}<input type="range" min="0" max={max} value={Number(scene[key]??25)} onChange={e=>sceneSetting(key,+e.target.value)}/></label>)}
           <label className="field">Note colors<select value={String(settings.hand_color_mode)} onChange={e=>setting("hand_color_mode",e.target.value)}><option value="hands">Left / right hand</option><option value="tracks">Tracks</option></select></label>
-        </div></details></details>
+        </div></details></dialog>
         </section>
 {(error||message)&&<p role={error?"alert":"status"}>{error||message}</p>}</div></div>;
 }

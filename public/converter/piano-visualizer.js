@@ -43,7 +43,13 @@
   let playbackToken = 0;
   let playerHooked = false;
   let recording = null;
+  let offlineRender = null;
   const BUILTIN_PIANO = 'builtin';
+  const IMPORT_SOUNDFONT = 'import-sf2';
+  let selectedSoundFont = BUILTIN_PIANO;
+  let importingSoundFont = false;
+  let deferredSoundFont = null;
+  let soundFontListRequest = 0;
   const scoreMode = document.documentElement.classList.contains('score-transport');
   let lastClock = '';
   let liteTimer = null;
@@ -89,7 +95,6 @@
   const volumeIcon    = document.getElementById('pv-volume-icon');
   const seekBar       = document.getElementById('pv-seek');
   const sfSelect      = document.getElementById('pv-soundfont-select');
-  const importFontButton = document.getElementById('pv-import-soundfont');
 
   if (!modal || !canvas) return;
 
@@ -104,18 +109,18 @@
   function currentHands() { return Object.assign({}, handEstimates, handOverrides); }
   function persistHands() {
     try { localStorage.setItem(handStorageKey, JSON.stringify(handOverrides)); }
-    catch (_) { toolStatus('Correction applied, but browser storage is full or unavailable. Download hand MIDI to keep it.'); }
+    catch (_) { toolStatus('Correction applied, but browser storage is full or unavailable.'); }
   }
   function selectNote(id) {
     selectedNoteId = id;
     const note = allNotes.find(n => n.id === id);
     if (!note) return;
     const selector = tool('note-select');
-    if (![...selector.options].some(o => o.value === id)) {
-      selector.add(new Option(`${note.start.toFixed(2)}s · MIDI ${note.midi}`, id));
-    }
+    const caption = `${note.start.toFixed(2)}s · MIDI ${note.midi} · ${handFor(note) || 'unassigned'}`;
+    const option = [...selector.options].find(o => o.value === id);
+    if (option) option.textContent = caption;
+    else selector.add(new Option(caption, id));
     selector.value = id;
-    toolStatus(`MIDI ${note.midi} at ${note.start.toFixed(2)}s: ${handFor(note) || 'unassigned'} hand${handOverrides[id] ? ' (corrected)' : ' (estimated)'}.`);
     renderFrame();
   }
   function refreshNoteChoices() {
@@ -174,7 +179,6 @@
   }));
   tool('reset-hands').addEventListener('click', () => {
     handOverrides = {}; persistHands(); refreshNoteChoices();
-    toolStatus('Manual corrections reset to the estimated or named hands.');
   });
   canvas.addEventListener('click', event => {
     if (!editingHands) return;
@@ -186,24 +190,11 @@
     if (hit) selectNote(hit.id);
   });
   seekBar?.addEventListener('change', () => { if (editingHands) refreshNoteChoices(); });
-  tool('export-hands').addEventListener('click', async () => {
-    if (!midi) return;
-    try {
-      const settings = await loadSheetsSettings();
-      window.MidiDownloads.save(midiArrayBuffer, midi, currentHands(), currentFilename, settings.download_hands !== false);
-    } catch (error) { toolStatus(error.message); }
-  });
+  tool('appearance')?.addEventListener('click', () => parent.postMessage({type:'converter-open-appearance'}, location.origin));
 
   const artwork = window.PianoStyles;
   let visualStyle = artwork.normalize(loadSheetsSettingsSync().visualizer_style);
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-
-  importFontButton?.addEventListener('click',()=>{
-    if(recording||!midi)return;
-    importFontButton.disabled=true;
-    parent.postMessage({type:'converter-import-soundfont'},location.origin);
-  });
-  window.addEventListener('piano-import-complete',()=>{if(importFontButton)importFontButton.disabled=!!recording||!midi;});
 
   function setVisualStyle(value) {
     if (visualStyle !== artwork.normalize(value)) {
@@ -391,67 +382,121 @@
   }
 
   // ─── SoundFont list ──────────────────────────────────────────────────
+  function updateSoundFontControl() {
+    sfSelect.disabled = !midi || importingSoundFont || !!recording || !!offlineRender;
+    sfSelect.title = sfSelect.selectedOptions[0]?.textContent || 'SoundFont';
+  }
+
   async function loadSoundFontList(selectedUrl = '') {
+    const request = ++soundFontListRequest;
     try {
       const res = await fetch('/api/soundfonts');
       const data = await res.json();
-      if (!sfSelect || !data.soundfonts) return;
-      sfSelect.innerHTML = '';
-      data.soundfonts.forEach(sf => {
-        const opt = document.createElement('option');
-        opt.value = sf.url;
-        opt.textContent = sf.filename.replace(/\.sf2$/i, '') + (sf.size ? ` (${Math.round(sf.size / 1048576)} MB)` : '');
-        sfSelect.appendChild(opt);
-      });
-      sfSelect.add(new Option('Basic synth (fast)', BUILTIN_PIANO));
       let preferred = selectedUrl;
       if(!preferred)try { preferred = (await loadSheetsSettings()).visualizer_soundfont || ''; } catch (_) {}
       if (!preferred) try { preferred = localStorage.getItem('pianoSoundFontUrl') || ''; } catch (_) {}
       preferred = window.resolvePianoSoundFont?.(preferred) || preferred;
-      sfSelect.value = data.soundfonts.find(sf => sf.url === preferred)?.url
-        || BUILTIN_PIANO;
+      if (request !== soundFontListRequest) return false;
+      const fonts = data.soundfonts.map(sf => new Option(
+        (sf.display_name || sf.filename).replace(/\.sf2$/i, '') + (sf.size ? ` (${Math.round(sf.size / 1048576)} MB)` : ''), sf.url));
+      fonts.sort((a, b) => a.text.localeCompare(b.text));
+      if (selectedUrl && !fonts.some(option => option.value === preferred) && preferred !== BUILTIN_PIANO) return false;
+      sfSelect.replaceChildren(...fonts, new Option('Basic synth (fast)', BUILTIN_PIANO), new Option('Import .sf2…', IMPORT_SOUNDFONT));
+      sfSelect.value = fonts.find(option => option.value === preferred)?.value || BUILTIN_PIANO;
+      return true;
     } catch (e) {
       console.error('Failed to load soundfont list:', e);
-      sfSelect?.replaceChildren(new Option('Basic synth (fast)', BUILTIN_PIANO));
+      if (request !== soundFontListRequest || selectedUrl) return false;
+      sfSelect.replaceChildren(new Option('Basic synth (fast)', BUILTIN_PIANO), new Option('Import .sf2…', IMPORT_SOUNDFONT));
+      return true;
     }
   }
-  window.refreshPianoSoundFonts=async selectedUrl=>{await loadSoundFontList(selectedUrl);sfSelect?.dispatchEvent(new Event('change'));};
 
-  if (sfSelect) {
-    sfSelect.addEventListener('change', async () => {
-      try { localStorage.setItem('pianoSoundFontUrl', sfSelect.value); } catch (_) {}
-      try {
-        if (sfSelect.value === BUILTIN_PIANO) localStorage.setItem('pianoBuiltinExplicit', '1');
-        else localStorage.removeItem('pianoBuiltinExplicit');
-      } catch (_) {}
-      const selectedUrl = sfSelect.value;
-      Promise.resolve().then(async () => {
-        const settings = await loadSheetsSettings();
-        await saveSheetsSettings({ ...settings, visualizer_soundfont: selectedUrl });
-      }).catch(error => console.warn('Could not remember SoundFont selection:', error));
-      if (midi && sfSelect.value !== currentSfUrl) {
-        const revision = openRevision;
-        const resumeAt = currentPlayTime();
-        const shouldResume = isPlaying && !isPaused;
-        const shouldStayPaused = isPaused;
-        if (isPlaying) stopPlayback(false);
-
-        await loadSoundFont(sfSelect.value);
-
-        if (revision !== openRevision || selectedUrl !== sfSelect.value || !visualizerActive) return;
-        if (shouldResume) {
-          startPlayback(resumeAt);
-        } else if (shouldStayPaused) {
-          pauseOffset = resumeAt;
-          isPlaying = true;
-          isPaused = true;
-          updateTransportUI();
-          renderFrame();
-        }
-      }
-    });
+  function rememberSoundFont(value) {
+    try {
+      localStorage.setItem('pianoSoundFontUrl', value);
+      if (value === BUILTIN_PIANO) localStorage.setItem('pianoBuiltinExplicit', '1');
+      else localStorage.removeItem('pianoBuiltinExplicit');
+    } catch (_) {}
+    Promise.resolve().then(async () => {
+      const settings = await loadSheetsSettings();
+      if (selectedSoundFont === value) await saveSheetsSettings({ ...settings, visualizer_soundfont: value });
+    }).catch(error => console.warn('Could not remember SoundFont selection:', error));
   }
 
+  async function applySoundFontSelection(imported = false) {
+    const previous = selectedSoundFont;
+    const selectedUrl = sfSelect.value;
+    selectedSoundFont = selectedUrl;
+    updateSoundFontControl();
+    if (!imported) rememberSoundFont(selectedUrl);
+    if (midi && selectedUrl !== currentSfUrl) {
+      const revision = openRevision;
+      const resumeAt = currentPlayTime();
+      const shouldResume = isPlaying && !isPaused;
+      const shouldStayPaused = isPaused;
+      if (isPlaying) stopPlayback(false);
+
+      await loadSoundFont(selectedUrl);
+      if (revision !== openRevision || selectedUrl !== selectedSoundFont) return;
+      if (imported && !synthReady) {
+        selectedSoundFont = [...sfSelect.options].some(option => option.value === previous) ? previous : BUILTIN_PIANO;
+        sfSelect.value = selectedSoundFont;
+        updateSoundFontControl();
+        await loadSoundFont(selectedSoundFont);
+        if (revision !== openRevision) return;
+        if (synthReady) toolStatus('Could not load the imported SoundFont. Previous selection restored.');
+      }
+
+      if (visualizerActive && shouldResume) {
+        startPlayback(resumeAt);
+      } else if (shouldStayPaused) {
+        pauseOffset = resumeAt;
+        isPlaying = true;
+        isPaused = true;
+        updateTransportUI();
+        renderFrame();
+      }
+    }
+    if (imported && selectedUrl === selectedSoundFont) rememberSoundFont(selectedUrl);
+  }
+
+  window.refreshPianoSoundFonts = async (selectedUrl = '') => {
+    if (recording || offlineRender || importingSoundFont) { deferredSoundFont = selectedUrl; return; }
+    if (!await loadSoundFontList(selectedUrl)) return;
+    if (recording || offlineRender || importingSoundFont) {
+      deferredSoundFont = selectedUrl;
+      sfSelect.value = selectedSoundFont;
+      return;
+    }
+    await applySoundFontSelection();
+  };
+  function applyDeferredSoundFont() {
+    if (deferredSoundFont === null || importingSoundFont || recording || offlineRender) return;
+    const selectedUrl = deferredSoundFont;
+    deferredSoundFont = null;
+    void window.refreshPianoSoundFonts(selectedUrl);
+  }
+  sfSelect.addEventListener('change', () => {
+    if (sfSelect.value !== IMPORT_SOUNDFONT) { void applySoundFontSelection(); return; }
+    sfSelect.value = selectedSoundFont;
+    if (!midi || importingSoundFont || recording || offlineRender) return;
+    importingSoundFont = true;
+    updateSoundFontControl();
+    parent.postMessage({type:'converter-import-soundfont'}, location.origin);
+  });
+  window.addEventListener('piano-import-complete', async event => {
+    if (!importingSoundFont) return;
+    try {
+      if (!event.detail) return;
+      if (await loadSoundFontList(event.detail)) await applySoundFontSelection(true);
+      else toolStatus('SoundFont imported. Reopen the viewer to refresh the list.');
+    } finally {
+      importingSoundFont = false;
+      updateSoundFontControl();
+      applyDeferredSoundFont();
+    }
+  });
   // ─── Audio setup ─────────────────────────────────────────────────────
   async function initAudio() {
     if (audioCtx) return;
@@ -541,8 +586,7 @@
       currentSfId = await synth.loadSFont(sfBuffer);
       currentSfUrl = url;
       synthReady = true;
-      showLoading('Ready', 100);
-      setTimeout(hideLoading, 400);
+      hideLoading();
     } catch (e) {
       console.error('SoundFont load error:', e);
       currentSfUrl = '';
@@ -720,6 +764,23 @@
     liteVoices.clear();
   }
 
+  function scheduleBasicVoice(context, destination, note, begins, ends) {
+    const oscillator = context.createOscillator();
+    const envelope = context.createGain();
+    oscillator.type = 'triangle';
+    oscillator.frequency.value = 440 * Math.pow(2, (note.midi - 69) / 12);
+    oscillator.connect(envelope);
+    envelope.connect(destination);
+    const level = 0.12 * note.velocity;
+    envelope.gain.setValueAtTime(0, begins);
+    envelope.gain.linearRampToValueAtTime(level, begins + 0.012);
+    envelope.gain.exponentialRampToValueAtTime(Math.max(level * 0.28, 0.0001), Math.min(ends, begins + 0.45));
+    envelope.gain.setTargetAtTime(0.0001, ends, 0.08);
+    oscillator.start(begins);
+    oscillator.stop(ends + 0.35);
+    return {oscillator, envelope};
+  }
+
   function startLitePlayer(offset) {
     stopLitePlayer();
     let nextNote = 0;
@@ -732,22 +793,10 @@
         if (!handEnabled[hand] || note.releaseEnd <= offset || note.velocity <= 0) continue;
         const begins = Math.max(audioCtx.currentTime, startedAt + note.start - offset);
         const ends = Math.max(begins + 0.02, startedAt + note.releaseEnd - offset);
-        const oscillator = audioCtx.createOscillator();
-        const envelope = audioCtx.createGain();
-        oscillator.type = 'triangle';
-        oscillator.frequency.value = 440 * Math.pow(2, (note.midi - 69) / 12);
-        oscillator.connect(envelope);
-        envelope.connect(gainNode);
-        const level = 0.12 * note.velocity;
-        envelope.gain.setValueAtTime(0, begins);
-        envelope.gain.linearRampToValueAtTime(level, begins + 0.012);
-        envelope.gain.exponentialRampToValueAtTime(Math.max(level * 0.28, 0.0001), Math.min(ends, begins + 0.45));
-        envelope.gain.setTargetAtTime(0.0001, ends, 0.08);
+        const {oscillator, envelope} = scheduleBasicVoice(audioCtx, gainNode, note, begins, ends);
         const voice = { oscillator, hand };
         oscillator.onended = () => { liteVoices.delete(voice); oscillator.disconnect(); envelope.disconnect(); };
         liteVoices.add(voice);
-        oscillator.start(begins);
-        oscillator.stop(ends + 0.35);
       }
     };
     schedule();
@@ -769,6 +818,18 @@
     // leaving it attached can dispatch stale callbacks on later audio blocks.
     try { synth.closePlayer(); } catch(e) {}
     try { synth.midiAllSoundsOff(-1); } catch(e) {}
+  }
+
+  async function playFluidMidi(segment, token) {
+    await synth.resetPlayer();
+    if (token !== playbackToken) return false;
+    await synth.addSMFDataToPlayer(segment.data);
+    if (token !== playbackToken) return false;
+    synth.hookPlayerMIDIEvents(enhancements.createHandRouter(segment.notes,
+      note => note.hand || handFor(note), hand => handEnabled[hand]));
+    playerHooked = true;
+    await synth.playPlayer();
+    return token === playbackToken;
   }
 
   async function startPlayback(fromTime) {
@@ -800,21 +861,10 @@
         return true;
       }
 
-      await synth.resetPlayer();
-      if (token !== playbackToken) return;
-
       const segment = pauseOffset > 0
         ? enhancements.segmentAt(midi, pauseOffset, currentHands())
         : { data: cloneMidiBuffer(), notes: allNotes };
-      await synth.addSMFDataToPlayer(segment.data);
-      if (token !== playbackToken) return;
-      synth.hookPlayerMIDIEvents(enhancements.createHandRouter(segment.notes,
-        note => note.hand || handFor(note), hand => handEnabled[hand]));
-      playerHooked = true;
-      if (token !== playbackToken) return;
-
-      await synth.playPlayer();
-      if (token !== playbackToken) return;
+      if (!await playFluidMidi(segment, token)) return;
       audioStartCtxTime = audioCtx ? audioCtx.currentTime : 0;
       audioStartMidiTime = pauseOffset;
       startTimeFallback = performance.now() / 1000 - pauseOffset;
@@ -885,10 +935,21 @@
 
   const renderButton = tool('render-video');
   function setRenderControlsBusy(busy) {
-    [btnPlay, btnStop, seekBar, sfSelect, importFontButton,
-      tool('toggle-left'), tool('toggle-right'), tool('edit-hands')].forEach(control => {
+    [btnPlay, btnStop, seekBar, volumeSlider, volumeIcon, tool('appearance'),
+      tool('toggle-left'), tool('toggle-right'), tool('edit-hands'),
+      ...document.querySelectorAll('#pv-hand-editor button, #pv-hand-editor select')].forEach(control => {
       if (control) control.disabled = busy;
     });
+    updateSoundFontControl();
+  }
+  function saveVideo(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = (window.ConverterNames.download(filename).replace(/\.(mid|midi)$/i, '') || 'visualizer') + '-visualizer.webm';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    toolStatus('Video download started.');
   }
   function finishVideoRender(cancelled = false) {
     const job = recording;
@@ -898,54 +959,169 @@
     renderButton.textContent = 'Render video';
     setRenderControlsBusy(false);
     if (job.recorder.state !== 'inactive') job.recorder.stop();
+    applyDeferredSoundFont();
   }
-  if (renderButton) renderButton.addEventListener('click', async () => {
-    if (recording) { finishVideoRender(true); stopPlayback(); toolStatus('Video render cancelled.'); return; }
-    if (!midi || !synthReady || !gainNode || !window.MediaRecorder || !canvas.captureStream) {
-      toolStatus('Video recording is unavailable in this browser or audio is not ready.'); return;
+  async function renderRealtimeVideo() {
+    if (!window.MediaRecorder || !canvas.captureStream) {
+      toolStatus('Real-time video export is unavailable in this viewer.'); return;
     }
     const mimeType = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
       .find(type => MediaRecorder.isTypeSupported(type));
     if (!mimeType) { toolStatus('This browser cannot record WebM video.'); return; }
-    stopPlayback();
+    const frameSize = getVideoSize();
+    if (!frameSize) return;
+    resizeCanvas(frameSize);
     const videoStream = canvas.captureStream(30);
+    videoStream.getVideoTracks()[0].contentHint = 'detail';
     const audioDestination = audioCtx.createMediaStreamDestination();
     gainNode.connect(audioDestination);
     const stream = new MediaStream([...videoStream.getVideoTracks(), ...audioDestination.stream.getAudioTracks()]);
     const chunks = [];
     let recorder;
-    try { recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 }); }
+    try { recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2400000, audioBitsPerSecond: 128000 }); }
     catch (error) {
       gainNode.disconnect(audioDestination); stream.getTracks().forEach(track => track.stop());
       toolStatus('Could not start video recording: ' + error.message); return;
     }
-    const job = { recorder, cancelled: false, filename: currentFilename };
+    const job = { recorder, frameSize, cancelled: false, filename: currentFilename };
     recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
     recorder.onerror = () => {
-      if (recording === job) finishVideoRender(true);
-      stopPlayback();
-      toolStatus('Video recording failed.');
+      if (recording === job) {
+        finishVideoRender(true);
+        stopPlayback();
+        toolStatus('Video recording failed.');
+      }
     };
     recorder.onstop = () => {
       gainNode.disconnect(audioDestination);
       stream.getTracks().forEach(track => track.stop());
       if (job.cancelled || !chunks.length) return;
-      const blob = new Blob(chunks, { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = (job.filename.replace(/\.(mid|midi)$/i, '') || 'visualizer') + '-visualizer.webm';
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      toolStatus('Video saved as WebM with audio.');
+      saveVideo(new Blob(chunks, {type: mimeType}), job.filename);
     };
     recording = job;
     setRenderControlsBusy(true);
     renderButton.textContent = 'Cancel render';
     toolStatus('Rendering in real time. Keep this tab visible.',true);
-    recorder.start(1000);
-    const started = await startPlayback(0);
-    if (!started && recording === job) { finishVideoRender(true); toolStatus('Playback could not start; video render cancelled.'); }
+    try {
+      recorder.start(1000);
+      const started = await startPlayback(0);
+      if (!started && recording === job) {
+        finishVideoRender(true);
+        toolStatus('Playback could not start. Video render cancelled.');
+      }
+    } catch (error) {
+      if (recorder.state === 'inactive') {
+        gainNode.disconnect(audioDestination);
+        stream.getTracks().forEach(track => track.stop());
+      }
+      if (recording === job) finishVideoRender(true);
+      toolStatus('Could not start video recording: ' + error.message);
+    }
+  }
+
+  async function renderOfflineAudio(duration, signal) {
+    const sampleRate = audioCtx.sampleRate;
+    const length = Math.ceil(duration * sampleRate);
+    const volume = gainNode.gain.value;
+    if (currentSfUrl === BUILTIN_PIANO) {
+      const context = new OfflineAudioContext(2, length, sampleRate);
+      const gain = context.createGain();
+      gain.gain.value = volume;
+      gain.connect(context.destination);
+      for (const note of allNotes) {
+        if (note.velocity <= 0 || !handEnabled[note.hand || handFor(note)]) continue;
+        scheduleBasicVoice(context, gain, note, note.start, Math.max(note.start + 0.02, note.releaseEnd));
+      }
+      return await context.startRendering();
+    }
+
+    // Keep the loaded bank in WASM even when it is too large to load twice.
+    if (audioCtx.state === 'running') await audioCtx.suspend();
+    signal.throwIfAborted();
+    const audio = audioCtx.createBuffer(2, length, sampleRate);
+    const left = audio.getChannelData(0), right = audio.getChannelData(1);
+    try {
+      if (!await playFluidMidi({data: cloneMidiBuffer(), notes: allNotes}, playbackToken)) throw Error('Could not start offline MIDI synthesis.');
+      for (let start = 0; start < length; start += 8192) {
+        signal.throwIfAborted();
+        const end = Math.min(start + 8192, length);
+        synth.render([left.subarray(start, end), right.subarray(start, end)]);
+        for (let index = start; index < end; index++) { left[index] *= volume; right[index] *= volume; }
+        if (start % 65536 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      return audio;
+    } finally {
+      stopFluidPlayer();
+    }
+  }
+
+  async function exportOfflineVideo(job) {
+    const settings = loadSheetsSettingsSync();
+    const style = visualStyle;
+    const scene = settings.visualizer_scenes?.[style] || {};
+    const mode = scene.mode || settings.visualizer_background;
+    if (!window.loadVideoExporter || mode === 'video' || (mode === 'image' && /\.gif$/i.test(scene.media_url || '')) ||
+        (currentSfUrl === BUILTIN_PIANO && !window.OfflineAudioContext)) return;
+    const exporter = await window.loadVideoExporter();
+    const signal = job.controller.signal;
+    signal.throwIfAborted();
+    toolStatus('Preparing audio for offline export…', true);
+    renderFrame();
+    const frameSize = getVideoSize();
+    if (!frameSize) return;
+    const codec = await exporter.offlineVideoCodec(frameSize.bitmapWidth, frameSize.bitmapHeight, totalDuration, audioCtx.sampleRate);
+    if (!codec) return;
+    signal.throwIfAborted();
+    if (mode === 'image' && scene.media_url) await sceneMedia?.decode();
+    signal.throwIfAborted();
+    job.drawing = true;
+    if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+    particles.length = 0;
+    crayonTime = 0;
+    const duration = totalDuration;
+    const audio = await renderOfflineAudio(duration, signal);
+    signal.throwIfAborted();
+    resizeCanvas(frameSize);
+    return await exporter.renderOfflineWebm({canvas, codec, audio, duration, signal,
+      draw: time => renderFrame({time, settings, style}),
+      progress: percent => { if (!signal.aborted) toolStatus(`Rendering offline · ${percent}%`, true); },
+    });
+  }
+
+  if (renderButton) renderButton.addEventListener('click', async () => {
+    if (offlineRender) {
+      offlineRender.controller.abort();
+      renderButton.disabled = true;
+      toolStatus('Cancelling video render…', true);
+      return;
+    }
+    if (recording) { finishVideoRender(true); stopPlayback(); toolStatus('Video render cancelled.'); return; }
+    if (!midi || !synthReady || !gainNode || soundFontLoad || importingSoundFont) {
+      toolStatus('Wait for the MIDI and SoundFont to finish loading before rendering.'); return;
+    }
+    stopPlayback();
+    const job = {controller: new AbortController(), filename: currentFilename, drawing: false};
+    offlineRender = job;
+    setRenderControlsBusy(true);
+    renderButton.textContent = 'Cancel render';
+    toolStatus('Preparing video export…', true);
+    job.finished = exportOfflineVideo(job).catch(error => {
+      if (!job.controller.signal.aborted) console.warn('Offline export could not finish:', error);
+    });
+    const blob = await job.finished;
+    offlineRender = null;
+    renderButton.disabled = false;
+    renderButton.textContent = 'Render video';
+    setRenderControlsBusy(false);
+    particles.length = 0;
+    startRenderLoop();
+    if (job.controller.signal.aborted) toolStatus('Video render cancelled.');
+    else if (blob) saveVideo(blob, job.filename);
+    else {
+      try { await renderRealtimeVideo(); }
+      catch (error) { toolStatus('Could not start video recording: ' + error.message); }
+    }
+    applyDeferredSoundFont();
   });
 
   if (seekBar) {
@@ -979,6 +1155,8 @@
   };
 
   function closeModal() {
+    offlineRender?.controller.abort();
+    if (recording) finishVideoRender(true);
     stopPlayback();
     if (sceneMedia?.tagName === 'VIDEO') sceneMedia.pause();
     if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
@@ -990,6 +1168,7 @@
     if (e.key === 'Escape') {
       closeModal();
     }
+    if (recording || offlineRender) return;
     if (e.target.closest('input, select, button, textarea, [contenteditable="true"]')) return;
     if (e.key === ' ') {
       e.preventDefault();
@@ -1010,15 +1189,22 @@
     };
   }
 
-  function resizeCanvas() {
+  function getVideoSize() {
+    const size = getStageSize();
+    if (size.width <= 0 || size.height <= 0) return null;
+    const scale = Math.min(1920 / size.width, 1080 / size.height);
+    return {...size, bitmapWidth: Math.max(2, 2 * Math.round(size.width * scale / 2)),
+      bitmapHeight: Math.max(2, 2 * Math.round(size.height * scale / 2))};
+  }
+
+  function resizeCanvas(size = recording?.frameSize ?? getStageSize()) {
     if (!canvas || !ctx) return false;
 
-    const size = getStageSize();
     if (size.width <= 0 || size.height <= 0) return false;
 
     const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const bitmapW = Math.max(1, Math.round(size.width * dpr));
-    const bitmapH = Math.max(1, Math.round(size.height * dpr));
+    const bitmapW = size.bitmapWidth ?? Math.max(1, Math.round(size.width * dpr));
+    const bitmapH = size.bitmapHeight ?? Math.max(1, Math.round(size.height * dpr));
 
     if (
       canvas.width === bitmapW &&
@@ -1035,16 +1221,17 @@
     canvas.height = bitmapH;
     canvas.style.width = size.width + 'px';
     canvas.style.height = size.height + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(bitmapW / size.width, 0, 0, bitmapH / size.height, 0, 0);
     computeKeyLayout(size.width);
     return true;
   }
 
   function scheduleCanvasResize() {
-    if (modal.classList.contains('hidden')) return;
+    if (modal.classList.contains('hidden') || offlineRender?.drawing) return;
     if (resizeRafId) cancelAnimationFrame(resizeRafId);
     resizeRafId = requestAnimationFrame(() => {
       resizeRafId = null;
+      if (offlineRender?.drawing) return;
       resizeCanvas();
       renderFrame();
     });
@@ -1068,8 +1255,8 @@
   function drawSceneMedia(scene, width, height) {
     const url = window.resolveVisualizerBackground(scene.media_url);
     if (!url) {
-      if(scene.media_url&&sceneError!=='Background unavailable. Import an image or video from Style & appearance.'){
-        sceneError='Background unavailable. Import an image or video from Style & appearance.';toolStatus(sceneError);
+      if(scene.media_url&&sceneError!=='Background unavailable. Import an image or video from Appearance.'){
+        sceneError='Background unavailable. Import an image or video from Appearance.';toolStatus(sceneError);
       }
       return false;
     }
@@ -1166,37 +1353,39 @@
   }
 
   function startRenderLoop() {
-    if (!visualizerActive || animFrameId) return;
+    if (!visualizerActive || animFrameId || offlineRender?.drawing) return;
     lastFrameTs = performance.now();
     function frame() { animFrameId = requestAnimationFrame(frame); renderFrame(); }
     frame();
   }
 
-  function renderFrame() {
+  function renderFrame(exportFrame) {
     if (scoreMode) { updatePlaybackControls(currentPlayTime()); return; }
     if (!ctx || !canvas) return;
-    resizeCanvas();
+    if (offlineRender?.drawing && !exportFrame) return;
+    if (!exportFrame) resizeCanvas();
     const W = canvasCssWidth;
     const H = canvasCssHeight;
     if (W <= 0 || H <= 0) return;
 
     const now = performance.now();
-    const dt = clamp((now - lastFrameTs) / 1000, 0, 0.05);
+    const dt = exportFrame ? Math.min(exportFrame.time, 1 / 30) : clamp((now - lastFrameTs) / 1000, 0, 0.05);
     lastFrameTs = now;
 
-    const viewSettings = loadSheetsSettingsSync();
+    const viewSettings = exportFrame?.settings ?? loadSheetsSettingsSync();
+    const style        = exportFrame?.style ?? visualStyle;
     const PPS          = clamp(Number(viewSettings.visualizer_speed) || 200, 50, 800);
-    const theme        = artwork.styles[visualStyle];
+    const theme        = artwork.styles[style];
     const PIANO_HEIGHT = Math.min(120,Math.max(60,H*0.18));
     const BK_RATIO     = 0.63;
     const playheadY    = H - PIANO_HEIGHT;
     const noteAreaH    = playheadY;
 
-    const t = currentPlayTime();
-    const animating = isPlaying && !isPaused;
-    const scene = viewSettings.visualizer_scenes?.[visualStyle] || {};
-    const keyboardStyle = artwork.effectiveKeyboard(scene.keyboard,visualStyle);
-    const animateCrayon = (visualStyle === 'crayon' || visualStyle === 'sketch') && !reduceMotion.matches;
+    const t = exportFrame?.time ?? currentPlayTime();
+    const animating = !!exportFrame || isPlaying && !isPaused;
+    const scene = viewSettings.visualizer_scenes?.[style] || {};
+    const keyboardStyle = artwork.effectiveKeyboard(scene.keyboard,style);
+    const animateCrayon = (style === 'crayon' || style === 'sketch') && !reduceMotion.matches;
     if ((animateCrayon||keyboardStyle==='sketch'&&!reduceMotion.matches) && !isPaused && !document.hidden && !modal.classList.contains('hidden')) crayonTime += dt;
 
     // ── Background (cached vertical gradient) ──
@@ -1205,7 +1394,7 @@
     const sceneMode = ['solid', 'spotlight', 'image', 'video'].includes(scene.mode || viewSettings.visualizer_background) ? (scene.mode || viewSettings.visualizer_background) : 'theme';
     const requestedColor = scene.color || viewSettings.visualizer_background_color;
     const sceneColor = /^#[0-9a-f]{6}$/i.test(requestedColor) ? requestedColor : '#172033';
-    const gradKey = W + 'x' + H + visualStyle + sceneMode + sceneColor;
+    const gradKey = W + 'x' + H + style + sceneMode + sceneColor;
     if (!bgGradient || bgGradientKey !== gradKey) {
       if (sceneMode === 'solid') bgGradient = sceneColor;
       else if (sceneMode === 'spotlight') {
@@ -1334,7 +1523,7 @@
         motion = { time: crayonTime };
       }
       ctx.save();if(ghosted)ctx.globalAlpha=0.2;
-      artwork.note(ctx, visualStyle, nx, topY, nw, nh, artwork.keyColor(col,kl.isBlack), note.velocity, isActive, i, motion);
+      artwork.note(ctx, style, nx, topY, nw, nh, artwork.keyColor(col,kl.isBlack), note.velocity, isActive, i, motion);
       ctx.restore();
       if (editingHands && note.piano && botY >= 0 && topY <= playheadY) {
         noteHitboxes.push({ id: note.id, x: nx, y: Math.max(0, topY), w: nw, h: Math.min(botY, playheadY) - Math.max(0, topY) });
@@ -1423,7 +1612,7 @@
       artwork.keyboardDetail(ctx, keyboardStyle, kl.x, playheadY, kl.width, bkh, true, keyboardStyle==='sketch'&&!reduceMotion.matches?{time:crayonTime,held:!!activeKeys[n]}:null,n);
     }
 
-    updatePlaybackControls(t);
+    if (!exportFrame) updatePlaybackControls(t);
   }
 
   function updatePlaybackControls(t) {
@@ -1448,6 +1637,12 @@
     if (!modal || !canvas) { console.error('Piano visualizer DOM not found'); return; }
     playbackChannel?.postMessage('claim');
     const revision = ++openRevision;
+    if (offlineRender) {
+      offlineRender.controller.abort();
+      await offlineRender.finished;
+      if (revision !== openRevision) return;
+    }
+    if (recording) finishVideoRender(true);
 
     currentFilename = midiFilename;
     lastClock = '';
@@ -1455,11 +1650,11 @@
     setToolsBusy(true);
     crayonTime = 0;
     setVisualStyle(loadSheetsSettingsSync().visualizer_style);
-    if(importFontButton)importFontButton.disabled=true;
 
     stopPlayback();
     if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
     allNotes = []; allCCEvents = []; pitchBendEvents = []; midiArrayBuffer = null; midi = null;
+    updateSoundFontControl();
     minNote = PIANO_MIN_NOTE;
     maxNote = PIANO_MAX_NOTE;
 
@@ -1481,9 +1676,10 @@
 
       startRenderLoop();
       setToolsBusy(false);
-      if(importFontButton)importFontButton.disabled=false;
+      selectedSoundFont = sfSelect.value || BUILTIN_PIANO;
+      updateSoundFontControl();
 
-      const sf = sfSelect?.value || BUILTIN_PIANO;
+      const sf = selectedSoundFont;
       if (!synthReady || sf !== currentSfUrl) await loadSoundFont(sf);
       else hideLoading();
       if (revision !== openRevision) return;
@@ -1499,9 +1695,9 @@
         startRenderLoop();
       } else showLoading('Error: ' + (e.message || e), 0);
     } finally {
-      if (revision === openRevision) setToolsBusy(!midi);
-      if (revision === openRevision && importFontButton) importFontButton.disabled=!midi;
+      if (revision === openRevision) { setToolsBusy(!midi); updateSoundFontControl(); }
     }
+    return revision === openRevision && !!midi;
   };
 
   window.addEventListener('beforeunload',()=>{clearTimeout(noticeTimer);window.setVisualizerActive(false);});
@@ -1509,7 +1705,8 @@
   window.setVisualizerActive = visible => {
     visualizerActive = visible;
     if (!visible) {
-        if (recording) finishVideoRender(true);
+      offlineRender?.controller.abort();
+      if (recording) finishVideoRender(true);
       if (isPlaying && !isPaused) pausePlayback();
       if (sceneMedia?.tagName === 'VIDEO') sceneMedia.pause();
       if (animFrameId) {cancelAnimationFrame(animFrameId);animFrameId=null;}

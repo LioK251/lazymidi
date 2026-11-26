@@ -118,7 +118,7 @@ it("does not restart hidden animation when an asynchronous MIDI load finishes",a
     const loading=w.openPianoVisualizer("test.mid");
     w.setVisualizerActive(false);
     finishLibrary();await loading;
-    expect(w.document.getElementById("pv-export-hands").disabled).toBe(false);
+    expect(w.document.getElementById("pv-render-video").disabled).toBe(false);
     expect(raf).not.toHaveBeenCalled();
     w.setVisualizerActive(true);
     expect(raf).toHaveBeenCalledOnce();
@@ -170,7 +170,7 @@ it("loads a selected SoundFont with bounded ranges and detects incomplete delive
     await new Promise(resolve=>setTimeout(resolve,0));
     await w.refreshPianoSoundFonts("/soundfonts/test.sf2");await new Promise(resolve=>setTimeout(resolve,0));
     expect(errors).toHaveBeenCalledWith("SoundFont load error:",expect.objectContaining({message:"Incomplete SoundFont byte range."}));
-    expect(w.document.getElementById("pv-export-hands").disabled).toBe(false);
+    expect(w.document.getElementById("pv-render-video").disabled).toBe(false);
   }finally{w.close();}
 });
 
@@ -188,7 +188,7 @@ it("ignores an old MIDI response after a newer song has loaded",async()=>{
     for(const file of ["piano-styles.js","piano-enhancements.js","piano-visualizer.js"])w.eval(source(file));
     const old=w.openPianoVisualizer("old.mid");await started;await w.openPianoVisualizer("new.mid");
     finishOld({ok:true,arrayBuffer:async()=>midi.toArray().buffer});await old;
-    expect(parsed).toHaveBeenCalledOnce();expect(w.document.getElementById("pv-export-hands").disabled).toBe(false);
+    expect(parsed).toHaveBeenCalledOnce();expect(w.document.getElementById("pv-render-video").disabled).toBe(false);
     expect(w.document.getElementById("pv-title")).toBeNull();
   }finally{w.close();}
 });

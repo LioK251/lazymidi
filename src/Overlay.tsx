@@ -110,7 +110,19 @@ export default function Overlay({kind}:{kind:string}) {
       if(result?.midi_filename)await changeMode("piano",{},result.midi_filename);
     }catch(e){setError(api.errorText(e));}
   }
-  useLayoutEffect(()=>{if(restoreScroll.current!==null&&scroll.current){scroll.current.scrollTop=restoreScroll.current;restoreScroll.current=null;}},[sheet]);
+  const sheetIdentity=sheet.source?.midi_filename??sheet.revision;
+  const previousSheet=useRef(sheetIdentity);
+  useLayoutEffect(()=>{
+    const scroller=scroll.current;
+    if(previousSheet.current!==sheetIdentity){
+      previousSheet.current=sheetIdentity;
+      if(scroller){scroller.scrollTop=0;scroller.scrollLeft=0;}
+      restoreScroll.current=null;
+    }else if(scroller&&restoreScroll.current!==null){
+      scroller.scrollTop=restoreScroll.current;
+      restoreScroll.current=null;
+    }
+  },[sheet,sheetIdentity]);
   async function regenerate(changes:Values){const current=sheetRef.current;if(!current.source||busy)return;setBusy(true);setError("");restoreScroll.current=scroll.current?.scrollTop??0;
     try{const value=await invoke<SheetContent>("generate_sheet",{midiFilename:current.source.midi_filename,settings:{...current.source.settings,...changes},expectedRevision:current.revision??null});setSheet(p=>(value.revision??0)>=(p.revision??0)?value:p);}
     catch(e){restoreScroll.current=null;setError(api.errorText(e));}finally{setBusy(false);}

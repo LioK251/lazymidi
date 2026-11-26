@@ -13,11 +13,9 @@
   globalThis.lazymidiVideoCleanup?.();
   globalThis.lazymidiVideoCleanup=()=>{stopped=true;timers.forEach(clearInterval);document.getElementById(BTN_ID)?.remove();};
   const POLL_INTERVAL = 2000;
-  const MAX_POLLS = 900; // 2s each — 30 min, same ceiling as the web UI
+  const MAX_POLLS = 900; // Allow 30 minutes of processing after the job leaves the queue.
   const HEALTH_INTERVAL = 3000;
 
-  // A conversion in flight must survive a health-check blip
-  let busy = false;
   let syncing = false;
 
   function isVideoPage() {
@@ -96,10 +94,10 @@
 
   function resetLater(btn, delay) {
     setTimeout(() => {
+      if (!btn.isConnected) return;
       setState(btn, IDLE_LABEL, '');
       btn.disabled = false;
       btn.title = '';
-      busy = false;
       syncButton();
     }, delay);
   }
@@ -113,13 +111,12 @@
     }
   }
 
-  async function convert(btn) {
+  async function convert(btn, url) {
     btn.disabled = true;
-    busy = true;
-    setState(btn, 'Starting…', 'busy');
+    setState(btn, 'Submitting…', 'busy');
 
     try {
-      const started = await sendToWorker({ action: 'startConvert', url: getVideoUrl() });
+      const started = await sendToWorker({ action: 'startConvert', url });
       if (!started || !started.success) {
         throw new Error((started && started.error) || 'Could not start the conversion');
       }
@@ -127,16 +124,16 @@
       const taskId = started.task_id;
       let polls = 0;
 
-      while (polls < MAX_POLLS) {
+      while (btn.isConnected && polls < MAX_POLLS) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-        polls++;
-
+        if (!btn.isConnected) return;
         const status = await sendToWorker({ action: 'convertStatus', taskId });
         if (!status || !status.success) {
           throw new Error((status && status.error) || 'Lost contact with the app');
         }
 
         const state = status.data || {};
+        if (state.status !== 'queued') polls++;
 
         if (state.status === 'completed') {
           setState(btn, '✓ Added to app', 'done');
@@ -156,8 +153,9 @@
         setState(btn, state.progress || 'Processing…', 'busy');
       }
 
-      throw new Error('Timed out after 30 minutes');
+      if (btn.isConnected) throw new Error('Timed out after 30 minutes. Check the extension popup for progress.');
     } catch (err) {
+      if (!btn.isConnected) return;
       console.error('lazymidi:', err);
       setState(btn, '✕ ' + err.message, 'error');
       btn.title = err.message;
@@ -165,12 +163,12 @@
     }
   }
 
-  function injectButton() {
+  function injectButton(url) {
     if (document.getElementById(BTN_ID)) return;
-    if (!isVideoPage()) return;
 
     const btn = acCreateGlassButton(BTN_ID, IDLE_LABEL);
-    btn.addEventListener('click', () => convert(btn));
+    btn.dataset.videoUrl = url;
+    btn.addEventListener('click', () => convert(btn, url));
     document.body.appendChild(btn);
   }
 
@@ -181,19 +179,17 @@
 
     try {
       const existing = document.getElementById(BTN_ID);
-      const onVideoPage = isVideoPage();
+      const url = isVideoPage() ? getVideoUrl() : '';
+      if (existing && existing.dataset.videoUrl !== url) existing.remove();
 
-      if (!onVideoPage) {
-        if (existing) existing.remove();
-        return;
-      }
+      if (!url) return;
 
       const page=location.href;
       const alive = await isAppRunning();
       if(stopped||location.href!==page)return;
-      if(alive&&!busy)injectButton();
+      if(alive)injectButton(url);
       const current = document.getElementById(BTN_ID);
-      if(current){current.dataset.lazymidiOnline=String(alive);current.hidden=!alive;if(!alive&&!busy)current.remove();}
+      if(current){current.dataset.lazymidiOnline=String(alive);current.hidden=!alive;if(!alive&&!current.disabled)current.remove();}
     } finally {
       syncing = false;
     }
@@ -208,10 +204,6 @@
     timers.push(setInterval(() => {
       if (location.href !== lastUrl) {
         lastUrl = location.href;
-        if (!busy) {
-          const old = document.getElementById(BTN_ID);
-          if (old) old.remove();
-        }
         syncButton();
       }
     }, 1500));

@@ -9,6 +9,7 @@
 *.log
 /test-results/
 /playwright-report/
+/local-tests/
 __pycache__/
 *.pyc
 

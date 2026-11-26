@@ -26,6 +26,7 @@ beforeEach(()=>{
   });
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
+const waitForConverter=()=>waitFor(()=>expect((screen.getByRole("button",{name:"Choose audio or video"}) as HTMLButtonElement).disabled).toBe(false));
 it("keeps library actions as Sheet, Export and Delete regardless of the Piano setting",async()=>{
   const original=vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
@@ -34,7 +35,8 @@ it("keeps library actions as Sheet, Export and Delete regardless of the Piano se
     return original(command,args);
   });
   const onError=vi.fn();const view=render(<Converter active onError={onError}/>);
-  await screen.findByText("Ready");
+  await waitForConverter();
+  expect(screen.queryByText("Ready")).toBeNull();
   expect(screen.getAllByRole("button",{name:"Piano"})).toHaveLength(1);
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Choose audio or video"}));});
   await screen.findByRole("heading",{name:"MIDI ready"});
@@ -83,7 +85,7 @@ it("saves the compute preference immediately, restores it, and keeps draft forma
     if(a?.path==="/api/settings"){if(a.body)saved=a.body;return saved;}
     return original(command,args);
   });
-  const first=render(<Converter active onError={vi.fn()}/>);await screen.findByText("Ready");
+  const first=render(<Converter active onError={vi.fn()}/>);await waitForConverter();
   fireEvent.click(screen.getByRole("button",{name:"Sheets"}));
   fireEvent.change(screen.getByLabelText("Chord grouping (ms)"),{target:{value:"80"}});
   fireEvent.click(screen.getByRole("button",{name:"Convert"}));
@@ -123,7 +125,7 @@ it.each(["cuda","mps"])("uses the checked %s capability and keeps an unavailable
     if((args as {path?:string})?.path==="/api/settings")return {compute_device:gpu};
     return original(command,args);
   });
-  const first=render(<Converter active onError={vi.fn()}/>);await screen.findByText("Ready");
+  const first=render(<Converter active onError={vi.fn()}/>);await waitForConverter();
   expect((screen.getByLabelText("Compute device") as HTMLSelectElement).value).toBe(gpu);
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Choose audio or video"}));});
   expect(invoke).toHaveBeenCalledWith("converter_pick",{kind:"media",device:gpu});
@@ -171,7 +173,7 @@ it("rechecks legacy runtime metadata once and restores its saved GPU preference"
     return original(command,args);
   });
   await act(async()=>{render(<Converter active={false} onError={vi.fn()}/>);});
-  await screen.findByText("Ready");
+  await waitForConverter();
   expect(vi.mocked(invoke).mock.calls.filter(([command])=>command==="converter_use_environment")).toEqual([["converter_use_environment",{recheck:true}]]);
   expect((screen.getByLabelText("Compute device") as HTMLSelectElement).value).toBe("cuda");
 });
@@ -279,7 +281,7 @@ it("saves Always open Float immediately without saving draft formatting, and res
     return original(command,args);
   });
   const view=render(<Converter active onError={vi.fn()}/>);
-  await screen.findByText("Ready");
+  await waitForConverter();
   fireEvent.click(screen.getByRole("button",{name:"Sheets"}));
   expect((screen.getByLabelText("Always open Float") as HTMLInputElement).checked).toBe(false);
   fireEvent.change(screen.getByLabelText("Chord grouping (ms)"),{target:{value:"80"}});
@@ -471,7 +473,7 @@ it("imports history and converted MIDI from Library and refreshes the cards",asy
   });
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
   fireEvent.click(screen.getByRole("button",{name:"Library"}));
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Import history & MIDI folder"}));});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Import MIDI folder"}));});
   expect(await screen.findByRole("article",{name:"Imported song"})).toBeTruthy();
   expect(screen.getByRole("status").textContent).toContain("Imported 1 MIDI files and 1 history entries");
   expect(invoke).not.toHaveBeenCalledWith("app_command",expect.anything());
@@ -483,11 +485,11 @@ it("limits large libraries to 24 previews and searches across all pages",async()
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
   fireEvent.click(screen.getByRole("button",{name:"Library"}));
   expect(screen.getAllByRole("article")).toHaveLength(24);
-  fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  fireEvent.click(screen.getByRole("button",{name:"Next"}));
   expect(screen.getAllByRole("article")).toHaveLength(2);
   fireEvent.change(screen.getByRole("textbox",{name:"Search library"}),{target:{value:"Song 1"}});
   expect(screen.getAllByRole("article")).toHaveLength(11);
-  expect(screen.queryByRole("button",{name:"Next page"})).toBeNull();
+  expect(screen.queryByRole("button",{name:"Next"})).toBeNull();
 });
 
 it("returns to the browsing page after searching, clearing, switching sections and opening Sheet",async()=>{
@@ -495,12 +497,12 @@ it("returns to the browsing page after searching, clearing, switching sections a
   vi.mocked(invoke).mockImplementation(async(command,args)=>(args as {path?:string})?.path==="/api/midi-files"?{midi_files:Array.from({length:120},(_,i)=>({...file,filename:`song-${i}.mid`,video_title:`Song ${i}`}))}:original(command,args));
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
   fireEvent.click(screen.getByRole("button",{name:"Library"}));
-  for(let i=0;i<4;i++)fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  for(let i=0;i<4;i++)fireEvent.click(screen.getByRole("button",{name:"Next"}));
   expect(screen.getByText("97–120 of 120")).toBeTruthy();
   const search=screen.getByRole("textbox",{name:"Search library"});
   fireEvent.change(search,{target:{value:"Song 1"}});
   expect(screen.getByText("1–24 of 31")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  fireEvent.click(screen.getByRole("button",{name:"Next"}));
   fireEvent.change(search,{target:{value:"Song"}});
   expect(screen.getByText("1–24 of 120")).toBeTruthy();
   fireEvent.change(search,{target:{value:""}});
@@ -518,7 +520,7 @@ it("clamps the remembered browsing page when files disappear during a search",as
   vi.mocked(invoke).mockImplementation(async(command,args)=>(args as {path?:string})?.path==="/api/midi-files"?{midi_files:Array.from({length:count},(_,i)=>({...file,filename:`song-${i}.mid`,video_title:`Song ${i}`}))}:original(command,args));
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
   fireEvent.click(screen.getByRole("button",{name:"Library"}));
-  fireEvent.click(screen.getByRole("button",{name:"Next page"}));fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  fireEvent.click(screen.getByRole("button",{name:"Next"}));fireEvent.click(screen.getByRole("button",{name:"Next"}));
   fireEvent.change(screen.getByRole("textbox",{name:"Search library"}),{target:{value:"missing"}});
   count=25;await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Refresh"}));});
   fireEvent.change(screen.getByRole("textbox",{name:"Search library"}),{target:{value:" "}});
@@ -535,7 +537,7 @@ it.each([false,true])("keeps the library page after Sheet and returning focus (a
   });
   const error=vi.fn();await act(async()=>{render(<Converter active onError={error}/>);});
   fireEvent.click(screen.getByRole("button",{name:"Library"}));
-  fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  fireEvent.click(screen.getByRole("button",{name:"Next"}));
   expect(screen.getByText("25–26 of 26")).toBeTruthy();
   await act(async()=>{fireEvent.click(within(screen.getByRole("article",{name:"Song 24"})).getByRole("button",{name:"Sheet"}));});
   expect(invoke).toHaveBeenCalledWith("generate_sheet",expect.objectContaining({midiFilename:"song-24.mid"}));
@@ -552,8 +554,8 @@ it("clamps removed library pages on refresh and resets to the first page only fo
   vi.mocked(invoke).mockImplementation(async(command,args)=>(args as {path?:string})?.path==="/api/midi-files"?{midi_files:Array.from({length:count},(_,i)=>({...file,filename:`song-${i}.mid`,video_title:`Song ${i}`}))}:original(command,args));
   await act(async()=>{render(<Converter active onError={vi.fn()}/>);});
   fireEvent.click(screen.getByRole("button",{name:"Library"}));
-  fireEvent.click(screen.getByRole("button",{name:"Next page"}));
-  fireEvent.click(screen.getByRole("button",{name:"Next page"}));
+  fireEvent.click(screen.getByRole("button",{name:"Next"}));
+  fireEvent.click(screen.getByRole("button",{name:"Next"}));
   expect(screen.getByText("49–60 of 60")).toBeTruthy();
   count=25;
   await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Refresh"}));});

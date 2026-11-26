@@ -1149,7 +1149,7 @@ pub async fn converter_pick(
         let path = if kind == "import" {
             app.dialog()
                 .file()
-                .set_title("Import history and MIDI · choose converter or MIDI folder")
+                .set_title("Import MIDI folder")
                 .blocking_pick_folder()
         } else {
             app.dialog()

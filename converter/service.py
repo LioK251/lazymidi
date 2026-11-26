@@ -7,6 +7,8 @@ import hashlib
 import json
 import math
 import pathlib
+import queue
+import re
 import secrets
 import shutil
 import stat
@@ -32,17 +34,39 @@ _submission = threading.Lock()
 _active = set()
 _active_lock = threading.Lock()
 _runtime_switching = False
-def tracked_job(function):
-    def run(task_id, *args, **kwargs):
-        with _active_lock: _active.add(task_id)
-        try: return function(task_id, *args, **kwargs)
+_jobs = queue.Queue()
+_worker = None
+MAX_EXTENSION_JOBS = 8
+
+def run_jobs():
+    while True:
+        function, task_id, args = _jobs.get()
+        try:
+            function(task_id, *args)
+        except Exception:
+            app.logger.exception("Conversion worker failed")
+            upstream.conversion_tasks[task_id] = {"status":"error","error":"Conversion worker failed."}
         finally:
             if upstream._is_cancelled(task_id):
                 upstream.conversion_tasks[task_id] = {"status":"cancelled","progress":"Cancelled by user"}
             with _active_lock: _active.discard(task_id)
-    return run
-upstream.run_conversion_task = tracked_job(upstream.run_conversion_task)
-upstream.run_file_conversion_task = tracked_job(upstream.run_file_conversion_task)
+            _jobs.task_done()
+
+def submit_conversion(function, task_id, *args):
+    global _worker
+    # The submission lock covers worker creation and preserves request order.
+    if _worker is None:
+        worker = threading.Thread(target=run_jobs, daemon=True)
+        try:
+            worker.start()
+        except RuntimeError:
+            upstream.conversion_tasks.pop(task_id, None)
+            raise
+        _worker = worker
+    with _active_lock: _active.add(task_id)
+    _jobs.put((function, task_id, args))
+
+upstream.submit_conversion = submit_conversion
 FINAL = {"completed", "error", "cancelled"}
 JSON_ENDPOINTS = {"/api/health", "/api/convert", "/api/history", "/api/history/delete", "/api/settings", "/api/convert-to-sheets", "/api/piano-sheet", "/api/upload-midi", "/api/import-midi", "/api/upload-media", "/api/midi-files", "/api/sheet-content", "/api/soundfonts", "/api/upload-soundfont", "/api/visualizer-background", "/api/import-data", "/api/extension-health", "/api/runtime-switch"}
 
@@ -65,7 +89,8 @@ def authenticate():
     if extension_auth:
         from flask import g
         g.extension_auth = True
-        allowed = request.path in {"/api/convert", "/api/import-midi", "/api/extension-health"} or any(request.path == prefix + job for job in EXTENSION_JOBS for prefix in ("/api/status/", "/api/stop/"))
+        endpoint, _, task_id = request.path.rpartition("/")
+        allowed = request.path in {"/api/convert", "/api/import-midi", "/api/extension-health"} or (endpoint in {"/api/status", "/api/stop"} and task_id in EXTENSION_JOBS)
         if not allowed: abort(403)
     allowed = request.path in JSON_ENDPOINTS or any(request.path.startswith(p) for p in ("/api/status/", "/api/stop/", "/api/midi/", "/converted/", "/soundfonts/", "/visualizer-backgrounds/"))
     if not allowed: abort(404)
@@ -75,8 +100,11 @@ def authenticate():
         g.submission_lock = True
         if _runtime_switching:
             return jsonify(error="Converter runtime is changing. Try again after setup."), 409
-        with _active_lock: active = bool(_active)
-        if active or any(t.get("status") not in FINAL for t in list(upstream.conversion_tasks.values())):
+        with _active_lock: active = len(_active)
+        if extension_auth and request.path == "/api/convert":
+            if active >= MAX_EXTENSION_JOBS:
+                return jsonify(error="The conversion queue is full. Try again after a job finishes."), 429
+        elif active or any(t.get("status") not in FINAL for t in list(upstream.conversion_tasks.values())):
             return jsonify(error="A conversion is already running."), 409
 
 @app.after_request
@@ -150,11 +178,25 @@ def extension_connect(): abort(401)
 @app.route("/api/upload-soundfont", methods=["POST"])
 def upload_soundfont():
     upload = request.files.get("file")
-    if not upload or pathlib.Path(upload.filename).suffix.lower() != ".sf2": abort(400)
+    if not upload: abort(400)
+    original = upload.filename.replace("\\", "/").rsplit("/", 1)[-1]
+    if pathlib.Path(original).suffix.lower() != ".sf2": abort(400)
     header=upload.stream.read(12);upload.stream.seek(0)
     if header[:4]!=b"RIFF" or header[8:12]!=b"sfbk": return jsonify(error="Choose a valid SF2 SoundFont."),400
     name = uuid.uuid4().hex + ".sf2"
-    upload.save(DATA / "soundfonts" / name)
+    path = DATA / "soundfonts" / name
+    temporary = path.with_suffix(".part")
+    metadata = path.with_suffix(".sf2.json")
+    display_name = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", original[:-4]).strip()[:250] or "Imported SoundFont"
+    try:
+        upload.save(temporary)
+        atomic_json(metadata, {"display_name": display_name + original[-4:]})
+        temporary.replace(path)
+    except OSError:
+        metadata.unlink(missing_ok=True)
+        raise
+    finally:
+        temporary.unlink(missing_ok=True)
     return jsonify(filename=name)
 
 def copy_import(source, target):

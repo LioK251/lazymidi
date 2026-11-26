@@ -23,7 +23,7 @@ import requests
 import hashlib
 import math
 from html import unescape as html_unescape
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 import uuid
 import pretty_midi
 import tempfile
@@ -1393,6 +1393,32 @@ def serve_visualizer_background(filename):
         folder = os.path.join(_data_dir, 'visualizer-backgrounds')
     return send_from_directory(folder, filename, as_attachment=False, max_age=86400)
 
+def soundfont_bank_name(path):
+    # SF2 puts its INFO list before the samples. Read just the metadata prefix.
+    try:
+        with open(path, "rb") as file:
+            prefix = file.read(65536)
+    except OSError:
+        return ""
+    if prefix[:4] != b"RIFF" or prefix[8:16] != b"sfbkLIST" or prefix[20:24] != b"INFO":
+        return ""
+    end = min(len(prefix), 20 + int.from_bytes(prefix[16:20], "little"))
+    cursor = 24
+    while cursor + 8 <= end:
+        tag = prefix[cursor:cursor + 4]
+        size = int.from_bytes(prefix[cursor + 4:cursor + 8], "little")
+        start = cursor + 8
+        if start + size > end:
+            break
+        if tag == b"INAM" and 0 < size <= 256:
+            name = prefix[start:start + size].split(b"\0", 1)[0]
+            try:
+                return name.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                return name.decode("cp1252", errors="replace").strip()
+        cursor = start + size + (size & 1)
+    return ""
+
 @csrf.exempt
 @app.route("/api/soundfonts", methods=["GET"])
 def api_list_soundfonts():
@@ -1401,13 +1427,22 @@ def api_list_soundfonts():
         if not os.path.exists(SOUNDFONTS_FOLDER):
             return jsonify({"soundfonts": []})
         soundfonts = []
+        unnamed = 0
         for filename in sorted(os.listdir(SOUNDFONTS_FOLDER)):
-            if filename.lower().endswith('.sf2') and os.path.isfile(os.path.join(SOUNDFONTS_FOLDER, filename)):
-                file_size = os.path.getsize(os.path.join(SOUNDFONTS_FOLDER, filename))
+            path = os.path.join(SOUNDFONTS_FOLDER, filename)
+            if filename.lower().endswith('.sf2') and os.path.isfile(path):
+                display_name = filename
+                if re.fullmatch(r"[\da-f]{32}(?:_\d+)?\.sf2", filename, re.IGNORECASE):
+                    original = read_json(path + ".json", {}).get("display_name")
+                    display_name = original if isinstance(original, str) else soundfont_bank_name(path)
+                    if not display_name.strip():
+                        unnamed += 1
+                        display_name = f"Imported SoundFont {unnamed}"
                 soundfonts.append({
                     "filename": filename,
-                    "url": f"/soundfonts/{filename}",
-                    "size": file_size,
+                    "display_name": display_name,
+                    "url": f"/soundfonts/{quote(filename, safe='')}",
+                    "size": os.path.getsize(path),
                 })
         return jsonify({"soundfonts": soundfonts})
     except Exception as e:
@@ -1492,6 +1527,9 @@ conversion_tasks = {}
 task_results = {}
 _cancelled_tasks = set()
 
+def submit_conversion(function, *args):
+    Thread(target=function, args=args, daemon=True).start()
+
 def _is_cancelled(task_id: str) -> bool:
     return task_id in _cancelled_tasks or conversion_tasks.get(task_id, {}).get("status") == "cancelled"
 
@@ -1519,10 +1557,9 @@ def _cleanup_files(*filepaths: str):
 def run_conversion_task(task_id: str, url: str, device: str = None):
     with app.app_context():
         try:
-            conversion_tasks[task_id] = {"status": "processing", "progress": "Starting download..."}
-            
             if _is_cancelled(task_id):
                 return
+            conversion_tasks[task_id] = {"status": "processing", "progress": "Starting download..."}
             
             source = detect_source(url)
             if source is None:
@@ -1730,9 +1767,7 @@ def api_convert():
         task_id = str(uuid.uuid4())
         conversion_tasks[task_id] = {"status": "queued", "progress": "Queued for processing"}
 
-        thread = Thread(target=run_conversion_task, args=(task_id, url, device))
-        thread.daemon = True
-        thread.start()
+        submit_conversion(run_conversion_task, task_id, url, device)
 
         return jsonify({"task_id": task_id, "status": "queued"}), 202
 
@@ -2231,9 +2266,7 @@ def api_upload_media():
         task_id = str(uuid.uuid4())
         conversion_tasks[task_id] = {"status": "queued", "progress": "Queued for processing"}
 
-        thread = Thread(target=run_file_conversion_task, args=(task_id, original_path, device))
-        thread.daemon = True
-        thread.start()
+        submit_conversion(run_file_conversion_task, task_id, original_path, device)
         
         return jsonify({"task_id": task_id, "status": "queued"}), 202
         

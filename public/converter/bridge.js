@@ -95,13 +95,13 @@ window.addEventListener('message',event=>{
     if(assetRoot&&settings.visualizer_soundfont!==previousFont)void window.refreshPianoSoundFonts?.(window.resolvePianoSoundFont(settings.visualizer_soundfont));
     window.dispatchEvent(new CustomEvent('piano-style-change',{detail:settings.visualizer_style}));
   }
-  if(message?.type==='converter-import-complete')window.dispatchEvent(new CustomEvent('piano-import-complete'));
-  if(message?.type==='converter-soundfonts')void window.refreshPianoSoundFonts?.(assetRoot+'soundfonts/'+encodeURIComponent(message.filename));
+  if(message?.type==='converter-import-complete')window.dispatchEvent(new CustomEvent('piano-import-complete',{detail:message.filename&&window.resolvePianoSoundFont('/soundfonts/'+encodeURIComponent(message.filename))}));
+  if(message?.type==='converter-appearance-closed')document.getElementById('pv-appearance')?.focus();
   if(message?.type==='converter-visualize') {
     const revision=++visualizeRevision;
     playbackRevision=message.revision;
     settings=canonicalSettings(message.settings);
     assetRoot=message.assetRoot;
-    if(message.filename)void window.openPianoVisualizer(message.filename,message.midiBase64).then(()=>{if(revision===visualizeRevision)parent.postMessage({type:'converter-visualizer-ready',filename:message.filename,loaded:document.getElementById('pv-export-hands')?.disabled===false},location.origin);});
+    if(message.filename)void window.openPianoVisualizer(message.filename,message.midiBase64).then(loaded=>{if(revision===visualizeRevision)parent.postMessage({type:'converter-visualizer-ready',filename:message.filename,loaded:!!loaded},location.origin);});
   }
 });

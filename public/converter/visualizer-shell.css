@@ -1,8 +1,8 @@
-:root{color-scheme:dark;--pv-accent:#c4ddd0;--card-border:#333}
-body{margin:0;background:#131313;color:#e6e6e6;font:13px "Segoe UI",system-ui,sans-serif}
-button,input,select{font:inherit;border:1px solid #333;background:#1e1e1e;color:inherit;border-radius:0;padding:5px 8px}
+:root{color-scheme:dark;--pv-accent:var(--accent);--card-border:var(--border)}
+body{margin:0;background:var(--surface);color:var(--text);font:13px "Segoe UI",system-ui,sans-serif}
+button,input,select{font:inherit;border:1px solid var(--border);background:var(--panel);color:inherit;border-radius:0;padding:5px 8px}
 button{cursor:pointer}
-button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #c4ddd0!important;outline-offset:2px;box-shadow:none!important}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent)!important;outline-offset:2px;box-shadow:none!important}
 .hidden{display:none!important}
 #piano-visualizer-modal{height:100vh}
 #piano-visualizer-content{width:100%!important;max-width:none!important;height:100vh!important;max-height:none!important;border:0;display:flex;flex-direction:column}
@@ -11,22 +11,22 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 #pv-tools-status{margin:5px 8px;color:#c9c9c9;font-size:12px}
 #pv-tools-status:empty,.pv-status:empty{display:none}
 .pv-stage{flex:1;min-height:120px}
-.pv-controls{background:#1e1e1e!important;border-top:1px solid #333;gap:8px;padding:8px;min-height:0}
+.pv-controls{background:var(--panel)!important;border-top:1px solid var(--border);gap:8px;padding:8px;min-height:0}
 .pv-controls button,.pv-controls select,#pv-hand-editor button,#pv-hand-editor select{
-  font:inherit!important;border:1px solid #333!important;background:#1e1e1e!important;color:#e6e6e6!important;
+  font:inherit!important;border:1px solid var(--border)!important;background:var(--panel)!important;color:var(--text)!important;
   border-radius:0!important;min-height:32px!important;padding:5px 8px;box-shadow:none!important;transform:none!important;
   transition:background .1s,border-color .1s
 }
-.pv-controls button:hover,.pv-controls select:hover,#pv-hand-editor button:hover{background:#2b2b2b!important;border-color:#555!important}
-.pv-controls button[aria-pressed=true],.pv-controls button.active{background:#29342e!important;border-color:#c4ddd0!important}
-.pv-controls button:disabled,#pv-hand-editor button:disabled{opacity:.45;cursor:default}
-.pv-controls select:focus{box-shadow:none!important;border-color:#c4ddd0!important}
+.pv-controls button:hover,.pv-controls select:hover,#pv-hand-editor button:hover,#pv-hand-editor select:hover{background:var(--control-hover)!important;border-color:var(--control-hover-border)!important}
+.pv-controls button[aria-pressed=true],.pv-controls button.active{background:var(--control-pressed)!important;border-color:var(--control-pressed-border)!important}
+.pv-controls button:disabled,#pv-hand-editor button:disabled{opacity:.42;cursor:default}
+.pv-controls select:focus{box-shadow:none!important;border-color:var(--accent)!important}
 .pv-transport button{width:32px;height:32px;padding:0;font-size:14px!important}
 .pv-time{font-size:12px;color:#aaa;min-width:84px}
 .pv-speed-control,.pv-style-control{font:inherit;color:#aaa}
 .pv-soundfont-controls,.pv-hand-controls{display:flex;align-items:center;gap:6px;max-width:100%;flex-wrap:wrap}
 .pv-soundfont-controls select{max-width:180px;min-width:100px}
-#pv-import-soundfont{white-space:nowrap}
+:root:not(.score-transport) .pv-soundfont-controls select{max-width:144px;text-overflow:ellipsis}
 .pv-volume-group{gap:6px}
 .pv-volume-icon{display:flex;align-items:center;justify-content:center;width:32px;padding:0!important;color:#aaa}
 .pv-loading-overlay{background:rgba(19,19,19,.95)}
@@ -37,7 +37,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}.pv-loading-spinner{animation:none}}
 .score-transport #piano-visualizer-modal,.score-transport #piano-visualizer-content{height:auto!important;min-height:0}
 .score-transport .pv-stage{flex:none;min-height:0}
-.score-transport #pv-canvas,.score-transport .pv-hand-controls,.score-transport #pv-hand-editor{display:none!important}
+.score-transport #pv-canvas,.score-transport .pv-hand-controls,.score-transport #pv-hand-editor,.score-transport #pv-appearance{display:none!important}
 .score-transport .pv-loading-overlay{position:static;padding:4px 8px;min-height:0;gap:4px;background:transparent}
 .score-transport .pv-loading-spinner,.score-transport .pv-loading-progress{display:none}
 .score-transport .pv-loading-text{font-size:12px}

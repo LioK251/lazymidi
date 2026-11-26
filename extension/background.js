@@ -1,5 +1,6 @@
 // Local discovery and service credentials stay in the extension worker.
 let connecting;
+let jobUpdates = Promise.resolve();
 function connect() {
   if(!connecting)connecting=(async()=>{
     const bases=Array.from({length:8},(_,i)=>`http://127.0.0.1:${27653+i}`);
@@ -35,7 +36,7 @@ function describeFetchError(err) {
     : message;
 }
 
-async function startConvert(value) {
+async function startConvert(value, pageTitle) {
   const url = new URL(value);
   const discord = /^(cdn|media)\.discordapp\.(com|net)$/.test(url.hostname);
   const video = ['youtube.com','www.youtube.com','youtu.be','tiktok.com','www.tiktok.com','vm.tiktok.com','vt.tiktok.com'].includes(url.hostname);
@@ -49,8 +50,14 @@ async function startConvert(value) {
   });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok || !payload.task_id) throw new Error(payload.error || `Server returned HTTP ${res.status}`);
-  await chrome.storage.session.set({lastJobId:payload.task_id,jobError:''});
-  await chrome.action.setBadgeText({text:'…'});
+  const mediaName = url.pathname.split('/').at(-1);
+  const title = (discord ? mediaName : pageTitle?.trim() || url.searchParams.get('v') || mediaName) || url.hostname;
+  jobUpdates = jobUpdates.then(async () => {
+    const {conversionJobs = []} = await chrome.storage.session.get('conversionJobs');
+    await chrome.storage.session.set({conversionJobs:[...conversionJobs,{id:payload.task_id,title:title.slice(0,160)}].slice(-16),jobError:''});
+    await chrome.action.setBadgeText({text:'…'});
+  }).catch(error => console.warn('Could not update conversion status:', error));
+  await jobUpdates;
   return payload;
 }
 
@@ -70,7 +77,7 @@ chrome.contextMenus.onClicked.addListener(async info => {
   if (info.menuItemId !== 'lazymidi-discord') return;
   try { await startConvert(info.srcUrl || info.linkUrl); }
   catch (error) {
-    await chrome.storage.session.set({lastJobId:'',jobError:describeFetchError(error)});
+    await chrome.storage.session.set({jobError:describeFetchError(error)});
     await chrome.action.setBadgeText({text:'!'});
   }
 });
@@ -100,7 +107,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'startConvert') {
     (async () => {
       try {
-        const payload = await startConvert(request.url);
+        const payload = await startConvert(request.url, sender.tab?.title);
         sendResponse({ success: true, task_id: payload.task_id });
       } catch (err) {
         sendResponse({ success: false, error: describeFetchError(err) });
@@ -110,10 +117,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // async response
   }
 
-  if (request.action === 'convertStatus') {
+  if (request.action === 'convertStatus' || request.action === 'convertStop') {
     (async () => {
       try {
-        const res = await serviceFetch(`/api/status/${encodeURIComponent(request.taskId)}`);
+        const stop = request.action === 'convertStop';
+        const res = await serviceFetch(`/api/${stop?'stop':'status'}/${encodeURIComponent(request.taskId)}`, stop?{method:'POST'}:undefined);
         const payload = await res.json().catch(() => ({}));
 
         if (!res.ok) {

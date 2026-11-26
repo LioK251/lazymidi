@@ -105,15 +105,16 @@ a separate action.
 ### Conversion and library
 
 Use **Local file** for audio/video or **Media link** for supported YouTube,
-TikTok and Discord links. One conversion runs at a time, with two CPU threads
-when using CPU. Cancel stops its decoder and inference processes. Completed
-files remain in the library.
+TikTok and Discord links. The browser extension can queue several conversions
+and show each job in its popup. One job runs at a time, using two threads on
+CPU. Cancel removes a queued job or stops a running job. Completed files
+remain in the library.
 
 The compute preference saves immediately and also applies to browser jobs.
 A GPU that is unavailable falls back to CPU without erasing that preference.
 A conversion error offers a CPU retry; it does not silently rerun the job.
 
-**Import MIDI** opens an existing MIDI file. **Import history & MIDI folder**
+**Import MIDI** opens an existing MIDI file. **Import MIDI folder**
 copies an old converter library or a folder of MIDI files. Originals remain
 untouched; name collisions keep both versions, and repeated imports skip
 identical copies. Linked files and browser cookies are excluded.
@@ -173,10 +174,12 @@ the live viewer's zoom and layout unchanged. MusicXML import is not supported.
 ### Visualizer and browser extension
 
 Song previews open a reusable visualizer window with Basic synth, imported SF2
-fonts, styles, backgrounds, hand assignment and MIDI/video export. Closing the
+fonts, appearance controls, hand assignment and video export. Closing the
 window stops playback and keeps its loaded font cached until the app exits.
 Save appearance retains visual settings; Reset background preserves imported
-files. Video export requires the window to remain visible.
+files. Video export uses offline rendering when the system supports it. Video
+backgrounds, animated GIFs and larger exports use real-time rendering. Keep the
+window visible during either mode.
 
 Load `extension/` as an unpacked Chromium extension and keep Converter enabled.
 It connects automatically. Page buttons appear only when the local service is

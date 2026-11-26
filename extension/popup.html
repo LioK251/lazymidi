@@ -1,1 +1,10 @@
-<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="popup.css"></head><body><h1>lazymidi Converter</h1><p id="status" role="status">Connecting to lazymidi…</p><p id="job" role="status"></p><p>Keep lazymidi running with Converter enabled. Connection is automatic.</p><p>YouTube/TikTok: use <strong>Convert with lazymidi</strong> on the video page.<br>Discord: right-click an audio/video attachment → Convert with lazymidi.<br>MuseScore: choose your downloaded MIDI using the page button.</p><p>Reload media pages after installing or reloading the extension.</p><script src="popup.js"></script></body></html>
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="popup.css"></head><body>
+  <h1>lazymidi Converter</h1>
+  <p id="status" role="status">Connecting to lazymidi…</p>
+  <p id="job-error" role="status"></p>
+  <ul id="jobs" aria-label="Conversions"></ul>
+  <p>On YouTube or TikTok, click <strong>Convert with lazymidi</strong>. In Discord, right-click an audio or video attachment for the same action.</p>
+  <p>On MuseScore, click <strong>Download MIDI to lazymidi</strong>.</p>
+  <script src="popup.js"></script>
+</body></html>
