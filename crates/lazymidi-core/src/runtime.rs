@@ -367,15 +367,12 @@ type TestWriter = Box<dyn FnMut(&OutputAction) -> Result<()> + Send>;
 type TestBatchWriter = Box<dyn FnMut(&[OutputAction]) -> Result<()> + Send>;
 impl NativeOutput {
     fn supports_batches(&self) -> bool {
-        #[cfg(windows)]
-        if matches!(self, Self::Keyboard(_)) {
-            return true;
+        match self {
+            Self::Keyboard(_) => cfg!(windows),
+            #[cfg(test)]
+            Self::TestBatch { .. } => true,
+            _ => false,
         }
-        #[cfg(test)]
-        if matches!(self, Self::TestBatch { .. }) {
-            return true;
-        }
-        false
     }
     fn write_many(&mut self, actions: &[OutputAction]) -> Result<()> {
         #[cfg(windows)]
