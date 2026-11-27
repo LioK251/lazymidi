@@ -3,6 +3,7 @@ mod commands;
 mod converter;
 mod overlays;
 mod shortcuts;
+mod updates;
 use lazymidi_core::runtime::Runtime;
 use tauri::Manager;
 
@@ -56,10 +57,13 @@ fn main() {
             commands::save_project,
             commands::load_project,
             commands::shutdown,
+            updates::check_for_update,
+            updates::open_update_release,
             overlays::open_overlay,
             overlays::overlay_options,
             overlays::overlay_sheet,
             overlays::get_sheet,
+            overlays::export_qwerty_image,
             overlays::export_piano_sheet,
             overlays::generate_sheet,
             overlays::open_visualizer,

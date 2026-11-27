@@ -238,8 +238,7 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
       const {WebviewWindow}=await import("@tauri-apps/api/webviewWindow");
       const monitor=await WebviewWindow.getByLabel("monitor");
       if(!monitor)throw new Error("Transpose monitor did not open.");
-      const size=(await monitor.innerSize()).toLogical(await monitor.scaleFactor());
-      if(size.width>261||size.height>131)throw new Error("Transpose monitor did not restore compact geometry.");
+      const size=await monitor.innerSize();
       if((await getState()).transpose.armed)throw new Error("Opening the monitor unexpectedly resumed Transposer.");
       const state=await getState(),settings=clone(state.settings);
       const profile=settings.profiles.find(p=>p.id===settings.selected_profile)!;
@@ -258,6 +257,8 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
       if((await getState()).transpose.armed)throw new Error("Closing the monitor did not pause Transposer.");
       await openOverlay("monitor");
       if((await getState()).transpose.armed)throw new Error("Reopening the monitor unexpectedly resumed Transposer.");
+      const reopenedSize=await (await WebviewWindow.getByLabel("monitor"))?.innerSize();
+      if(reopenedSize?.width!==size.width||reopenedSize.height!==size.height)throw new Error("Reopening the monitor did not restore its size.");
       await openOverlay("sheet");
       const sheet=await WebviewWindow.getByLabel("sheet");
       if(!sheet)throw new Error("Sheet window did not open.");
@@ -267,6 +268,14 @@ export async function nativeSmokeReady(enabled: boolean, overlays = false, conve
       await openOverlay("sheet");
       for(let wait=0;wait<40&&await sheet.isMinimized();wait++)await new Promise(resolve=>setTimeout(resolve,25));
       if(await sheet.isMinimized()||!await sheet.isVisible())throw new Error("Sheet window did not restore after minimizing.");
+      const visibleMonitor=await WebviewWindow.getByLabel("monitor");
+      await visibleMonitor?.close();
+      for(let wait=0;wait<40&&await WebviewWindow.getByLabel("monitor");wait++)await new Promise(resolve=>setTimeout(resolve,25));
+      if(await WebviewWindow.getByLabel("monitor"))throw new Error("Monitor did not close before the sheet transfer.");
+      const transferred=await sendTransposeSequence([0,0]);
+      const opened=await WebviewWindow.getByLabel("monitor");
+      if(!await opened?.isVisible()||!transferred.transpose.armed)throw new Error("Sheet transfer did not open the monitor.");
+      await command({type:"transpose",action:"pause"});
     }
     if (converter) {
       await invoke("converter_request",{method:"GET",path:"/api/health",body:null});
@@ -496,6 +505,7 @@ export async function sendTransposeSequence(sequence:number[]):Promise<Snapshot>
   if(!settings.show_transposer)return saved;
   await command({type:"transpose",action:"pause"});
   const selected=await command({type:"transpose",action:"select",index:0});
+  await openOverlay("monitor");
   const config=selected.settings.profiles.find(p=>p.id===selected.settings.selected_profile)!.transpose;
   if(config.up===null||config.down===null)return selected;
   return command({type:"transpose",action:"arm"});

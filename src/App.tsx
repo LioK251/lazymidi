@@ -2,6 +2,7 @@ import {useNotice,useNoticeText} from "./notices";
 import {version} from "../package.json";
 import { useEffect, useRef, useState } from "react";
 import TitleBar from "./TitleBar";
+import UpdateNotice from "./UpdateNotice";
 import { listen } from "@tauri-apps/api/event";
 import * as api from "./backend";
 import Converter from "./Converter";
@@ -372,6 +373,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <UpdateNotice />
       <TitleBar label={`${version}${api.desktop ? "" : " · browser preview"}`} onError={setError} onClose={() => void run(() => api.closeApp(state.project_dirty))}>
         <button
           className="panic"

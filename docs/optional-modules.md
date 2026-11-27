@@ -26,8 +26,9 @@ Closing, minimizing or disabling the monitor pauses Transposer and cancels
 pending transpose output. Reopening or restoring it leaves Transposer paused.
 
 Game tracking starts automatically at 0, without a manual Sync control. Start the
-game at transpose 0, then use the monitor or Pause/Resume shortcut. The compact
-260 × 130 monitor keeps the values and centered Previous / Pause / Next
+game at transpose 0, then use the monitor or Pause/Resume shortcut. Float monitor
+starts at 260 × 130 and remembers its size when reopened. It keeps the values and
+centered Previous / Pause / Next
 controls, without a scrollbar, status line or current-value editor. Press Resume
 after opening or restoring the monitor. Resume applies
 the selected sequence entry before Next/Previous advance. Selecting a
@@ -60,9 +61,11 @@ settings changes preserve Analog and MIDI → QWERTY switches; musical mapping
 Apply still intentionally disarms QWERTY output.
 
 Float monitor is non-focusable. Float sheet accepts UTF-8 text, PNG, JPEG and
-WebP, including generated converter sheets. Zoom, opacity, scrolling, on-top
-controls are local to the viewer; mouse input stays enabled. Geometry is saved on close/exit and
-recovered onto an available monitor. Windows non-activating behavior still
+WebP, including generated converter sheets. In **QWERTY**, choose **Export**
+next to **Copy** to save the entire text sheet as a PNG. **Colors** and **Center**
+apply to the image. Zoom and scrolling control the on-screen view. Opacity and
+stay-on-top apply to the viewer window. The app saves window geometry on close
+and restores it onto an available monitor. Windows non-activating behavior still
 needs a live game check; macOS fullscreen and Linux compositor behavior vary.
 Global shortcuts use the Windows/macOS/X11 backend; native Wayland is unsupported.
 
@@ -155,7 +158,9 @@ notes and estimates a key when none was stored. For regular transcriptions with
 a placeholder MIDI clock, it estimates the written rhythm and tempo as well.
 Playback retains the selected tracks' original timing,
 velocities and pedals. QWERTY retains Auto, Multi, Manual and Original transpose
-modes, editable transpose headings and Send to Transposer.
+modes and editable transpose headings. In Multi and Manual modes, **Copy Transposes**
+copies the sequence as space-separated values. Choose **Transposer** to send the
+sheet sequence and open Float monitor when Transposer is enabled.
 
 Notation is automatic; freely timed performances and dense arrangements may
 need editing in a notation program. MIDI does not preserve the published score's

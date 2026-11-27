@@ -14,12 +14,13 @@ it("reports native smoke failures to the runner without changing normal startup"
   expect(invoke).toHaveBeenLastCalledWith("native_smoke_ready",{error:"Monitor did not pause"});
 });
 
-it("saves sheet transposes without changing bindings or musical switches",async()=>{
+it("saves sheet transposes and opens the monitor before resuming",async()=>{
   const api=await import("./backend");const state=api.initialState();state.analog_enabled=true;state.qwerty_enabled=true;
   const profile=state.settings.profiles.find(p=>p.id===state.settings.selected_profile)!;
   profile.transpose.up=82;profile.transpose.down=81;state.transpose.armed=true;state.transpose.selected=3;
   vi.mocked(invoke).mockImplementation(async(name,args)=>{
     if(name==="get_state")return api.clone(state);
+    if(name==="open_overlay"){expect(args).toEqual({kind:"monitor"});expect(state.transpose.armed).toBe(false);return;}
     const request=(args as {command:Record<string,unknown>}).command;
     if(request.type==="settings"){expect(request.expected_revision).toBe(state.revision);state.settings=request.settings as typeof state.settings;state.revision++;}
     if(request.action==="pause")state.transpose.armed=false;
@@ -31,8 +32,10 @@ it("saves sheet transposes without changing bindings or musical switches",async(
   expect(result.settings.profiles.find(p=>p.id===result.settings.selected_profile)!.transpose).toEqual({...profile.transpose,sequence:[4,-3,-3,0]});
   expect(result.transpose.armed).toBe(true);expect(result.transpose.selected).toBe(0);
   expect(result.analog_enabled&&result.qwerty_enabled).toBe(true);
+  expect(invoke).toHaveBeenNthCalledWith(5,"open_overlay",{kind:"monitor"});
+  expect(invoke).toHaveBeenNthCalledWith(6,"app_command",{command:{type:"transpose",action:"arm"}});
   for(const values of [[],[51],[1.5],Array(513).fill(0)])await expect(api.sendTransposeSequence(values)).rejects.toThrow("1–512");
-  expect(invoke).toHaveBeenCalledTimes(5);
+  expect(invoke).toHaveBeenCalledTimes(6);
 });
 
 it("opens and restores the monitor without automatically resuming transpose output",async()=>{
@@ -61,6 +64,7 @@ it("saves sheet transposes without resuming when bindings are missing",async()=>
   });
   const result=await api.sendTransposeSequence([4,-3]);
   expect(result.transpose.armed).toBe(false);
+  expect(invoke).toHaveBeenLastCalledWith("open_overlay",{kind:"monitor"});
 });
 
 it("does not pause or select after a stale sheet-transfer save is rejected",async()=>{

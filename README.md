@@ -1,22 +1,37 @@
-# lazymidi
+<p align="center"><img src="assets/icon.svg" width="80" height="80" alt=""></p>
+<h1 align="center">lazymidi</h1>
+<p align="center">Play virtual piano with a MIDI controller or Wooting keyboard, convert piano audio to MIDI, and make sheets and piano-roll videos.</p>
+<p align="center">
+  <a href="https://github.com/LioK251/lazymidi/releases/latest"><strong>Download</strong></a> ·
+  <a href="https://lazymidi.vercel.app/">Website</a> ·
+  <a href="docs/optional-modules.md">Setup guide</a>
+</p>
 
-A desktop app for playing virtual piano games with a Wooting analog keyboard or a MIDI controller, converting piano audio to MIDI, and reading piano or QWERTY sheets.
+![lazymidi Visualizer showing falling notes and playback controls for Evening Study](docs/screenshots/visualizer.png)
 
-Website: [lazymidi.vercel.app](https://lazymidi.vercel.app/). Downloads: [latest release](https://github.com/LioK251/lazymidi/releases/latest). Windows x64 installer and portable ZIP, plus experimental Linux and macOS packages. Extract the whole portable ZIP and keep `_up_` beside `lazymidi.exe`. Windows builds are unsigned; Mac apps are not notarized. Install the Wooting SDK separately if you use analog input.
+## Download
 
-## Optional tools
+| Platform | Packages |
+| --- | --- |
+| **Windows x64** | Installer and portable ZIP. Extract the entire ZIP and keep `_up_` beside `lazymidi.exe`. |
+| **macOS 14+** | Experimental DMGs for Apple Silicon and Intel. |
+| **Linux x64** | Experimental `.deb` and AppImage. |
 
-- **Discord:** presence and the GitHub Get button default On and can be disabled separately in Settings. Presence shares connected input labels only, not songs, paths or conversion history. Discord being unavailable does not interrupt playing.
-- **Transposer:** assign the game's Up/Down keys, enter a sequence, and Apply. Open Float monitor and press Resume. Global shortcuts work only while the monitor is visible; closing or minimizing it pauses Transposer, and reopening leaves it paused. Tracking starts from an assumed game value of 0; start the game at 0. Manual in-game changes cannot be detected. Sending a sheet sequence resumes and applies the selected entry when bindings are configured. Interrupted delivery pauses tracking and requires resetting the game to 0 before resuming.
-- **Converter:** enable its tab in Settings (Off by default), then open **Convert → Runtime setup → Install Converter**. The app installs Python, the piano model and notation packages automatically. No terminal is needed. CPU runtimes support Windows x64, Linux x64 and both Mac architectures. Windows/Linux also offer NVIDIA CUDA; Apple GPU processing is enabled when its local conversion check passes. Existing environments are under **Advanced setup**.
-- **Sheets:** Library cards have one **Sheet** button. The floating viewer switches between **QWERTY** game keys and **Piano** notation, with playback, Follow, zoom and source-track selection. One MIDI track can contain both piano hands. Piano exports MusicXML or prints to PDF with the song title and lazymidi credit. **Settings → Modules → Show Piano button** controls Piano actions in Convert and the viewer. QWERTY retains Auto/Multi/Manual/Original modes and Send to Transposer. See [sheet setup](docs/optional-modules.md#piano-notation).
-- **Visualizer:** song cards open a separate player with Basic synth or imported `.sf2` fonts, styles, hand editing and exports. Closing it stops playback and keeps its loaded font cached until lazymidi exits.
+Windows builds are unsigned, and macOS builds use ad-hoc signing. For analog input, install the Wooting Analog SDK for your platform. [Platform details](#platform-status)
 
-An optional Chromium extension is included in the portable ZIP and as a separate ZIP. Extract it, load `extension/` as an unpacked extension, then keep lazymidi running with Converter enabled and a compatible Python environment selected. Connection is automatic. YouTube/TikTok have page buttons; Discord browser attachments have a **Convert with lazymidi** right-click action. MuseScore has a **Download MIDI to lazymidi** button using LibreScore's download authorization method. Page buttons stay hidden until converter health is confirmed and return automatically after reconnection. Replace/reload the extension and refresh supported pages to remove stale injected controls. Replace any older unpacked extension with the current copy. See [extension setup](extension/README.md); website verification or upstream changes can still block downloads.
+## Quick start
 
-The Visualizer uses Drawn (Sketchbook) keys that share pencil artwork and motion with falling notes. Muted hand notes and highlights appear as faint ghosts. Open **Appearance** from the playback toolbar to adjust the style, keys and background. **Save appearance** keeps your changes. Choose **Import .sf2…** from the **SoundFont** dropdown to add a font.
+| Goal | Where to start |
+| --- | --- |
+| **Play virtual piano** | Choose **MIDI Controller** or **Analog Keyboard** in **Play**. Select the **Visual Pianos · 88 keys** profile and enable **MIDI → QWERTY**. |
+| **Convert audio to MIDI** | Enable **Converter** in Settings, then open **Convert → Runtime setup → Install Converter**. Once setup finishes, select an audio file or paste a supported media link. |
+| **Read or export a sheet** | Choose **Sheet** on a Library card. **QWERTY** shows game keys and exports a full-sheet PNG. **Piano** shows staff notation with playback, MusicXML export, and printing to PDF. |
+| **Make a piano-roll video** | Open a Library preview, adjust **Appearance**, and choose **Render video** to export a WebM at the song’s original tempo. Add an `.sf2` piano from the **SoundFont** dropdown. |
+| **Queue conversions from Chromium** | Load the unpacked extension and keep Converter running. Submit supported media from YouTube, TikTok, or Discord and follow each job in the popup. [Extension setup](extension/README.md) |
 
-The converter remembers the chosen compute device, including for browser submissions. An unavailable GPU falls back to CPU without erasing the preference. Clearing Library search restores the page you were browsing. Converter fields accept generated keys when ordinary keyboard input is disabled in Wootility; musical mapping editors still pause output.
+The optional **Transposer** sends a transpose sequence to the game. Assign the game’s Up/Down keys and open the floating monitor to use it. Start the game at transpose 0 so the monitor can track each change. [Transposer setup](docs/optional-modules.md)
+
+Use **Settings → Modules** to manage Converter and Piano actions. Discord presence and its GitHub button have separate switches in Settings. [Module setup](docs/optional-modules.md)
 
 ## Play Visual Pianos
 
@@ -88,7 +103,7 @@ Prepare the platform tools with the **Runtime tools** workflow before packaging;
 
 The **macOS DMG** workflow in [GitHub Actions](https://github.com/LioK251/lazymidi/actions/workflows/macos-build.yml) builds separate Apple Silicon (`aarch64`) and Intel (`x86_64`) DMGs for macOS 14+. The apps use ad-hoc signatures and are not notarized. Real-device MIDI, keyboard permission, Wooting and Roblox checks remain hardware-dependent. Converter runtimes are downloaded separately from inside the app.
 
-The **Linux packages** workflow in [GitHub Actions](https://github.com/LioK251/lazymidi/actions/workflows/linux-build.yml) builds x64 packages on Ubuntu 22.04 and checks the packaged app under X11. Install the `.deb` with `sudo apt install ./lazymidi_0.1.9_amd64.deb` to resolve dependencies. For AppImage, run `chmod +x lazymidi_0.1.9_amd64.AppImage` before opening it. Keyboard output needs configured `uinput` access; native Wayland global shortcuts are unavailable. Install Converter from Runtime setup when needed.
+The **Linux packages** workflow builds x64 packages on Ubuntu 22.04 and checks the packaged app under X11. Install the downloaded `.deb` with `apt` to resolve dependencies. Mark the downloaded AppImage executable before opening it. Keyboard output requires `uinput` access. Global shortcuts require X11 on Linux. [Linux packages workflow](https://github.com/LioK251/lazymidi/actions/workflows/linux-build.yml)
 
 ## Persistence and recovery
 

@@ -174,7 +174,7 @@ it("colors floating sheets and applies the native stay-on-top control",async()=>
   const view=screen.getByText("View",{exact:true}).closest("details")!;
   expect(view.open).toBe(false);
   for(const name of ["Stay on top","Colors","Center","Sheet zoom","Sheet opacity"])expect(screen.getByLabelText(name).closest("details")).toBe(view);
-  for(const name of ["Open","Copy","Send to Transposer"])expect(screen.getByRole("button",{name})).toBeTruthy();
+  for(const name of ["Open","Copy","Transposer"])expect(screen.getByRole("button",{name})).toBeTruthy();
   expect(screen.getByRole("combobox",{name:"Transpose mode"})).toBeTruthy();
   fireEvent.click(screen.getByText("View",{exact:true}));
   expect(view.open).toBe(true);
@@ -193,9 +193,9 @@ it("colors floating sheets and applies the native stay-on-top control",async()=>
   expect(screen.queryByLabelText("Click through")).toBeNull();
   expect((screen.getByLabelText("Transpose mode") as HTMLSelectElement).disabled).toBe(true);
   expect(screen.queryByText("Tempo colors")).toBeNull();
-  expect(screen.queryByRole("button",{name:"Copy transposes"})).toBeNull();
+  expect(screen.queryByRole("button",{name:"Copy Transposes"})).toBeNull();
   const send=vi.spyOn(api,"sendTransposeSequence").mockResolvedValue(api.initialState());
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Send to Transposer"}));});
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Transposer"}));});
   expect(send).toHaveBeenCalledWith([-2]);
 });
 
@@ -206,11 +206,21 @@ it("disables monitor resume until Up and Down are configured",async()=>{
   expect(screen.getByRole("button",{name:"Resume"}).getAttribute("title")).toBe("Assign Up/Down in Transposer.");
 });
 
-it("sends Multi headings with relative-change annotations as absolute targets",async()=>{
-  vi.mocked(invoke).mockResolvedValue({text:"Transpose by: 4\na\nTranspose by: -3 (-7)\nb\nTranspose by: -3 (+0)\nc\nTranspose by: 2 (+5)\nd",source:{midi_filename:"test.mid",settings:{transpose_mode:"multi"},line_chord_map:[]}});
+it.each([
+  ["multi","Transpose by: 4\na\nTranspose by: -3 (-7)\nb\nTranspose by: -3 (+0)\nc\nTranspose by: 2 (+5)\nd"],
+  ["manual","Transpose by: 4\na\nTranspose by: -3\nb\nTranspose by: -3\nc\nTranspose by: 2\nd"],
+])("copies and sends %s headings as absolute targets in order",async(transpose_mode,text)=>{
+  vi.mocked(invoke).mockResolvedValue({text,source:{midi_filename:"test.mid",settings:{transpose_mode},line_chord_map:[]}});
   const send=vi.spyOn(api,"sendTransposeSequence").mockResolvedValue(api.initialState());
+  const writeText=vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText}});
   await act(async()=>{render(<Overlay kind="sheet"/>);});
-  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Send to Transposer"}));});
+  const copy=screen.getByRole("button",{name:"Copy Transposes"});
+  expect(copy.previousElementSibling).toBe(screen.getByRole("combobox",{name:"Transpose mode"}));
+  fireEvent.click(copy);
+  expect(writeText).toHaveBeenCalledWith("4 -3 -3 2");
+  expect(send).not.toHaveBeenCalled();
+  await act(async()=>{fireEvent.click(screen.getByRole("button",{name:"Transposer"}));});
   expect(screen.queryByRole("alert")).toBeNull();
   expect(send).toHaveBeenCalledWith([4,-3,-3,2]);
 });
@@ -283,7 +293,7 @@ it("keeps image-sheet zoom and native window options in View",async()=>{
   vi.mocked(invoke).mockResolvedValue({image:"data:image/png;base64,iVBORw0KGgo="});
   await act(async()=>{render(<Overlay kind="sheet"/>);});
   expect((screen.getByRole("button",{name:"Copy"}) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole("button",{name:"Send to Transposer"}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button",{name:"Transposer"}) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByLabelText("Sheet zoom").closest("details")?.open).toBe(false);
   fireEvent.click(screen.getByText("View",{exact:true}));
   expect((screen.getByRole("checkbox",{name:"Colors"}) as HTMLInputElement).disabled).toBe(true);

@@ -25,6 +25,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .pv-time{font-size:12px;color:#aaa;min-width:84px}
 .pv-speed-control,.pv-style-control{font:inherit;color:#aaa}
 .pv-soundfont-controls,.pv-hand-controls{display:flex;align-items:center;gap:6px;max-width:100%;flex-wrap:wrap}
+#pv-toggle-left,#pv-toggle-right{width:64px}
+#pv-edit-hands,#pv-render-video,#pv-appearance{width:102px}
+#pv-assign-left,#pv-assign-right{width:98px}
 .pv-soundfont-controls select{max-width:180px;min-width:100px}
 :root:not(.score-transport) .pv-soundfont-controls select{max-width:144px;text-overflow:ellipsis}
 .pv-volume-group{gap:6px}

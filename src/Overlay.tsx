@@ -44,6 +44,7 @@ export default function Overlay({kind}:{kind:string}) {
   const {zoom,opacity,top,colored,centered}=view;
   const topQueue=useRef(Promise.resolve());
   const [error,setError]=useNotice();
+  const [exporting,setExporting]=useState(false);
   const statusError=useNoticeText(state.transpose.error);
   function changeView(changes:Partial<SheetView>){
     const next={...viewRef.current,...changes};viewRef.current=next;setView(next);
@@ -131,12 +132,28 @@ export default function Overlay({kind}:{kind:string}) {
   function changePoint(chord:number,value:number){const updated:Point[]=[...points.filter(p=>p.chord!==chord),{chord,value}].sort((a,b)=>a.chord-b.chord);void regenerate({manual_transpose_points:updated.map(p=>({...p,value:-p.value}))});}
   function removePoint(chord:number){void regenerate({manual_transpose_points:points.filter(p=>p.chord!==chord).map(p=>({...p,value:-p.value}))});}
   function inheritedValue(chord:number){return [...points].sort((a,b)=>a.chord-b.chord).filter(p=>p.chord<=chord).at(-1)?.value??0;}
-  const manual=sheet.source?.settings.transpose_mode==="manual";
-  const modeControl=<select aria-label="Transpose mode" title={!sheet.source?"Requires source MIDI":undefined} disabled={!sheet.source||busy} value={String(sheet.source?.settings.transpose_mode??"none")} onChange={e=>void regenerate({transpose_mode:e.target.value})}>{Object.entries(transposeModes).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>;
+  const transposeMode=String(sheet.source?.settings.transpose_mode??"none");
+  const manual=transposeMode==="manual";
+  const modeControl=<select aria-label="Transpose mode" title={!sheet.source?"Requires source MIDI":undefined} disabled={!sheet.source||busy} value={transposeMode} onChange={e=>void regenerate({transpose_mode:e.target.value})}>{Object.entries(transposeModes).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>;
   const viewOptions=<>
     <label>Opacity<input aria-label="Sheet opacity" type="range" min="0.2" max="1" step="0.05" value={opacity} onChange={e=>changeView({opacity:+e.target.value})}/></label>
     <label><input type="checkbox" checked={top} onChange={e=>options(e.target.checked)}/> Stay on top</label>
   </>;
+  async function exportImage(){
+    if(exporting||busy||!sheet.text?.trim()||sheet.image||sheet.revision==null)return;
+    setExporting(true);
+    try{
+      const {sheetPng}=await import("./sheet-png");
+      const blob=await sheetPng(sheet.text,colored,centered);
+      const data=await new Promise<string>((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onload=()=>resolve(String(reader.result).split(",",2)[1]);
+        reader.onerror=()=>reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      await api.whilePaused(()=>invoke("export_qwerty_image",{expectedRevision:sheet.revision,png:data}));
+    }catch(e){setError(api.errorText(e));}finally{setExporting(false);}
+  }
   return <div className={`aux-window ${kind==="monitor"?"monitor-window":""}`}><TitleBar label={kind==="monitor"?"Monitor":title} onError={setError}/><div className="overlay" style={{opacity}}>{kind==="monitor"?<>
     <div className="monitor-values"><span>{sequence[(status.selected+sequence.length-1)%sequence.length]}</span><strong>{status.target??status.current??"—"}</strong><span>{sequence[(status.selected+1)%sequence.length]}</span></div>
     <div className="button-row monitor-controls"><button disabled={busy||!status.armed||status.busy||status.editing} onClick={()=>void command("previous")}>Previous</button><button title={!bindingsReady?"Assign Up/Down in Transposer.":undefined} disabled={busy||(!status.armed&&(!bindingsReady||status.editing))} onClick={()=>void command("toggle")}>{status.armed?"Pause":"Resume"}</button><button disabled={busy||!status.armed||status.busy||status.editing} onClick={()=>void command("next")}>Next</button></div>
@@ -146,6 +163,7 @@ export default function Overlay({kind}:{kind:string}) {
     {!piano&&<>
     <SheetTools text={sheet.image?"":sheet.text??""} image={!!sheet.image} colored={colored} onColored={colored=>changeView({colored})} centered={centered} onCentered={centered=>changeView({centered})} zoom={zoom} onZoom={zoom=>changeView({zoom})} onError={setError} hideLegend onSendTransposes={sendTransposes} busy={busy}
       onOpen={()=>void api.whilePaused(()=>open({multiple:false,filters:[{name:"Sheet",extensions:["txt","png","jpg","jpeg","webp"]}]}).then(path=>path&&invoke("overlay_sheet",{path,text:null}))).catch(e=>setError(api.errorText(e)))}
+      onExport={()=>void exportImage()} exporting={exporting} showCopyTransposes={manual||transposeMode==="multi"}
       viewOptions={viewOptions}>
       {modeControl}
     </SheetTools>

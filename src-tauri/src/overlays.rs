@@ -27,19 +27,19 @@ fn load_geometry(path: &Path) -> BTreeMap<String, Geometry> {
         .or_else(|_| lazymidi_core::config::read_json(&path.with_extension("backup")))
         .unwrap_or_default()
 }
-fn restored_size(kind: &str, g: &Geometry, scale: f64, bounds: (u32, u32)) -> (u32, u32) {
-    if kind == "monitor" {
-        return ((260. * scale).round() as u32, (130. * scale).round() as u32);
+fn minimum_size(kind: &str) -> (f64, f64) {
+    match kind {
+        "monitor" => (260., 130.),
+        "visualizer" => (900., 620.),
+        _ => (320., 190.),
     }
+}
+fn restored_size(kind: &str, g: &Geometry, scale: f64, bounds: (u32, u32)) -> (u32, u32) {
     let ratio = g
         .scale
         .filter(|s| s.is_finite() && *s > 0.)
         .map_or(1., |saved| scale / saved);
-    let minimum = if kind == "visualizer" {
-        (900., 620.)
-    } else {
-        (320., 190.)
-    };
+    let minimum = minimum_size(kind);
     let min_width = (minimum.0 * scale).round() as u32;
     let min_height = (minimum.1 * scale).round() as u32;
     (
@@ -166,6 +166,12 @@ pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Err
         return Ok(());
     }
     let saved = load_geometry(&geometry_path(&app));
+    let minimum = minimum_size(&kind);
+    let size = match kind.as_str() {
+        "monitor" => minimum,
+        "visualizer" => (1120., 760.),
+        _ => (700., 500.),
+    };
     let builder = WebviewWindowBuilder::new(
         &app,
         &kind,
@@ -173,38 +179,8 @@ pub async fn open_overlay(app: tauri::AppHandle, kind: String) -> Result<(), Err
     )
     .title(format!("lazymidi · {kind}"))
     .decorations(cfg!(target_os = "macos"))
-    .inner_size(
-        if kind == "monitor" {
-            260.
-        } else if kind == "visualizer" {
-            1120.
-        } else {
-            700.
-        },
-        if kind == "monitor" {
-            130.
-        } else if kind == "visualizer" {
-            760.
-        } else {
-            500.
-        },
-    )
-    .min_inner_size(
-        if kind == "visualizer" {
-            900.
-        } else if kind == "monitor" {
-            260.
-        } else {
-            320.
-        },
-        if kind == "visualizer" {
-            620.
-        } else if kind == "monitor" {
-            130.
-        } else {
-            190.
-        },
-    )
+    .inner_size(size.0, size.1)
+    .min_inner_size(minimum.0, minimum.1)
     .always_on_top(kind != "visualizer")
     .transparent(kind == "sheet" && !cfg!(target_os = "macos"))
     .skip_taskbar(false)
@@ -329,7 +305,7 @@ pub async fn overlay_sheet(
             let bytes=std::fs::read(&path).map_err(|e|e.to_string())?;
             let mime=match path.extension().and_then(|e|e.to_str()).unwrap_or("").to_lowercase().as_str(){"png"=>Some("image/png"),"jpg"|"jpeg"=>Some("image/jpeg"),"webp"=>Some("image/webp"),"txt"=>None,_=>return Err("Choose a text, PNG, JPEG or WebP sheet.".into())};
             if let Some(mime)=mime {Ok(serde_json::json!({"image":format!("data:{mime};base64,{}",base64::engine::general_purpose::STANDARD.encode(bytes))}))}
-            else {Ok(serde_json::json!({"text":String::from_utf8(bytes).map_err(|e|e.to_string())?}))}
+            else {Ok(serde_json::json!({"text":String::from_utf8(bytes).map_err(|e|e.to_string())?,"sheets_filename":path.file_name().map(|name|name.to_string_lossy())}))}
         } else {let text=text.unwrap_or_default();if text.len()>512*1024{return Err("Sheet exceeds 512 KiB.".into());}Ok(serde_json::json!({"text":text}))}
     }).await.map_err(|e|e.to_string())??;
     let state = app.state::<App>();
@@ -372,13 +348,93 @@ fn piano_export(sheet: &serde_json::Value, revision: u64) -> Result<(String, Str
     ))
 }
 
+fn write_sheet_export(path: PathBuf, bytes: &[u8]) -> Result<bool, String> {
+    use std::io::Write;
+    let parent = path.parent().ok_or("Invalid export directory.")?;
+    let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    temp.write_all(bytes).map_err(|e| e.to_string())?;
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    temp.persist(path).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+fn qwerty_image_name(sheet: &serde_json::Value, revision: u64) -> Result<String, String> {
+    if sheet["revision"].as_u64() != Some(revision)
+        || sheet["mode"] == "piano"
+        || !sheet["image"].is_null()
+        || !sheet["text"]
+            .as_str()
+            .is_some_and(|text| !text.trim().is_empty())
+    {
+        return Err("Sheet changed. Export the current QWERTY sheet.".into());
+    }
+    let source = sheet["source"]["midi_filename"]
+        .as_str()
+        .or_else(|| sheet["sheets_filename"].as_str())
+        .unwrap_or("sheet.txt");
+    let exported = crate::converter::export_name(source);
+    let stem = Path::new(&exported)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("sheet");
+    if exported != source || stem.ends_with("_lazymidi") {
+        Ok(format!("{stem}.png"))
+    } else {
+        Ok(format!("{stem}_lazymidi.png"))
+    }
+}
+
+#[tauri::command]
+pub async fn export_qwerty_image(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    expected_revision: u64,
+    png: String,
+) -> Result<bool, Error> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+        use tauri_plugin_dialog::DialogExt;
+        if window.label() != "sheet" {
+            return Err("Open the QWERTY Sheet viewer to export an image.".into());
+        }
+        let name = {
+            let state = app.state::<App>();
+            let sheet = state.sheet.lock().map_err(|_| "Sheet unavailable.")?;
+            qwerty_image_name(&sheet, expected_revision)?
+        };
+        const MAX_PNG: usize = 32 * 1024 * 1024;
+        if png.len() > MAX_PNG.div_ceil(3) * 4 {
+            return Err("The sheet PNG exceeds the 32 MiB export limit.".into());
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(png)
+            .map_err(|_| "Invalid sheet image.")?;
+        if bytes.len() > MAX_PNG || bytes.len() < 45 || !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            return Err("Invalid sheet PNG.".into());
+        }
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .add_filter("PNG image", &["png"])
+            .set_file_name(name)
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        write_sheet_export(path.into_path().map_err(|e| e.to_string())?, &bytes)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(Error::from)
+}
+
 #[tauri::command]
 pub async fn export_piano_sheet(
     app: tauri::AppHandle,
     expected_revision: u64,
 ) -> Result<bool, Error> {
     tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
-        use std::io::Write;
         use tauri_plugin_dialog::DialogExt;
         let (name, xml) = {
             let state = app.state::<App>();
@@ -394,13 +450,7 @@ pub async fn export_piano_sheet(
         else {
             return Ok(false);
         };
-        let path = path.into_path().map_err(|e| e.to_string())?;
-        let parent = path.parent().ok_or("Invalid export directory.")?;
-        let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
-        temp.write_all(xml.as_bytes()).map_err(|e| e.to_string())?;
-        temp.as_file().sync_all().map_err(|e| e.to_string())?;
-        temp.persist(path).map_err(|e| e.to_string())?;
-        Ok(true)
+        write_sheet_export(path.into_path().map_err(|e| e.to_string())?, xml.as_bytes())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -522,6 +572,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn qwerty_image_export_names_the_displayed_text_sheet() {
+        let mut sheet =
+            serde_json::json!({"revision":4,"text":"a b", "sheets_filename":"Practice.txt"});
+        assert_eq!(
+            qwerty_image_name(&sheet, 4).unwrap(),
+            "Practice_lazymidi.png"
+        );
+        assert!(qwerty_image_name(&sheet, 3).is_err());
+        sheet["source"]["midi_filename"] = "Song_transkun.mid".into();
+        assert_eq!(qwerty_image_name(&sheet, 4).unwrap(), "Song_lazymidi.png");
+        sheet["image"] = "data:image/png;base64,test".into();
+        assert!(qwerty_image_name(&sheet, 4).is_err());
+    }
+
+    #[test]
+    fn sheet_export_preserves_a_destination_on_write_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let image = directory.path().join("Sheet.png");
+        assert!(write_sheet_export(image.clone(), b"sheet image").unwrap());
+        let invalid = image.join("Other.png");
+        assert!(write_sheet_export(invalid, b"replacement").is_err());
+        assert_eq!(std::fs::read(image).unwrap(), b"sheet image");
+    }
+
+    #[test]
     fn piano_export_uses_the_displayed_revision_and_musicxml() {
         let mut sheet = serde_json::json!({"revision":7,"mode":"piano","piano":{
             "midi_filename":"A & B_transkun.mid", "musicxml":"<score-partwise/>"
@@ -549,9 +624,10 @@ mod tests {
         g.height = 600;
         g.scale = Some(1.25);
         assert_eq!(restored_size("sheet", &g, 1.5, (3840, 2160)), (1200, 720));
-        assert_eq!(restored_size("monitor", &g, 1.5, (3840, 2160)), (390, 195));
+        assert_eq!(restored_size("monitor", &g, 1.5, (3840, 2160)), (1200, 720));
         g.width = 0;
         g.height = 0;
+        assert_eq!(restored_size("monitor", &g, 1.5, (3840, 2160)), (390, 195));
         assert_eq!(restored_size("sheet", &g, 1.5, (3840, 2160)), (480, 285));
     }
 

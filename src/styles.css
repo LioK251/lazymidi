@@ -11,9 +11,12 @@
   font-synthesis: none;
 }
 .transpose-sequence { display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 0; }
+.transpose-sequence > button {width:52px;padding-inline:4px;}
 .transpose-current { font-size: 48px; font-variant-numeric: tabular-nums; padding: 20px 0; }
 .shortcut-binding {display:flex;gap:8px;align-items:end;margin-bottom:12px;}
 .shortcut-binding .field {flex:1;min-width:0;margin:0;}
+.shortcut-binding > button {flex:none;width:124px;}
+.shortcut-binding > button:last-child {width:34px;padding-inline:0;}
 .aux-window {height:100dvh;display:flex;flex-direction:column;overflow:hidden;}
 .aux-window > .titlebar {flex:none;background:var(--surface);}
 .window-label {color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -36,7 +39,7 @@
 .monitor-window .monitor-values strong {font-size:28px;}
 .monitor-window .monitor-values span {font-size:18px;}
 .monitor-window .monitor-controls {margin:6px 0 0;flex:none;}
-.monitor-window .monitor-controls button {min-height:28px;padding:4px 10px;font-size:12px;}
+.monitor-window .monitor-controls button {flex:1 1 0;min-width:0;min-height:28px;padding:4px 6px;font-size:12px;}
 .monitor-window [role=alert] {margin:4px 0 0;line-height:13px;font-size:11px;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .sheet-scroll {overflow:auto;flex:1;min-height:0;padding:12px 0;}
 .sheet-text {font-family:Consolas,"Courier New",monospace;line-height:1.85;}
@@ -52,7 +55,7 @@
 .sheet-tools input[type=checkbox] {width:auto;min-height:0;}
 .sheet-tools input[type=range] {width:80px;min-height:24px;}
 .sheet-toolbar {flex:none;gap:8px;padding:0 0 8px;}
-.sheet-toolbar > .sheet-file-action,.sheet-mode-switch > button {width:84px;flex:none;}
+.sheet-toolbar .sheet-file-action,.sheet-mode-switch > button {width:84px;flex:none;padding-inline:8px;}
 .sheet-toolbar .sheet-transpose-tools {flex-wrap:wrap;}
 .sheet-toolbar select {width:auto;}
 .sheet-view-options {position:relative;margin-left:auto;}
@@ -84,12 +87,13 @@
 .converter-link {padding:16px 0;}
 .converter-recent {gap:8px;}
 .converter-recent > span {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
-.converter-library-toolbar {flex-wrap:wrap;align-items:center;}
+.converter-library-toolbar {flex-wrap:wrap;align-items:stretch;}
 .converter-library-toolbar input {flex:1;min-width:160px;}
-.button-row.converter-library-toolbar > button {flex:none;}
-.converter-panel:has(> .converter-library-section) {display:flex;flex-direction:column;}
+.library-toolbar-actions {display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:8px;flex:none;}
+.converter-panel:has(> .converter-library-section) {display:flex;flex-direction:column;padding-bottom:8px;}
 .converter-library-section {display:flex;flex:1;min-height:0;flex-direction:column;}
 .converter-library-content {flex:1;min-height:0;overflow:auto;padding-block-end:12px;scrollbar-gutter:stable;}
+.converter-library-status {flex:none;margin:0 0 6px;}
 .button-row.library-pages {flex:none;align-items:center;justify-content:flex-end;border-top:1px solid var(--border);padding-top:5px;margin:0;}
 .library-pages > span {margin-right:auto;color:var(--muted);}
 .button-row.library-pages > button {flex:0 0 92px;min-height:28px;padding:3px 8px;}
@@ -108,7 +112,8 @@
 .song-card-actions > button {flex:none;}
 .song-card-actions > button:not(.song-card-delete) {width:72px;}
 .song-sheet-actions {display:flex;gap:6px;flex:none;}
-.song-card-delete {display:grid;place-items:center;width:32px;height:32px;margin-left:auto;padding:0;line-height:1;}
+.song-sheet-actions > button {width:84px;}
+.song-card-delete {display:grid;place-items:center;width:34px;height:34px;margin-left:auto;padding:0;line-height:1;}
 .song-preview {display:block;width:100%;padding:0;position:relative;border:0;border-bottom:1px solid var(--border);overflow:hidden;aspect-ratio:16/7;}
 .song-preview canvas,.song-preview img {display:block;width:100%;height:100%;object-fit:cover;}
 .song-preview span {position:absolute;bottom:8px;left:8px;padding:4px 8px;background:#131313e8;border:1px solid #555;font-size:12px;}
@@ -122,6 +127,12 @@
 .visualizer-window > .converter-player {flex:1;display:flex;flex-direction:column;}
 .visualizer-window .converter-visualizer {flex:1 0 420px;width:100%;height:420px;border:1px solid var(--border);}
 .visualizer-appearance {position:fixed;inset:auto 0 12px;width:calc(100% - 24px);max-width:1100px;max-height:55vh;margin:0 auto;padding:16px;overflow:auto;border:1px solid var(--border);background:var(--surface);color:var(--text);}
+.update-notice {width:min(380px,calc(100% - 32px));padding:20px;border:1px solid var(--border);background:var(--surface);color:var(--text);}
+.update-notice::backdrop {background:#0009;}
+.update-notice h2 {margin:0 0 8px;}
+.update-notice p {margin:0 0 16px;}
+.update-notice .button-row {margin:0;}
+.update-notice [role=alert] {margin:12px 0 0;}
 .visualizer-appearance::backdrop {background:#0004;}
 .visualizer-appearance > .converter-options {align-items:end;}
 .visualizer-appearance > .converter-options > .field {margin-bottom:0;}
@@ -133,7 +144,7 @@
 @media(max-width:980px) {.style-previews {grid-template-columns:repeat(3,minmax(0,1fr));}.converter-library {gap:12px;}}
 .sheet-output {padding:16px 0;max-height:650px;overflow:auto;}
 .converter-options {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0;}
-.sheet-modes {margin:12px 0;flex-wrap:wrap;}
+.sheet-modes {margin:12px 0;}
 .sheet-timing h3 {font-size:13px;margin:16px 0 12px;}
 .sheet-timing .toggle {display:flex;margin-bottom:12px;}
 .transpose-point {gap:8px;}
@@ -441,13 +452,17 @@ main {
   font-size: 12px;
 }
 .segmented {
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   width: 100%;
   margin-bottom: 4px;
 }
 .segmented button {
-  flex: 1;
+  min-width: 0;
   min-height: 38px;
+  white-space: normal;
+  overflow-wrap: anywhere;
   background: #171717;
   color: var(--muted);
 }
@@ -636,6 +651,11 @@ main {
 }
 .button-row > button {
   flex: 1 1 auto;
+}
+.button-row:not(:has(> :not(button))) {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
 }
 .toolbar {
   display: flex;

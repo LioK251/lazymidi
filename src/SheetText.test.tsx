@@ -31,6 +31,6 @@ it("keeps uncolored text exact and copies only real transpose instructions",asyn
   expect(screen.getByLabelText("Piano sheet").textContent).toBe(text);
   expect(screen.getByLabelText("Piano sheet").querySelector(".sheet-chord")).toBeNull();
   fireEvent.click(screen.getByRole("button",{name:"Copy sheet"}));
-  fireEvent.click(screen.getByRole("button",{name:"Copy transposes"}));
+  fireEvent.click(screen.getByRole("button",{name:"Copy Transposes"}));
   expect(copy.mock.calls).toEqual([[text],["-2 3"]]);
 });
