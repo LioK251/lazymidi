@@ -10,7 +10,7 @@ Adapted components (no upstream application is bundled):
    multiple bindings, resting/release velocity anchors, and optional
    installed-library lifecycle.
    The old src-tauri host is excluded because its MPL metadata differs from
-   the root MIT license. No host, SDK Rust source, or SDK binaries are copied.
+   the root MIT license.
 
 2. MIDI to QWERTY — 73e4d6bbcdbe154d90eaa9cd32a55ac16ddadb64
    https://github.com/ArijanJ/miditoqwerty-rs
@@ -26,10 +26,12 @@ Adapted components (no upstream application is bundled):
    README MIT statement. No source, translations, QML, or resources reused.
    lazymidi's step sequencer is independently implemented in Rust.
 
-4. Wooting Analog SDK v0.9.1 — external installed dependency, MPL-2.0
+4. Wooting Analog SDK v0.9.1 — MPL-2.0
    https://github.com/WootingKb/wooting-analog-sdk/tree/v0.9.1
-   Not included in installers. ABI declarations independently expressed
-   from the public C contract; the user supplies an installed library.
+   macOS packages link the unmodified SDK built from upstream commit
+   be67cbf479eb1e10e2859e71dbdcc12fff7ba266, with the MPL license in
+   Contents/Resources/Wooting-SDK-LICENSE.txt. Windows and Linux use the
+   separately installed SDK. The loader uses the published C interface.
 
 The following MIT terms apply separately to adapted components 1 and 2:
 

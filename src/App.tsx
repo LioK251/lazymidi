@@ -507,7 +507,7 @@ export default function App() {
                       {state.sdk_version
                         ? `SDK ${state.sdk_version}`
                         : state.sdk_found
-                          ? "Installed SDK found"
+                          ? "SDK available"
                           : "SDK not found"}
                     </span>
                   </div>
@@ -1357,8 +1357,8 @@ export default function App() {
               <div className="control-block">
                 <h2>Wooting Analog SDK</h2>
                 <p className="help">
-                  Install SDK 0.9.1 separately using Wooting’s instructions.
-                  lazymidi does not bundle or install the SDK.
+                  macOS packages include SDK 0.9.1. On Windows and Linux,
+                  install SDK 0.9.1 using Wooting’s instructions.
                 </p>
                 <a
                   href="https://github.com/WootingKb/wooting-analog-sdk/blob/v0.9.1/docs/INSTALL.md"
@@ -1370,7 +1370,7 @@ export default function App() {
                 <label className="field">
                   Custom absolute SDK library path
                   <input
-                    placeholder="Use official installation location"
+                    placeholder="Use automatic SDK detection"
                     value={working.sdk_path ?? ""}
                     onChange={(e) =>
                       editSettings((s) => (s.sdk_path = e.target.value || null))
@@ -1394,7 +1394,7 @@ export default function App() {
                   </button>
                 </div>
                 <div className="details-row">
-                  <span className="muted">Detected library</span>
+                    <span className="muted">Detected SDK</span>
                   <span className="path">
                     {state.sdk_found ?? "Not installed / not found"}
                   </span>

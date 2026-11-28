@@ -17,7 +17,7 @@
 | **macOS 14+** | Experimental DMGs for Apple Silicon and Intel. |
 | **Linux x64** | Experimental `.deb` and AppImage. |
 
-Windows builds are unsigned, and macOS builds use ad-hoc signing. For analog input, install the Wooting Analog SDK for your platform. [Platform details](#platform-status)
+Windows builds are unsigned, and macOS builds use ad-hoc signing. The macOS packages include the Wooting Analog SDK. Install the SDK separately on Windows and Linux. [Platform details](#platform-status)
 
 ## Quick start
 
@@ -36,7 +36,7 @@ Use **Settings → Modules** to manage Converter and Piano actions. Discord pres
 ## Play Visual Pianos
 
 1. Open **Play** and keep the **Visual Pianos · 88 keys** profile selected.
-2. For a MIDI keyboard, choose **MIDI Controller** and select a device if several are present. For Wooting, choose **Analog Keyboard**, install the [Wooting Analog SDK 0.9.1](https://github.com/WootingKb/wooting-analog-sdk/blob/v0.9.1/docs/INSTALL.md) separately, and enable analog input.
+2. For a MIDI keyboard, choose **MIDI Controller** and select a device if several are present. For Wooting, choose **Analog Keyboard** and enable analog input. On Windows and Linux, install the [Wooting Analog SDK 0.9.1](https://github.com/WootingKb/wooting-analog-sdk/blob/v0.9.1/docs/INSTALL.md) first. On macOS, leave the SDK library path blank to use the SDK included in the DMG.
 3. Enable **MIDI → QWERTY**, then focus [Visual Pianos on Roblox](https://www.roblox.com/games/5593470048/Visual-Pianos). Enable the game's corresponding 88-key and velocity controls if its current UI requires them.
 4. Use **Panic** to stop transport and release owned keys, notes, and pedals. Output starts off at launch and after input disconnection; reconnecting never arms it.
 
@@ -48,7 +48,7 @@ The supplied analog preset remains unchanged: HID → MIDI note, zero-based chan
 
 When analog input is enabled, **Play** shows Shift amount, Note trigger threshold and Velocity scale. Edit them as a draft, then **Apply analog settings**. The existing SDK connection stays active if its device/path/polling/input mode have not changed; generated output releases and requires re-enabling. Threshold is normalized depth (0–less than 1), velocity scale multiplies the depth-over-time estimate, and Shift amount is semitone transposition while Left Shift is held.
 
-Wooting hardware is detected directly through the installed SDK when you enable analog input; the separate Wooting Analog MIDI application does not need to run. Its MIDI conversion model feeds the same internal mapper used by physical MIDI controllers. The Visual Pianos profile enables Alt-key velocity output by default.
+Enable analog input to detect Wooting hardware through the SDK. Its MIDI conversion model feeds the mapper used by physical MIDI controllers. The Visual Pianos profile enables Alt-key velocity output by default.
 
 ## Edit mappings
 
@@ -99,7 +99,7 @@ npm run notices
 npm run bundle -- --bundles nsis
 ```
 
-Prepare the platform tools with the **Runtime tools** workflow before packaging; see [build and qualification](docs/optional-modules.md#build-and-qualification). Use the Linux packages workflow for distributable `.deb` and AppImage builds; it includes the ALSA runtime dependency. Use `--bundles dmg` on macOS. The SDK loader is an optional core Cargo feature; the desktop build includes the loader, not the SDK. Linux/macOS need native build hosts. macOS window configuration keeps native traffic lights. Release signing/notarization require the distributor's certificates; no signing identity is supplied here.
+Prepare the platform tools with the **Runtime tools** workflow before packaging. The Linux packages workflow includes the ALSA runtime dependency. The macOS DMG workflow builds and bundles the Wooting SDK for each architecture. The SDK loader is an optional core Cargo feature. [Build and qualification](docs/optional-modules.md#build-and-qualification)
 
 The **macOS DMG** workflow in [GitHub Actions](https://github.com/LioK251/lazymidi/actions/workflows/macos-build.yml) builds separate Apple Silicon (`aarch64`) and Intel (`x86_64`) DMGs for macOS 14+. The apps use ad-hoc signatures and are not notarized. Real-device MIDI, keyboard permission, Wooting and Roblox checks remain hardware-dependent. Converter runtimes are downloaded separately from inside the app.
 
@@ -118,7 +118,7 @@ Writes use a same-directory temporary file, sync, atomic replacement, and one `.
 | Desktop build | Built locally | Experimental x64 .deb/AppImage; packaged startup verified, hardware QA pending | Experimental Apple Silicon/Intel DMGs; native startup verified, hardware QA pending |
 | MIDI input/output | WinMM adapter | ALSA adapter | CoreMIDI adapter |
 | QWERTY output | SendInput, target integrity restrictions | uinput, device permissions and target/compositor restrictions | CoreGraphics, Accessibility required |
-| Wooting input | Optional installed compatible SDK | Optional SDK and HID permissions | Optional architecture-matching SDK |
+| Wooting input | Install the compatible SDK | Install the SDK and configure HID permissions | SDK bundled with the DMG |
 | Sequencing/profiles | Tested core | Shared core; native OS QA outstanding | Shared core; native OS QA outstanding |
 | App-created virtual output | Deferred | Implemented using midir | Implemented using midir |
 
@@ -126,4 +126,4 @@ Adapters being present does not imply hardware qualification. See [testing](docs
 
 ## Licensing
 
-Original code is MIT. Adapted Wooting analog calculations, ArijanJ keyboard/game translations, Multi-Transpose behavior and mp3converter components retain their notices in `THIRD_PARTY_NOTICES` and the bundled license files. The app downloads Python, PyTorch and the piano model only when Converter is installed. It bundles an LGPL FFmpeg build and a small ncls wheel so setup needs no compiler. Dependency licenses are retained; matching [FFmpeg/OpenSSL/LAME sources](https://lazymidi.vercel.app/third-party/) and the build recipe are available. The Wooting SDK is installed separately. The visualizer includes LGPL FluidSynth with its license, source archive and rebuild instructions. Regenerate application dependency notices with `npm run notices` before packaging.
+Original code is MIT. Adapted Wooting analog calculations, ArijanJ keyboard/game translations, Multi-Transpose behavior and mp3converter components retain their notices in `THIRD_PARTY_NOTICES` and the bundled license files. The app downloads Python, PyTorch and the piano model only when Converter is installed. It bundles an LGPL FFmpeg build and a small ncls wheel so setup needs no compiler. Dependency licenses are retained; matching [FFmpeg/OpenSSL/LAME sources](https://lazymidi.vercel.app/third-party/) and the build recipe are available. The macOS packages include Wooting’s MPL 2.0 SDK and its license. The visualizer includes LGPL FluidSynth with its license, source archive and rebuild instructions. Regenerate application dependency notices with `npm run notices` before packaging.

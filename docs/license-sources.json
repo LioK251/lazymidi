@@ -410,5 +410,15 @@
         "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
       }
     ]
+  },
+  "wooting-analog-sdk@0.9.1": {
+    "license": "MPL-2.0",
+    "revision": "be67cbf479eb1e10e2859e71dbdcc12fff7ba266",
+    "files": [
+      {
+        "path": "docs/licenses/wooting-sdk-LICENSE.txt",
+        "url": "https://raw.githubusercontent.com/WootingKb/wooting-analog-sdk/be67cbf479eb1e10e2859e71dbdcc12fff7ba266/LICENSE"
+      }
+    ]
   }
 }

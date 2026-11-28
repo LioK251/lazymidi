@@ -53,6 +53,7 @@ def main():
     parser.add_argument('executable', type=pathlib.Path)
     parser.add_argument('--environment', type=pathlib.Path)
     parser.add_argument('--midi', type=pathlib.Path)
+    parser.add_argument('--wooting-bundled', action='store_true')
     args = parser.parse_args()
     executable = args.executable.resolve(strict=True)
     original = hashlib.sha256(args.midi.read_bytes()).digest() if args.midi else None
@@ -81,6 +82,8 @@ def main():
         snapshot = result['snapshot']
         assert not snapshot['analog_enabled'] and not snapshot['qwerty_enabled'], snapshot
         assert snapshot['sdk_version'] is None, snapshot
+        if args.wooting_bundled:
+            assert snapshot['sdk_found'] == 'Built into lazymidi', snapshot['sdk_found']
     if args.midi:
         assert hashlib.sha256(args.midi.read_bytes()).digest() == original, 'Source MIDI changed'
     print('Verified packaged frontend, floating windows and requested Converter/Piano checks; musical output stayed off.')

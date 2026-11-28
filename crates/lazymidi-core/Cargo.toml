@@ -6,7 +6,7 @@ license.workspace = true
 
 [features]
 default = ["wooting"]
-wooting = ["dep:libloading"]
+wooting = ["dep:libloading", "dep:wooting-analog-sdk"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -26,3 +26,4 @@ evdev = "0.13"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.25"
+wooting-analog-sdk = { git = "https://github.com/WootingKb/wooting-analog-sdk.git", rev = "be67cbf479eb1e10e2859e71dbdcc12fff7ba266", features = ["ffi"], optional = true }

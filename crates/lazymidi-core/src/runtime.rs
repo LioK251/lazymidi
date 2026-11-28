@@ -35,7 +35,7 @@ pub struct Snapshot {
     pub midi_connected: Option<String>,
     pub analog_devices: Vec<AnalogDevice>,
     pub analog_connected: Option<String>,
-    pub sdk_found: Option<PathBuf>,
+    pub sdk_found: Option<String>,
     pub sdk_version: Option<String>,
     pub analog_enabled: bool,
     pub analog_pending: bool,
@@ -58,7 +58,8 @@ pub struct Snapshot {
 }
 impl Snapshot {
     pub fn new(settings: Settings, warning: Option<String>) -> Self {
-        let sdk_found = crate::analog::find_sdk(settings.sdk_path.as_deref());
+        let sdk_found = crate::analog::find_sdk(settings.sdk_path.as_deref())
+            .map(|location| location.display_name());
         Self {
             presence: "Waiting".into(),
             transpose: crate::transpose::Status::default(),
@@ -654,7 +655,7 @@ fn analog_worker(
     #[cfg(feature = "wooting")]
     let mut sdk: Option<crate::analog::Sdk> = None;
     #[cfg(feature = "wooting")]
-    let mut loaded_path = None;
+    let mut loaded_sdk = None;
     #[cfg(feature = "wooting")]
     let mut retired = Vec::new();
     let mut active = false;
@@ -722,14 +723,18 @@ fn analog_worker(
                             if !enabled {
                                 return Ok((vec![], None, None));
                             }
-                            let path=crate::analog::find_sdk(path.as_deref()).ok_or("Wooting Analog SDK is not installed. Install it separately, or use MIDI Controller input.")?;
-                            if loaded_path.as_ref() != Some(&path) {
-                                let replacement = crate::analog::Sdk::load(&path)?;
+                            let location = crate::analog::find_sdk(path.as_deref()).ok_or(if path.is_some() {
+                                "The configured SDK library was not found. Choose a library or clear the SDK path in Settings."
+                            } else {
+                                "Wooting Analog SDK not found. Check SDK setup in Settings."
+                            })?;
+                            if loaded_sdk.as_ref() != Some(&location) {
+                                let replacement = crate::analog::Sdk::open(&location)?;
                                 if let Some(old) = sdk.take() {
                                     retired.push(old);
                                 }
                                 sdk = Some(replacement);
-                                loaded_path = Some(path);
+                                loaded_sdk = Some(location);
                             }
                             let s = sdk.as_mut().ok_or("SDK unavailable.")?;
                             let version = s.start()?;
@@ -1068,7 +1073,7 @@ fn run(
                             let musical_change = !state.settings.musical_eq(&settings);
                             if musical_change {flush!();disarm!();if !keep_analog{disable_analog!();}}
                             if !settings.show_transposer || state.settings.profile().transpose != settings.profile().transpose { state.transpose.armed=false; let _=keyboard.control.send(OutputControl::CancelPulse); state.transpose.selected=0; }
-                            state.settings=settings;state.revision+=1;state.sdk_found=crate::analog::find_sdk(state.settings.sdk_path.as_deref());
+                            state.settings=settings;state.revision+=1;state.sdk_found=crate::analog::find_sdk(state.settings.sdk_path.as_deref()).map(|location|location.display_name());
                             if musical_change { let _=device_tx.send(DeviceCommand::Select(state.settings.preferred_midi.clone()));
                             let desired:HashSet<String>=state.settings.profile().routes.iter().filter(|r|r.enabled).filter_map(|r|if let Destination::Midi(id)=&r.destination{Some(id.clone())}else{None}).collect();
                             let removed:Vec<_>=outputs.keys().filter(|id|!desired.contains(*id)).cloned().collect();for id in removed{if let Some(mut out)=outputs.remove(&id){out.stop();}}
@@ -1099,7 +1104,7 @@ fn run(
                     },
                     Command::Pause{paused}=>{state.transpose.editing=paused;if paused{let _=keyboard.control.send(OutputControl::CancelPulse);}pause_keyboard(&mut state,&mut engine,&keyboard,&mut qwerty_barrier,paused);},
                     Command::Panic=>{state.transpose.armed=false;let _=keyboard.control.send(OutputControl::CancelPulse);flush!();disarm!();sequencer.stop();disable_analog!();state.error=None;},
-                    Command::Refresh=>{let _=device_tx.send(DeviceCommand::Refresh);state.sdk_found=crate::analog::find_sdk(state.settings.sdk_path.as_deref());},
+                    Command::Refresh=>{let _=device_tx.send(DeviceCommand::Refresh);state.sdk_found=crate::analog::find_sdk(state.settings.sdk_path.as_deref()).map(|location|location.display_name());},
                     Command::Arm{track}=>{if track>3{result=Err("Invalid track.".into());}else{sequencer.commit_group();sequencer.armed=track;}},
                     Command::Cursor{step}=>{if step>15{result=Err("Invalid step.".into());}else{sequencer.commit_group();sequencer.cursor=step;}},
                     Command::Transport{action}=>match action.as_str(){"play"=>sequencer.play(Instant::now()),"stop"=>{let events=sequencer.stop();for(s,e)in events{dispatch!(engine.process(s,e,state.settings.profile(),state.qwerty_enabled,state.paused));}for t in 0..4 {dispatch!(engine.flush_source(Source::Sequencer(t)));}},"record"=>{sequencer.recording= !sequencer.recording;if !sequencer.recording{sequencer.commit_group();}},_=>result=Err("Unknown transport action.".into())},

@@ -13,24 +13,51 @@ pub struct AnalogDevice {
     pub id: String,
     pub name: String,
 }
-pub fn find_sdk(custom: Option<&Path>) -> Option<PathBuf> {
-    let mut paths = Vec::new();
-    if cfg!(windows) {
-        paths.push(PathBuf::from(
-            "C:/Program Files/wooting-analog-sdk/wooting_analog_sdk.dll",
-        ));
-    } else if cfg!(target_os = "macos") {
-        paths.push(PathBuf::from("/usr/local/lib/libwooting_analog_sdk.dylib"));
-    } else {
-        paths.push(PathBuf::from("/usr/lib/libwooting_analog_sdk.so"));
-        paths.push(PathBuf::from("/usr/local/lib/libwooting_analog_sdk.so"));
-    }
-    if let Some(p) = custom {
-        if p.is_absolute() {
-            paths.push(p.to_owned());
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SdkLocation {
+    Library(PathBuf),
+    #[cfg(all(target_os = "macos", feature = "wooting"))]
+    BuiltIn,
+}
+
+impl SdkLocation {
+    pub fn display_name(&self) -> String {
+        match self {
+            Self::Library(path) => path.display().to_string(),
+            #[cfg(all(target_os = "macos", feature = "wooting"))]
+            Self::BuiltIn => "Built into lazymidi".into(),
         }
     }
-    paths.into_iter().find(|p| p.is_file())
+}
+
+pub fn find_sdk(custom: Option<&Path>) -> Option<SdkLocation> {
+    if let Some(path) = custom {
+        return (path.is_absolute() && path.is_file())
+            .then(|| SdkLocation::Library(path.to_owned()));
+    }
+    #[cfg(all(target_os = "macos", feature = "wooting"))]
+    {
+        Some(SdkLocation::BuiltIn)
+    }
+    #[cfg(not(all(target_os = "macos", feature = "wooting")))]
+    {
+        let paths: &[&str] = if cfg!(windows) {
+            &["C:/Program Files/wooting-analog-sdk/wooting_analog_sdk.dll"]
+        } else if cfg!(target_os = "macos") {
+            &["/usr/local/lib/libwooting_analog_sdk.dylib"]
+        } else {
+            &[
+                "/usr/lib/libwooting_analog_sdk.so",
+                "/usr/local/lib/libwooting_analog_sdk.so",
+            ]
+        };
+        paths
+            .iter()
+            .map(PathBuf::from)
+            .find(|path| path.is_file())
+            .map(SdkLocation::Library)
+    }
 }
 
 #[derive(Default)]
@@ -159,7 +186,10 @@ mod sdk {
     use super::*;
     use libloading::Library;
     use std::ffi::{c_char, CStr};
+    #[cfg(target_os = "macos")]
+    use wooting_analog_sdk::DeviceInfo_FFI as DeviceInfo;
     // C ABI declarations independently expressed from the published SDK contract.
+    #[cfg(not(target_os = "macos"))]
     #[repr(C)]
     struct DeviceInfo {
         vendor: u16,
@@ -176,19 +206,26 @@ mod sdk {
     type Devices = unsafe extern "C" fn(*mut *const DeviceInfo, u32) -> i32;
     type Read = unsafe extern "C" fn(*mut u16, *mut f32, u32, u64) -> i32;
     pub struct Sdk {
-        library: Library,
+        _library: Option<Library>,
         init: Init,
         uninit: Init,
         devices: Devices,
         read: Read,
         mode: Mode,
-        version: Version,
         semver: Semver,
         active: bool,
         codes: [u16; 256],
         values: [f32; 256],
     }
     impl Sdk {
+        pub fn open(location: &SdkLocation) -> Result<Self> {
+            match location {
+                SdkLocation::Library(path) => Self::load(path),
+                #[cfg(target_os = "macos")]
+                SdkLocation::BuiltIn => Ok(Self::built_in()),
+            }
+        }
+
         pub fn load(path: &Path) -> Result<Self> {
             if !path.is_absolute() {
                 return Err("SDK path must be absolute.".into());
@@ -226,18 +263,43 @@ mod sdk {
                     return Err(format!("SDK {value} is not qualified. Install SDK 0.9.1."));
                 }
                 Ok(Self {
-                    library,
+                    _library: Some(library),
                     init,
                     uninit,
                     devices,
                     read,
                     mode,
-                    version,
                     semver,
                     active: false,
                     codes: [0; 256],
                     values: [0.0; 256],
                 })
+            }
+        }
+        #[cfg(target_os = "macos")]
+        fn built_in() -> Self {
+            use wooting_analog_sdk::ffi;
+            extern "C" fn stop() -> i32 {
+                ffi::wooting_analog_uninitialise() as i32
+            }
+            extern "C" fn mode(mode: u32) -> i32 {
+                ffi::wooting_analog_set_keycode_mode(mode) as i32
+            }
+            extern "C" fn devices(buffer: *mut *const DeviceInfo, count: u32) -> i32 {
+                ffi::wooting_analog_get_connected_devices_info(buffer.cast(), count)
+            }
+            // Linking the SDK keeps code inside the app's hardened signature.
+            Self {
+                _library: None,
+                init: ffi::wooting_analog_initialise,
+                uninit: stop,
+                devices,
+                read: ffi::wooting_analog_read_full_buffer_device,
+                mode,
+                semver: ffi::wooting_analog_version_semver,
+                active: false,
+                codes: [0; 256],
+                values: [0.0; 256],
             }
         }
         pub fn start(&mut self) -> Result<String> {
@@ -273,13 +335,17 @@ mod sdk {
                     .filter(|p| !p.is_null())
                     .map(|&p| {
                         let d = &*p;
-                        let name = if d.name.is_null() {
+                        #[cfg(target_os = "macos")]
+                        let (name, id) = (d.device_name.cast_const(), d.device_id);
+                        #[cfg(not(target_os = "macos"))]
+                        let (name, id) = (d.name, d.id);
+                        let name = if name.is_null() {
                             "Analog keyboard".into()
                         } else {
-                            CStr::from_ptr(d.name).to_string_lossy().into_owned()
+                            CStr::from_ptr(name).to_string_lossy().into_owned()
                         };
                         Ok(AnalogDevice {
-                            id: d.id.to_string(),
+                            id: id.to_string(),
                             name,
                         })
                     })
@@ -323,8 +389,6 @@ mod sdk {
     impl Drop for Sdk {
         fn drop(&mut self) {
             self.stop();
-            let _ = &self.library;
-            let _ = self.version;
         }
     }
 }
@@ -334,6 +398,23 @@ pub use sdk::Sdk;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(all(target_os = "macos", feature = "wooting"))]
+    fn macos_defaults_to_the_statically_linked_sdk() {
+        assert_eq!(find_sdk(None), Some(SdkLocation::BuiltIn));
+    }
+
+    #[test]
+    fn explicitly_configured_sdk_path_does_not_fall_back() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("custom-sdk");
+        assert_eq!(find_sdk(Some(&path)), None);
+        std::fs::write(&path, []).unwrap();
+        assert_eq!(find_sdk(Some(&path)), Some(SdkLocation::Library(path)));
+        assert_eq!(find_sdk(Some(Path::new("relative-sdk"))), None);
+    }
+
     #[test]
     fn threshold_and_shift_release_are_latched() {
         let p = crate::config::Profile::default();

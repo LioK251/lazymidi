@@ -97,13 +97,15 @@ jobs:
           arch = subprocess.check_output(['lipo', '-archs', str(executable)], text=True).strip()
           expected = 'arm64' if os.environ['EXPECTED_ARCH'] == 'aarch64' else 'x86_64'
           assert arch == expected, arch
+          assert (app / 'Contents/Resources/Wooting-SDK-LICENSE.txt').is_file()
+          assert 'libwooting_analog_sdk' not in subprocess.check_output(['otool', '-L', str(executable)], text=True)
           subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
           resources = app / 'Contents/Resources/_up_'
           for name in ('converter/service.py', 'converter/check_environment.py', 'converter/install_runtime.py', 'converter/runtime-tools/ffmpeg', 'LICENSE', 'THIRD_PARTY_NOTICES'):
               assert (resources / name).is_file(), name
           subprocess.run([sys.executable, 'scripts/verify-native-modules.py', str(executable),
-                          '--environment', 'target/native-runtime.json'], check=True, timeout=160)
-          print(f'Verified macOS {arch} DMG, signature, Converter and Piano.')
+                          '--environment', 'target/native-runtime.json', '--wooting-bundled'], check=True, timeout=160)
+          print(f'Verified macOS {arch} DMG, signature, Wooting SDK, Converter and Piano.')
           PY
           cd target/release/bundle/dmg
           shasum -a 256 *.dmg > SHA256SUMS.txt
